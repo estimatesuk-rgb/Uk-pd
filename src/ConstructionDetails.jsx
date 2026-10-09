@@ -34,6 +34,26 @@ const dim=(x1,y1,x2,y2,label)=> <g stroke="#9b2431" strokeWidth="1" fill="#9b243
 function Drawing({id}){const common={stroke:'#17365d',strokeWidth:2,fill:'none'};return <svg viewBox="0 0 650 300" role="img" aria-label={'Indicative construction section '+id} style={{width:'100%',background:'#fff',border:'1px solid #ccd6e1'}}>
 <g {...common}>{id==='F01'?<><rect x="210" y="65" width="55" height="150"/><rect x="320" y="65" width="55" height="150"/><rect x="175" y="215" width="235" height="55" fill="#e7edf4"/><path d="M265 65 V215 M320 65 V215" strokeDasharray="6 4"/><path d="M180 92 H410" stroke="#9b2431" strokeWidth="4"/><path d="M180 125 H210 M375 125 H410" strokeDasharray="4 4"/></>:id==='W01'?<><rect x="195" y="40" width="55" height="210"/><rect x="320" y="40" width="55" height="210"/><rect x="250" y="40" width="70" height="210" fill="#e8f0f5"/><rect x="180" y="120" width="215" height="20" fill="#cad6e4"/><path d="M250 85 H320 M250 185 H320" strokeDasharray="5 5"/><path d="M180 145 H395" stroke="#9b2431" strokeWidth="3"/></>:id==='G01'?<><rect x="125" y="145" width="410" height="42" fill="#d4dce5"/><rect x="125" y="187" width="410" height="32" fill="#dce9f1"/><rect x="125" y="219" width="410" height="42" fill="#e9e9e9"/><path d="M125 186 H535" stroke="#9b2431" strokeWidth="3"/><rect x="130" y="80" width="45" height="65"/><rect x="485" y="80" width="45" height="65"/></>:id==='R01'?<><path d="M120 200 L325 45 L530 200"/><path d="M120 215 L325 60 L530 215" stroke="#9b2431" strokeWidth="3"/><path d="M155 200 H495"/><path d="M160 188 H490" strokeDasharray="5 4"/><path d="M200 175 V235 M450 175 V235"/><path d="M200 235 H450"/></>:<><rect x="95" y="105" width="460" height="100" fill="#e8edf2"/><path d="M95 165 H555" stroke="#9b2431" strokeWidth="4"/><path d="M165 165 V235 H260 V165 M400 165 V235 H490 V165"/><circle cx="260" cy="165" r="9"/><circle cx="400" cy="165" r="9"/></>}</g>
 {dim(80,55,80,255,'VERIFY ON DESIGN') }<text x="115" y="285" fill="#9b2431" fontSize="12" fontWeight="bold">SCHEMATIC ONLY • NOT TO SCALE • NOT FOR CONSTRUCTION</text></svg>}
+
+function TypologySection({detail}) {
+const g=detail.group;
+const stroke='#17365d',red='#a32939',blue='#6b9db9';
+const line=(x1,y1,x2,y2,key,colour=stroke,dash)=> <line key={key} x1={x1} y1={y1} x2={x2} y2={y2} stroke={colour} strokeWidth="2" strokeDasharray={dash}/>;
+const rect=(x,y,w,h,key,fill='#e5edf4')=><rect key={key} x={x} y={y} width={w} height={h} stroke={stroke} strokeWidth="2" fill={fill}/>;
+let shapes=[];
+if(['A','B','L','Q'].includes(g)){shapes=[rect(95,192,450,62,'ground','#edf0f2'),rect(190,90,56,102,'wall'),rect(395,90,56,102,'wall2'),rect(160,170,320,22,'slab','#c9d7e3'),line(150,170,485,170,'dpm',red),line(246,90,395,90,'thermal',blue,'7 4')];if(g==='A')shapes.push(rect(160,192,320,35,'footing','#c8d0da'))}
+else if(['C','D','K','G'].includes(g)){shapes=[rect(180,35,75,218,'leaf1'),rect(315,35,75,218,'leaf2'),rect(255,35,60,218,'insulation','#dbeaf2'),line(160,130,415,130,'barrier',red),line(255,85,315,85,'tie',stroke,'6 4')];if(g==='G')shapes.push(rect(220,95,130,120,'opening','#fff'))}
+else if(['E','H'].includes(g)){shapes=[rect(105,170,445,25,'floor'),rect(150,195,28,52,'joist'),rect(285,195,28,52,'joist'),rect(420,195,28,52,'joist'),line(105,165,550,165,'membrane',red)];if(g==='H')shapes=[line(125,235,225,235,'st1'),line(225,235,225,190,'r1'),line(225,190,325,190,'st2'),line(325,190,325,145,'r2'),line(325,145,425,145,'st3'),line(425,145,425,100,'r3'),line(425,100,525,100,'st4')]}
+else if(g==='F'){shapes=[line(105,205,325,50,'slope1'),line(325,50,545,205,'slope2'),line(105,218,325,63,'roof1',red),line(325,63,545,218,'roof2',red),line(165,205,485,205,'ceiling'),line(165,195,485,195,'vapour',blue,'6 3'),line(205,175,205,235,'support1'),line(445,175,445,235,'support2')]}
+else if(['J','M','N','P'].includes(g)){shapes=[rect(90,70,470,160,'building','#f1f5f8'),line(110,155,540,155,'service',g==='P'?red:blue),line(230,155,230,95,'riser'),line(400,155,400,95,'riser2'),rect(215,80,30,20,'outlet','#fff'),rect(385,80,30,20,'outlet2','#fff')]}
+else{shapes=[rect(105,105,430,120,'context'),line(125,170,515,170,'interface',red),line(325,75,325,240,'junction',blue,'5 5')]}
+return <svg viewBox="0 0 650 320" role="img" aria-label={'Conceptual diagram for '+detail.title} style={{width:'100%',background:'#fff',border:'1px solid #ccd6e1'}}>
+<text x="22" y="25" fontSize="14" fontWeight="bold" fill={stroke}>{detail.id} · {detail.category.toUpperCase()}</text>
+{shapes}
+<g fill={stroke} fontSize="11"><text x="22" y="270">Diagram shows a typical element arrangement only.</text><text x="22" y="285">Not a scaled or dimensioned detail; variants require competent design.</text></g>
+<text x="22" y="307" fill={red} fontSize="12" fontWeight="bold">CONCEPT SECTION · NOT TO SCALE · NOT FOR CONSTRUCTION</text>
+</svg>
+}
 export default function ConstructionDetails({project}) {
 const [notes,setNotes]=useState({}),[search,setSearch]=useState(''),[group,setGroup]=useState('ALL'),[selected,setSelected]=useState([]),[showRegister,setShowRegister]=useState(true);
 const all=[...DETAILS.map(x=>({...x,category:'Core sections',group:'0'})),...REGISTER];
@@ -57,7 +77,7 @@ return <section className="panel constructionDetails">
 {chosen.map(d=><article key={d.id} style={{pageBreakInside:'avoid',margin:'28px 0',padding:18,border:'1px solid #ccd6e1'}}>
 <h3>{d.id} — {d.title}</h3>
 <p><b>UK Principal Designers Ltd</b> · Project: {project?.name||'Project not named'} · Revision P01 · Design review only</p>
-{d.group==='0'?<Drawing id={d.id}/>:<div style={{minHeight:135,border:'2px dashed #8b9bad',padding:24,textAlign:'center'}}><b>PROJECT-SPECIFIC DETAIL DRAWING REQUIRED</b><p>Sheet registered; dimensioned section not yet authored. Do not issue as a construction drawing.</p></div>}
+{d.group==='0'?<Drawing id={d.id}/>:<TypologySection detail={d}/>}
 <h4>Construction specification / design prompts</h4><ol>{(d.parts||genericSpecification).map(x=><li key={x}>{x}</li>)}</ol>
 <h4>Design confirmations before issue</h4><ul>{(d.checks||genericChecks).map(x=><li key={x}>{x}</li>)}</ul>
 <label className="controls">Review notes<textarea rows="3" value={notes[d.id]||''} onChange={e=>setNotes(v=>({...v,[d.id]:e.target.value}))} placeholder="Local review notes (not saved to the project database)"/></label>
