@@ -1,5 +1,5 @@
 import React,{useEffect,useMemo,useState} from 'react';
-import {CDM_REFERENCES,CPP_GROUPS,SCHEDULE3,RAMS_ACTIVITIES,COSHH_REQUIRED,DOCUMENTS} from './RamsLibrary.js';
+import {CDM_REFERENCES,CPP_GROUPS,SCHEDULE3,RAMS_ACTIVITIES,COSHH_REQUIRED,DOCUMENTS,PERMIT_TYPES} from './RamsLibrary.js';
 const shell={border:'1px solid #d8e1e9',borderRadius:8,padding:14,background:'#fff',margin:'12px 0'};
 const field={width:'100%',padding:9,border:'1px solid #ccd7e2',borderRadius:5,marginTop:5};
 const grid={display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(230px,1fr))',gap:12};
@@ -10,16 +10,64 @@ const array=v=>Array.isArray(v)?v:[];
 const actApplicable=r=>r?.applicability==='Relevant';
 const LABELS={activities:'Activity RAMS',cpp:'Construction Phase Plan',coshh:'COSHH',schedule3:'Schedule 3',permits:'Permits and records',review:'Issue review'};
 const detail=(row)=>RAMS_ACTIVITIES.find(x=>x.id===row);
-const reviewRequired=(item)=>['hazards','controls','method','responsible','evidence','briefing'].filter(k=>!String(item?.[k]||'').trim());
+const reviewRequired=(item)=>['location','hazards','initialRisk','controls','residualRisk','method','plant','ppe','responsible','emergency','permits','briefing','reviewedBy'].filter(k=>!String(item?.[k]||'').trim());
+const positiveNumber=v=>{const n=Number(v);return Number.isFinite(n)&&n>=0?n:null};
+export function assessF10(notification={}){
+ const days=positiveNumber(notification.days),peak=positiveNumber(notification.peakWorkers),personDays=positiveNumber(notification.personDays);
+ if(days===null||peak===null||personDays===null)return {status:'Needs programme figures',notifiable:null};
+ const notifiable=(days>30&&peak>20)||personDays>500;
+ return {status:notifiable?'F10 notification threshold met':'F10 threshold not met on entered programme',notifiable};
+}
 const officialSource='https://www.hse.gov.uk/pubns/priced/l153.pdf';
 export function ramsAudit(pkg={}){
  const issues=[],cpp=pkg.cpp||{},items=pkg.activities||{},coshh=pkg.coshh||{},sch=pkg.schedule3||{},rev=pkg.review||{};
  for(const group of CPP_GROUPS)for(const [key,label] of group.fields){if(!String(cpp[group.id]?.[key]||'').trim())issues.push('CPP / '+group.name+' / '+label)}
- for(const activity of RAMS_ACTIVITIES){const a=items[activity.id]||{};if(!a.applicability){issues.push('Activity not assessed: '+activity.name);continue}if(a.applicability==='To check')issues.push('Activity requires scope / site verification: '+activity.name);if(a.applicability==='Not applicable'&&!String(a.reason||'').trim())issues.push('Exclusion requires justification: '+activity.name);if(actApplicable(a)){for(const key of reviewRequired(a))issues.push(activity.name+' — '+key+' missing');if(!array(a.sources).length)issues.push(activity.name+' — no drawing reference or documented site evidence');}}
- for(const [i,label]of SCHEDULE3.entries()){const s=sch[i]||{};if(!s.state)issues.push('Schedule 3 not assessed: '+label);if(s.state==='Applicable'&&(!s.controls||!s.owner))issues.push('Schedule 3 controls / responsible person incomplete: '+label);if(s.state==='Not applicable'&&!s.reason)issues.push('Schedule 3 exclusion reason missing: '+label)}
- for(const [id,c]of Object.entries(coshh)){if(c.applicability==='Relevant'){for(const key of ['product','sds','exposure','controls','ppe','assessor'])if(!String(c[key]||'').trim())issues.push('COSHH '+id+': missing '+key)}}
+ const f10=assessF10(pkg.notification||{});
+ if(f10.notifiable===null)issues.push('F10 screening: enter working days, peak workers and total person-days');
+ if(f10.notifiable===true&&!String(pkg.notification?.reference||'').trim())issues.push('F10: notification/reference and responsible person need confirmation');
+ if(!String(pkg.notification?.screenedBy||'').trim())issues.push('F10: screening reviewer and date not recorded');
+ for(const activity of RAMS_ACTIVITIES){
+  const a=items[activity.id]||{};
+  if(!a.applicability){issues.push('Activity not assessed: '+activity.name);continue}
+  if(a.applicability==='To check'){issues.push('Activity requires scope / site verification: '+activity.name);continue}
+  if(a.applicability==='Not applicable'&&!String(a.reason||'').trim())issues.push('Exclusion requires justification: '+activity.name);
+  if(actApplicable(a)){
+   for(const key of reviewRequired(a))issues.push(activity.name+' — '+key+' missing');
+   const sources=array(a.sources);
+   if(sources.some(source=>!String(source.note||'').trim()))issues.push(activity.name+' — drawing source needs page/detail annotation');
+   if(!sources.length&&!String(a.evidence||'').trim())issues.push(activity.name+' — no drawing reference or documented site/survey evidence');
+  }
+ }
+ for(const [i,label]of SCHEDULE3.entries()){
+  const row=sch[i]||{};
+  if(!row.state||row.state==='Requires check')issues.push('Schedule 3 requires assessment: '+label);
+  if(row.state==='Applicable'&&(!String(row.controls||'').trim()||!String(row.owner||'').trim()))issues.push('Schedule 3 controls / responsible person incomplete: '+label);
+  if(row.state==='Not applicable'&&!String(row.reason||'').trim())issues.push('Schedule 3 exclusion reason missing: '+label);
+ }
+ const screen=pkg.coshhReview||{};
+ if(!['Relevant','Not applicable'].includes(screen.state))issues.push('COSHH: project substance screening not completed');
+ if(!String(screen.assessor||'').trim())issues.push('COSHH: screening assessor and date missing');
+ if(screen.state==='Not applicable'&&!String(screen.reason||'').trim())issues.push('COSHH: exclusion requires written assessment and reason');
+ if(screen.state==='Relevant'&&!Object.values(coshh).some(x=>x?.applicability==='Relevant'))issues.push('COSHH: hazardous exposures identified but no relevant substance/task assessment recorded');
+ for(const [id,c] of Object.entries(coshh)){
+  if(!c.applicability||c.applicability==='To check'){issues.push('COSHH '+id+': product or exposure requires assessment');continue}
+  if(c.applicability==='Not applicable'&&!String(c.reason||'').trim())issues.push('COSHH '+id+': exclusion reason missing');
+  if(c.applicability==='Relevant')for(const key of ['product','task','sds','hazards','exposure','controls','ppe','storage','emergency','health','assessor'])if(!String(c[key]||'').trim())issues.push('COSHH '+id+': missing '+key);
+ }
+ for(const [id,label] of DOCUMENTS){
+  const row=pkg.records?.[id]||{};
+  if(!['Required','Not required'].includes(row.state))issues.push('Site register '+id+': scope and status not assessed');
+  if(row.state==='Required'&&(!String(row.reference||'').trim()||!String(row.owner||'').trim()))issues.push('Site register '+id+': issue reference / owner missing');
+  if(row.state==='Not required'&&!String(row.reason||'').trim())issues.push('Site register '+id+': exclusion reason missing');
+ }
+ for(const [id,label] of PERMIT_TYPES){
+  const row=pkg.permits?.[id]||{};
+  if(!['Required','Not required'].includes(row.state))issues.push('Permit '+id+': applicability not assessed');
+  if(row.state==='Required'&&(!String(row.owner||'').trim()||!String(row.reference||'').trim()||!String(row.controls||'').trim()))issues.push('Permit '+id+': owner, authorisation and safe-work controls missing');
+  if(row.state==='Not required'&&!String(row.reason||'').trim())issues.push('Permit '+id+': exclusion reason required');
+ }
  for(const key of ['principalContractor','siteManager','preparedBy','checkedBy','reviewDate','contractorAccepted','changesProcedure'])if(!String(rev[key]||'').trim())issues.push('Release control: '+key+' not recorded');
- return {issues,ready:issues.length===0,relevant:Object.values(items).filter(actApplicable).length,coshh:Object.values(coshh).filter(x=>x?.applicability==='Relevant').length};
+ return {issues,ready:issues.length===0,relevant:Object.values(items).filter(actApplicable).length,coshh:Object.values(coshh).filter(x=>x?.applicability==='Relevant').length,f10};
 }
 function printRams(p,pkg,docs){
  const audit=ramsAudit(pkg),chunks=[];
