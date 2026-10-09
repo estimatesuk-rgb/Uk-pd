@@ -28,12 +28,19 @@ export function getTechnicalAudit(data={}){
  }
  for(const j of JUNCTIONS){
   const v=junctions[j.id]||{};
+  if(!value(v.applicability)){issues.push(j.id+' - applicability not assessed');continue;}
+  if(v.applicability==='existing'||v.applicability==='not-applicable'){
+   if(!value(v.scopeReason))issues.push(j.id+' - existing/not applicable reason required');
+   continue;
+  }
   const missing=j.fields.filter(([k])=>!value(v[k]));
   if(missing.length)issues.push(j.id+' - '+missing.length+' dimension / construction decisions missing');
   if(!value(v.evidenceRef))issues.push(j.id+' - verification drawing / evidence reference missing');
   if(!value(v.reviewedBy))issues.push(j.id+' - design reviewer not recorded');
  }
- return {issues,complete:issues.length===0,totalJunctions:JUNCTIONS.length,ready:JUNCTIONS.filter(j=>j.fields.every(([k])=>value(junctions[j.id]?.[k]))&&value(junctions[j.id]?.evidenceRef)&&value(junctions[j.id]?.reviewedBy)).length,materials:PARTS.filter(k=>value(materials[k]?.product)&&value(materials[k]?.reference)&&value(materials[k]?.performance)).length};
+ const relevant=JUNCTIONS.filter(j=>junctions[j.id]?.applicability==='new-work');
+ const complete= relevant.filter(j=>j.fields.every(([k])=>value(junctions[j.id]?.[k]))&&value(junctions[j.id]?.evidenceRef)&&value(junctions[j.id]?.reviewedBy)).length;
+ return {issues,complete:issues.length===0,totalJunctions:relevant.length,reviewedJunctions:complete,ready:complete,materials:PARTS.filter(k=>materials[k]?.applicability==='new-work'&&value(materials[k]?.product)&&value(materials[k]?.reference)&&value(materials[k]?.performance)).length,applicableMaterials:PARTS.filter(k=>materials[k]?.applicability==='new-work').length,unassessed:JUNCTIONS.filter(j=>!value(junctions[j.id]?.applicability)).length};
 }
 export function technicalAppendixHtml(project,specs={},issue={}){
  const data=specs.__technical||{};
@@ -45,12 +52,13 @@ export function technicalAppendixHtml(project,specs={},issue={}){
  const basisSheet='<article class="sheet">'+head('REGULATORY BASIS & TECHNICAL REVIEW','UKPD-S01')+'<h2>Project-specific regulatory basis</h2><p>England: Approved Documents support statutory Building Regulations but are not, in themselves, an automatic certificate of compliance. Confirm the applicable editions, commencement dates and transitional conditions on this project.</p><table><tbody>'+BASIS_FIELDS.map(([k,label])=>'<tr><th>'+esc(label)+'</th><td>'+esc(basis[k]||'NOT CONFIRMED')+'</td></tr>').join('')+'</tbody></table><h2>Important regulatory change</h2><p>2026 editions of Parts F and L were published in March 2026, with commencement for ordinary (non-higher-risk) work on 24 March 2027 and for specified higher-risk building work on 24 September 2027, subject to transition provisions. Do not apply these editions without checking project applicability.</p><h2>Technical audit</h2><p>'+audit.issues.length+' information/review gaps remain. A completed questionnaire is not professional certification.</p>'+footer('UKPD-S01')+'</article>';
  const materialsSheet='<article class="sheet">'+head('MATERIAL & PRODUCT SPECIFICATION SCHEDULE','UKPD-S02')+'<p>Specify actual products and performance evidence. The schedule does not substitute for approved manufacturer instructions, design calculations, fire testing or Building Control review.</p><table><thead><tr><th>Element</th><th>Product / assembly</th><th>Size</th><th>Performance</th><th>Reference</th></tr></thead><tbody>'+PARTS.map(k=>'<tr><td>'+esc(ELEMENT_NAME[k])+'</td><td>'+esc(materials[k]?.product||'TBC')+'</td><td>'+esc(materials[k]?.size||'TBC')+'</td><td>'+esc(materials[k]?.performance||'TBC')+'</td><td>'+esc(materials[k]?.reference||'TBC')+'</td></tr>').join('')+'</tbody></table>'+footer('UKPD-S02')+'</article>';
  const layerSheets=PARTS.filter(k=>(materials[k]?.layers||[]).length).map(k=>'<article class="sheet">'+head('CONSTRUCTION BUILD-UP / LAYER SCHEDULE','UKPD-M-'+esc(k.toUpperCase()))+'<h2>'+esc(ELEMENT_NAME[k])+'</h2><p>Scope: '+esc(materials[k]?.applicability||'NOT ASSESSED')+' | Product/assembly: '+esc(materials[k]?.product||'UNCONFIRMED')+'</p><table><thead><tr><th>Layer order</th><th>Product / material</th><th>Thickness / size</th><th>Design evidence reference</th></tr></thead><tbody>'+(materials[k].layers||[]).map((layer,i)=>'<tr><td>'+esc(i+1)+'</td><td>'+esc(layer.product||'TBC')+'</td><td>'+esc(layer.thickness||'TBC')+'</td><td>'+esc(layer.reference||'TBC')+'</td></tr>').join('')+'</tbody></table><h2>Performance and installation coordination</h2><p>'+esc(materials[k]?.performance||'NOT SPECIFIED')+'</p><p>'+esc(materials[k]?.notes||'Notes and junction compatibility require review')+'</p>'+footer('UKPD-M-'+k.toUpperCase())+'</article>').join('');
- const drawings=JUNCTIONS.map(j=>{
+ const drawings=JUNCTIONS.filter(j=>junctions[j.id]?.applicability==='new-work').map(j=>{
   const v=junctions[j.id]||{};
   return '<article class="sheet">'+head(j.title,'UKPD-'+j.id)+'<div class="drawing">'+junctionSvg(j,v,project,rev)+'</div><h2>Construction specification and coordination</h2><p>'+esc(j.note)+'</p><table><tbody>'+j.fields.map(([k,label])=>'<tr><th>'+esc(label)+'</th><td>'+esc(v[k]||'DESIGN REQUIRED')+'</td></tr>').join('')+'</tbody></table><h2>Evidence and review</h2><p><b>Evidence drawing / calc:</b> '+esc(v.evidenceRef||'UNCONFIRMED')+' | <b>Reviewed by:</b> '+esc(v.reviewedBy||'NOT REVIEWED')+'</p>'+footer('UKPD-'+j.id)+'</article>';
  }).join('');
  const issueSheet='<article class="sheet">'+head('DESIGN ACTION & MISSING INFORMATION SCHEDULE','UKPD-S03')+'<h2>Items to resolve before professional issue</h2>'+(audit.issues.length?'<ol>'+audit.issues.map(t=>'<li>'+esc(t)+'</li>').join('')+'</ol>':'<p>All recorded schedule fields have been populated. Designer must still verify accuracy, coordination and statutory applicability.</p>')+'<h2>Design status</h2><p>No construction certification is generated by this application. The responsible design team must check actual site measurements, materials, engineering design and approvals before issuing technical drawings.</p>'+footer('UKPD-S03')+'</article>';
- return basisSheet+materialsSheet+layerSheets+drawings+issueSheet;
+ const scopeSheet='<article class="sheet">'+head('JUNCTION APPLICABILITY AND EXCLUSIONS','UKPD-S04')+'<p>Each standard junction must be assessed for the project. Exclusions are not verified by the app and need an appropriate design justification.</p><table><thead><tr><th>Reference</th><th>Detail</th><th>Scope</th><th>Reason / evidence</th></tr></thead><tbody>'+JUNCTIONS.map(j=>'<tr><td>'+esc(j.id)+'</td><td>'+esc(j.title)+'</td><td>'+esc(junctions[j.id]?.applicability||'NOT ASSESSED')+'</td><td>'+esc(junctions[j.id]?.scopeReason||'—')+'</td></tr>').join('')+'</tbody></table>'+footer('UKPD-S04')+'</article>';
+ return basisSheet+materialsSheet+scopeSheet+layerSheets+drawings+issueSheet;
 }
 const fieldBox={width:'100%',padding:9,border:'1px solid #cbd6df',borderRadius:5,marginTop:5};
 const labelStyle={display:'block',fontSize:13,fontWeight:600};
@@ -87,7 +95,7 @@ export default function TechnicalDesignWorkspace({project,specs={},saveSpecs,iss
   </div>
   <div style={{...grid,marginBottom:14}}>
    <div style={panel}><b>Junction drawings</b><h3 style={{margin:'4px 0'}}>{audit.ready} / {audit.totalJunctions}</h3><small>Complete input and reviewer records</small></div>
-   <div style={panel}><b>Material schedules</b><h3 style={{margin:'4px 0'}}>{audit.materials} / {PARTS.length}</h3><small>Products and performance evidence</small></div>
+   <div style={panel}><b>Material schedules</b><h3 style={{margin:'4px 0'}}>{audit.materials} / {audit.applicableMaterials}</h3><small>Products and performance evidence</small></div>
    <div style={panel}><b>Outstanding checks</b><h3 style={{margin:'4px 0'}}>{audit.issues.length}</h3><small>Require professional review</small></div>
   </div>
   <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14}}>
@@ -96,10 +104,21 @@ export default function TechnicalDesignWorkspace({project,specs={},saveSpecs,iss
   {tab==='junctions'&&<div style={panel}>
    <label style={labelStyle}>Select an architectural junction drawing<select style={fieldBox} value={selected} onChange={e=>setSelected(e.target.value)}>{JUNCTIONS.map(z=><option key={z.id} value={z.id}>{z.id} — {z.title}</option>)}</select></label>
    <p style={{margin:'12px 0 6px'}}><b>Relevant Approved Documents:</b> {j.parts.replaceAll(' ', ', ')}</p>
+   <div style={{...grid,margin:'12px 0',background:'#f1f5f8',padding:12}}>
+    <label style={labelStyle}>Project applicability
+     <select style={fieldBox} value={v.applicability||''} onChange={e=>update('junctions',j.id,'applicability',e.target.value)}>
+      <option value=''>Not yet assessed</option>
+      <option value='new-work'>New / altered junction — include in A3 issue</option>
+      <option value='existing'>Existing retained — document interface</option>
+      <option value='not-applicable'>Not applicable to project</option>
+     </select>
+    </label>
+    {(v.applicability==='existing'||v.applicability==='not-applicable')&&input('junctions',j.id,'scopeReason','Reason / drawing evidence for exclusion',v.scopeReason,'Specific design or drawing reference required')}
+   </div>
    <div style={{border:'1px solid #d9e0e7',background:'#fff',marginBottom:12}} dangerouslySetInnerHTML={{__html:junctionSvg(j,v,project,issue.revision||'P01')}}/>
-   <div style={grid}>{j.fields.map(([key,label])=>input('junctions',j.id,key,label,v[key]))}{input('junctions',j.id,'evidenceRef','Calculation / drawing / specification reference',v.evidenceRef)}{input('junctions',j.id,'reviewedBy','Competent reviewer and date (record)',v.reviewedBy)}</div>
+   {v.applicability==='new-work'&&<div style={grid}>{j.fields.map(([key,label])=>input('junctions',j.id,key,label,v[key]))}{input('junctions',j.id,'evidenceRef','Calculation / drawing / specification reference',v.evidenceRef)}{input('junctions',j.id,'reviewedBy','Competent reviewer and date (record)',v.reviewedBy)}</div>}
    <p className="muted">{j.note} Drawings remain not to scale, regardless of entered dimensions. Actual measured geometry and the design team must confirm the final construction detail.</p>
-   <div style={{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}}><button className="outline" onClick={draw}>Download this vector detail</button><small>UKPD-{j.id} | Draft / not for construction</small></div>
+   <div style={{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}}><button className="outline" onClick={draw} disabled={v.applicability!=='new-work'}>Download applicable vector detail</button><small>UKPD-{j.id} | Draft / not for construction</small></div>
   </div>}
   {tab==='materials'&&<div style={panel}>
    <label style={labelStyle}>Construction element<select style={fieldBox} value={element} onChange={e=>setElement(e.target.value)}>{PARTS.map(k=><option key={k} value={k}>{ELEMENT_NAME[k]}</option>)}</select></label>
@@ -115,7 +134,7 @@ export default function TechnicalDesignWorkspace({project,specs={},saveSpecs,iss
    <div style={grid}>{BASIS_FIELDS.map(([key,label])=>input('basis','',key,label,data.basis?.[key]))}</div>
   </div>}
   {tab==='audit'&&<div style={panel}>
-   <h3>Technical issue-readiness audit</h3><p>{audit.issues.length===0?'All required schedule fields are populated. This is not a compliance certificate.':'The package remains DRAFT while the following project evidence is missing.'}</p>
+   <h3>Technical issue-readiness audit</h3><p>{audit.issues.length===0?'All recorded fields are complete. A competent technical approval is still required; this is not a compliance certificate.':'The package remains DRAFT while the following project decisions or evidence are missing.'}</p>
    <div style={{maxHeight:340,overflow:'auto',background:'#f4f7fa',padding:14,borderRadius:6}}>{audit.issues.length?<ol>{audit.issues.map((item,i)=><li key={i}>{item}</li>)}</ol>:<p>Ready for independent technical review and coordination against site information.</p>}</div>
    <p className="muted">Professional issue must be controlled by the appointed designer. Entering a reviewer's name does not certify compliance or produce an issued construction drawing.</p>
   </div>}
