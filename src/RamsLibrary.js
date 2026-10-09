@@ -122,3 +122,16 @@ export const DOCUMENTS=[
  ['BRIEFING','Acceptance/acknowledgment, toolbox talks, changes, rebrief and documented version controls'],
  ['FILE','H&S file and residual design risks for operation and future maintenance']
 ];
+export const PERMIT_TYPES=[
+ ['HOT','Hot works, welding, grinding or naked flames'],
+ ['EXC','Excavations, breaking ground and underground services'],
+ ['ELEC','Electrical isolation, work near live systems and lock-off'],
+ ['LIFT','Complex or high-risk lifting operations and exclusion zones'],
+ ['HEIGHT','Roof access, edge protection, fragile surfaces and work at height'],
+ ['CONF','Confined-space entry and rescue arrangements'],
+ ['DEM','Demolition, temporary stability and structural alterations'],
+ ['SERV','Drain, sewer, water/gas service connections and isolations'],
+ ['HIGHWAY','Highway, pavement, road-opening and public interface works'],
+ ['OCC','Occupied premises, hot zones, clinical or infection-control interface'],
+ ['ASB','Asbestos work classification and any required licensed work/notifications']
+];
