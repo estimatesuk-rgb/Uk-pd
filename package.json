@@ -12,7 +12,8 @@
     "react": "latest",
     "react-dom": "latest",
     "docx": "^9.5.1",
-    "pdfjs-dist": "^5.4.296"
+    "pdfjs-dist": "^5.4.296",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {}
 }
