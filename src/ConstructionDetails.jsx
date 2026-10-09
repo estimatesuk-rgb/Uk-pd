@@ -1,4 +1,4 @@
-import React,{useState} from 'react';
+import React,{useState,useEffect} from 'react';
 const DETAILS=[
 {id:'F01',title:'Strip foundation and cavity wall',parts:['Concrete strip footing — width/depth to structural engineer and ground assessment','Loadbearing masonry centred on foundation; below-ground blocks to specification','DPC minimum 150 mm above finished external ground level','Continuous cavity insulation and proprietary insulated cavity closer','DPM lapped and sealed to DPC; radon/gas measures subject to site assessment'],checks:['Ground bearing capacity and tree influence','Foundation width/depth by engineer and Building Control','Drain proximity and services','Cavity dimensions, insulation and wall ties']},
 {id:'W01',title:'Insulated cavity wall and opening',parts:['External facing masonry / ventilated drained cavity where specified','Insulation thickness and conductivity from approved U-value calculation','Internal loadbearing leaf and internal finish as designed','Insulated cavity closer, cavity tray, stop ends and weep vents at openings','Lintel to structural schedule; cavity barriers and fire stopping as applicable'],checks:['Wall U-value calculation and condensation assessment','Lintel load and bearing','Exposure zone and cavity specification','Opening head/sill/jamb thermal bridging']},
@@ -76,6 +76,19 @@ return <svg viewBox="0 0 650 320" role="img" aria-label={'Conceptual diagram for
 }
 export default function ConstructionDetails({project}) {
 const [notes,setNotes]=useState({}),[specs,setSpecs]=useState({}),[search,setSearch]=useState(''),[group,setGroup]=useState('ALL'),[selected,setSelected]=useState([]),[showRegister,setShowRegister]=useState(true);
+const draftKey='ukpd-construction-details:'+String(project?.id||'unassigned');
+const [draftStatus,setDraftStatus]=useState('Not saved');
+useEffect(()=>{
+ try{
+  const raw=localStorage.getItem(draftKey);
+  if(raw){const d=JSON.parse(raw);setNotes(d.notes||{});setSpecs(d.specs||{});setSelected(Array.isArray(d.selected)?d.selected:[]);setDraftStatus('Draft restored');}
+  else{setNotes({});setSpecs({});setSelected([]);setDraftStatus('Not saved');}
+ }catch(err){setDraftStatus('Local storage unavailable');}
+},[draftKey]);
+function saveDraft(){
+ try{localStorage.setItem(draftKey,JSON.stringify({selected,notes,specs,savedAt:new Date().toISOString()}));setDraftStatus('Saved in this browser');}
+ catch(err){setDraftStatus('Save failed');}
+}
 const all=[...DETAILS.map(x=>({...x,category:'Core sections',group:'0'})),...REGISTER];
 const shown=all.filter(x=>(group==='ALL'||x.group===group)&&(!search||[x.id,x.title,x.category].join(' ').toLowerCase().includes(search.toLowerCase())));
 const chosen=all.filter(x=>selected.includes(x.id));
@@ -89,9 +102,9 @@ return <section className="panel constructionDetails">
 <input aria-label="Search details" placeholder="Search detail number or construction element" value={search} onChange={e=>setSearch(e.target.value)}/>
 <select aria-label="Detail category" value={group} onChange={e=>setGroup(e.target.value)}><option value="ALL">All categories</option><option value="0">Core illustrated sections</option>{GROUPS.map(g=><option key={g[0]} value={g[0]}>{g[0]} — {g[1]}</option>)}</select>
 <button type="button" onClick={()=>setShowRegister(v=>!v)}>{showRegister?'Hide':'Show'} detail register</button>
-<button type="button" onClick={()=>window.print()}>Print / Save PDF</button>
+<button type="button" onClick={saveDraft}>Save draft</button><button type="button" onClick={()=>window.print()}>Print / Save PDF</button>
 </div>
-{showRegister&&<div className="controls" style={{maxHeight:350,overflowY:'auto',border:'1px solid #ccd6e1',padding:12}}>{shown.map(d=><label key={d.id} style={{display:'block',marginBottom:8}}><input type="checkbox" checked={selected.includes(d.id)} onChange={()=>toggle(d.id)}/> <b>{d.id}</b> — {d.title} <small>({d.category})</small></label>)}</div>}
+<p className="controls"><small>{draftStatus} · Saved drafts remain on this device only, not in the project database.</small></p>{showRegister&&<div className="controls" style={{maxHeight:350,overflowY:'auto',border:'1px solid #ccd6e1',padding:12}}>{shown.map(d=><label key={d.id} style={{display:'block',marginBottom:8}}><input type="checkbox" checked={selected.includes(d.id)} onChange={()=>toggle(d.id)}/> <b>{d.id}</b> — {d.title} <small>({d.category})</small></label>)}</div>}
 <h3>Selected drawing sheets ({chosen.length})</h3>
 {!chosen.length&&<p>Select the details relevant to this project from the register above. No assumptions are made about which construction systems the project uses.</p>}
 {chosen.map(d=><article key={d.id} style={{pageBreakInside:'avoid',margin:'28px 0',padding:18,border:'1px solid #ccd6e1'}}>
