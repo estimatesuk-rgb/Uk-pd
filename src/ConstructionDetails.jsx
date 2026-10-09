@@ -108,8 +108,12 @@ return <section className="panel constructionDetails">
 <h3>Selected drawing sheets ({chosen.length})</h3>
 {!chosen.length&&<p>Select the details relevant to this project from the register above. No assumptions are made about which construction systems the project uses.</p>}
 {chosen.map(d=><article key={d.id} style={{pageBreakInside:'avoid',margin:'28px 0',padding:18,border:'1px solid #ccd6e1'}}>
+<div className="detailSheetHeader" style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:16,borderBottom:'2px solid #17365d',paddingBottom:12,marginBottom:12}}>
+<img src="/ukpd-logo.jpg" alt="UK Principal Designers Ltd logo" style={{width:165,maxWidth:'36%',height:'auto',objectFit:'contain'}}/>
+<div style={{textAlign:'right'}}><b>UK PRINCIPAL DESIGNERS LTD</b><div>BUILDING REGULATIONS · CONSTRUCTION DETAILS</div><small>PRELIMINARY DESIGN REVIEW · NOT FOR CONSTRUCTION</small></div>
+</div>
 <h3>{d.id} — {d.title}</h3>
-<p><b>UK Principal Designers Ltd</b> · Project: {project?.name||'Project not named'} · Revision P01 · Design review only</p>
+<p><b>Project:</b> {project?.name||'Project not named'} · <b>Drawing:</b> UKPD-{d.id} · <b>Revision:</b> P01 · <b>Status:</b> Design review</p>
 {d.group==='0'?<Drawing id={d.id}/>:<TypologySection detail={d}/>}
 <h4>Construction specification / design prompts</h4><ol>{(d.parts||genericSpecification).map(x=><li key={x}>{x}</li>)}</ol>
 <h4>Element-specific material and technical schedule</h4><ul>{(MATERIAL_NOTES[d.group]||genericSpecification).map(x=><li key={x}>{x}</li>)}</ul>
