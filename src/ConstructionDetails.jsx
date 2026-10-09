@@ -35,6 +35,26 @@ function Drawing({id}){const common={stroke:'#17365d',strokeWidth:2,fill:'none'}
 <g {...common}>{id==='F01'?<><rect x="210" y="65" width="55" height="150"/><rect x="320" y="65" width="55" height="150"/><rect x="175" y="215" width="235" height="55" fill="#e7edf4"/><path d="M265 65 V215 M320 65 V215" strokeDasharray="6 4"/><path d="M180 92 H410" stroke="#9b2431" strokeWidth="4"/><path d="M180 125 H210 M375 125 H410" strokeDasharray="4 4"/></>:id==='W01'?<><rect x="195" y="40" width="55" height="210"/><rect x="320" y="40" width="55" height="210"/><rect x="250" y="40" width="70" height="210" fill="#e8f0f5"/><rect x="180" y="120" width="215" height="20" fill="#cad6e4"/><path d="M250 85 H320 M250 185 H320" strokeDasharray="5 5"/><path d="M180 145 H395" stroke="#9b2431" strokeWidth="3"/></>:id==='G01'?<><rect x="125" y="145" width="410" height="42" fill="#d4dce5"/><rect x="125" y="187" width="410" height="32" fill="#dce9f1"/><rect x="125" y="219" width="410" height="42" fill="#e9e9e9"/><path d="M125 186 H535" stroke="#9b2431" strokeWidth="3"/><rect x="130" y="80" width="45" height="65"/><rect x="485" y="80" width="45" height="65"/></>:id==='R01'?<><path d="M120 200 L325 45 L530 200"/><path d="M120 215 L325 60 L530 215" stroke="#9b2431" strokeWidth="3"/><path d="M155 200 H495"/><path d="M160 188 H490" strokeDasharray="5 4"/><path d="M200 175 V235 M450 175 V235"/><path d="M200 235 H450"/></>:<><rect x="95" y="105" width="460" height="100" fill="#e8edf2"/><path d="M95 165 H555" stroke="#9b2431" strokeWidth="4"/><path d="M165 165 V235 H260 V165 M400 165 V235 H490 V165"/><circle cx="260" cy="165" r="9"/><circle cx="400" cy="165" r="9"/></>}</g>
 {dim(80,55,80,255,'VERIFY ON DESIGN') }<text x="115" y="285" fill="#9b2431" fontSize="12" fontWeight="bold">SCHEMATIC ONLY • NOT TO SCALE • NOT FOR CONSTRUCTION</text></svg>}
 
+
+const MATERIAL_NOTES={
+A:['Ground investigation and bearing capacity','Foundation concrete and reinforcement as designed','Depth to competent stratum and frost/tree influence','DPC / DPM and gas protection junction'],
+B:['Sub-base or joist support and structural design','Floor insulation conductivity, thickness and compressive strength','Moisture / gas barrier continuity','Floor finish, level and perimeter thermal bridge'],
+C:['External leaf, cavity, insulation and inner leaf specifications','Wall tie type and spacing per structural/exposure design','Cavity tray, closer, DPC and weep provision','Calculated U-value, condensation and thermal bridge'],
+D:['Partition construction and fixing','Fire and acoustic performance if required','Deflection head and junction seal','Service penetrations and restraint'],
+E:['Joist or slab structural calculations','Bearing, restraint and lateral stability','Fire and acoustic performance','Services, openings and movement'],
+F:['Actual pitch and covering manufacturer minimum pitch','Structure and restraint design','Insulation and vapour-control continuity','Underlay, ventilation, flashings and fire barriers'],
+G:['Opening size and structural lintel design','Frame fixings, weathering and airtightness','Insulated reveals, closers and thermal bridge','Safety glazing, escape and accessibility'],
+H:['Rise, going, pitch and clear width','Headroom and landing geometry','Guarding and handrail heights','Fire escape and accessibility where applicable'],
+J:['Pipe diameter, gradient, cover and bedding','Access and rodding provision','Outfall approval and invert levels','Air / water testing and separation'],
+K:['Required fire resistance period and tested assembly','Fire stopping system and substrate compatibility','Continuity of compartmentation','Inspection, photographs and certification'],
+L:['Target elemental U-value and verified build-up','Insulation lambda, thickness and fixings','Junction psi-value / thermal bridging','Airtightness and condensation checks'],
+M:['Required ventilation flow rate and strategy','Duct route, insulation and terminals','Noise, fire and condensation control','Commissioning and test evidence'],
+N:['Equipment selection and installation design','Pipework and insulation','Fire and acoustic seals at penetrations','Commissioning, safety and certification'],
+P:['Electrical design and circuit protection','Safe zones and cable routing','Penetration fire stopping','Inspection and test certification'],
+Q:['Levels, falls, accessibility and slip resistance','Drainage and retaining design','DPC clearance and waterproofing','External materials and frost exposure'],
+R:['Existing structure survey and opening-up','Temporary works and structural design','New-to-existing damp, air and thermal junctions','Fire, sound and building control upgrade scope']
+};
+const PRE_ISSUE=['Confirm project address, drawing revision and the selected element actually exists in the scheme.','Record material manufacturer, product designation and build-up thicknesses.','Check current applicable regulations, standards and statutory guidance for this project.','Provide structural engineer design and approval where required.','Check insulation U-value / condensation / thermal bridges when applicable.','Resolve all drawing interfaces and Building Control comments before issuing for construction.'];
 function TypologySection({detail}) {
 const g=detail.group;
 const stroke='#17365d',red='#a32939',blue='#6b9db9';
@@ -55,7 +75,7 @@ return <svg viewBox="0 0 650 320" role="img" aria-label={'Conceptual diagram for
 </svg>
 }
 export default function ConstructionDetails({project}) {
-const [notes,setNotes]=useState({}),[search,setSearch]=useState(''),[group,setGroup]=useState('ALL'),[selected,setSelected]=useState([]),[showRegister,setShowRegister]=useState(true);
+const [notes,setNotes]=useState({}),[specs,setSpecs]=useState({}),[search,setSearch]=useState(''),[group,setGroup]=useState('ALL'),[selected,setSelected]=useState([]),[showRegister,setShowRegister]=useState(true);
 const all=[...DETAILS.map(x=>({...x,category:'Core sections',group:'0'})),...REGISTER];
 const shown=all.filter(x=>(group==='ALL'||x.group===group)&&(!search||[x.id,x.title,x.category].join(' ').toLowerCase().includes(search.toLowerCase())));
 const chosen=all.filter(x=>selected.includes(x.id));
@@ -63,7 +83,7 @@ function toggle(id){setSelected(prev=>prev.includes(id)?prev.filter(x=>x!==id):[
 return <section className="panel constructionDetails">
 <style>{`@media print {.constructionDetails .controls,.constructionDetails button,.constructionDetails input,.constructionDetails select,.constructionDetails textarea{display:none!important}.constructionDetails article{break-inside:avoid;page-break-after:always}.constructionDetails{font-family:Arial,sans-serif}.constructionDetails h2{color:#17365d}.constructionDetails article{border:0!important}}`}</style>
 <h2>Architectural Construction Detail Library</h2>
-<p><b>{all.length} registered construction detail types</b> across foundations, floors, walls, roofs, fire, drainage, services and alterations. Five core types include indicative schematic sections. Other entries are indexed specification/review sheets awaiting individually engineered illustrations.</p>
+<p><b>{all.length} registered construction detail types</b> across foundations, floors, walls, roofs, fire, drainage, services and alterations. Five core types include indicative schematic sections; the remainder have typology diagrams, material schedules and review fields. These are not individually engineered details.</p>
 <p><b>Important:</b> Register entries are not dimensioned construction drawings. Every sheet is preliminary and requires project-specific architect / engineer design, applicable regulatory checks and Building Control review.</p>
 <div className="controls" style={{display:'flex',gap:12,flexWrap:'wrap',margin:'15px 0'}}>
 <input aria-label="Search details" placeholder="Search detail number or construction element" value={search} onChange={e=>setSearch(e.target.value)}/>
@@ -79,6 +99,11 @@ return <section className="panel constructionDetails">
 <p><b>UK Principal Designers Ltd</b> · Project: {project?.name||'Project not named'} · Revision P01 · Design review only</p>
 {d.group==='0'?<Drawing id={d.id}/>:<TypologySection detail={d}/>}
 <h4>Construction specification / design prompts</h4><ol>{(d.parts||genericSpecification).map(x=><li key={x}>{x}</li>)}</ol>
+<h4>Element-specific material and technical schedule</h4><ul>{(MATERIAL_NOTES[d.group]||genericSpecification).map(x=><li key={x}>{x}</li>)}</ul>
+<div className="controls" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:10,marginBottom:14}}>
+{[['reference','Drawing / plan reference'],['buildUp','Approved material build-up'],['dimensions','Verified dimensions (mm)'],['uValue','Calculated U-value (W/m²K)'],['reviewer','Competent designer / reviewer'],['approval','Building Control / engineer status']].map(([key,label])=><label key={key}>{label}<input value={specs[d.id]?.[key]||''} onChange={e=>setSpecs(prev=>({...prev,[d.id]:{...(prev[d.id]||{}),[key]:e.target.value}}))} placeholder="Unconfirmed"/></label>)}
+</div>
+<h4>Pre-issue design gate</h4><ul>{PRE_ISSUE.map(x=><li key={x}>{x}</li>)}</ul>
 <h4>Design confirmations before issue</h4><ul>{(d.checks||genericChecks).map(x=><li key={x}>{x}</li>)}</ul>
 <label className="controls">Review notes<textarea rows="3" value={notes[d.id]||''} onChange={e=>setNotes(v=>({...v,[d.id]:e.target.value}))} placeholder="Local review notes (not saved to the project database)"/></label>
 <p><small>NOT FOR CONSTRUCTION. Dimensions, U-values, materials, structural requirements and regulatory compliance must be verified by competent designers.</small></p>
