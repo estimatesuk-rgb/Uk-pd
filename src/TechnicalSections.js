@@ -7,14 +7,14 @@ const get=(specs,key)=>{const v=specs?.[key];return v===undefined||v===null||Str
 export function technicalSectionSvg(code,choice,specs={},project={}){
 const a=[];let title='Design coordination section';
 const c=String(code);
-if(c==='01'||c==='02'){
+if(c==='01'){
 title='FOUNDATION / DPC / WALL INTERFACE';
 a.push(rect(170,65,65,190,'#d7b7a4'),rect(250,65,80,190,'#dce8f2'),rect(345,65,75,190,'#b7c7d4'));
 a.push(rect(105,255,385,55,'#a9a9a9'),rect(90,310,420,85,'#e6ddc9'),line(90,235,510,235,'#b12a3b',4));
 a.push(dim(105,420,490,420,get(specs,'Foundation width (mm)')+' mm foundation width'));
 a.push(dim(70,255,70,395,get(specs,'Founding depth (mm)')+' mm founding depth'));
 a.push(label(520,100,'Outer leaf / cavity / inner leaf'),label(520,165,'DPC / DPM junction'),label(520,285,'Concrete foundation'),label(520,355,'Founding stratum'));
-}else if(['03','06'].includes(c)){
+}else if(c==='03'){
 title='FLOOR BUILD-UP / PERIMETER';
 a.push(rect(90,100,490,25,'#c6b7a5'),rect(90,125,490,65,'#dceac5'),rect(90,190,490,55,'#c3c3c3'),line(90,247,580,247,'#b12a3b',5),rect(90,252,490,95,'#dfd7c9'));
 a.push(dim(65,100,65,347,'Overall floor build-up: verify'));
@@ -59,6 +59,30 @@ title='VENTILATION - ROOM EXTRACT / AIR PATH';
 a.push(rect(135,100,400,250,'#edf2f5'),line(135,350,535,350),rect(425,110,70,50,'#d6e8f3'));
 a.push('<path d="M230 300 C280 265 335 265 380 235" stroke="#3c8496" stroke-width="5" fill="none"/><path d="M365 226 L385 230 L376 248" stroke="#3c8496" stroke-width="4" fill="none"/>');
 a.push(line(460,135,700,135,'#3c8496',10),label(550,112,'Duct discharge outdoors'),label(545,195,'Fan airflow / run-on: confirm'),label(545,235,'Duct size / insulation: verify'),label(545,275,'Background / transfer air path: design'),label(545,320,'Commissioning evidence required'));
+}else if(c==='13'){
+title='DOMESTIC HEATING AND HOT WATER - DESIGN INTERFACES';
+a.push(rect(105,95,215,270,'#edf2f6'),rect(145,135,110,140,'#d1e4ec'),rect(430,130,125,220,'#d9e2e9'));
+a.push(line(255,185,430,185,'#bb4e38',6),line(255,240,430,240,'#347eae',6));
+a.push(label(580,135,'Heat source / output: confirm'),label(580,185,'Primary pipe insulation / routes'),label(580,235,'Cylinder and safety discharge provisions'),label(580,285,'Controls, zoning and commissioning'),label(580,335,'Part G / L and specialist design'));
+}else if(c==='15'){
+title='ELECTRICAL INSTALLATION / SERVICE ROUTES';
+a.push(rect(100,95,350,260,'#ecf0f4'),rect(180,140,95,135,'#ced8e3'),line(275,160,410,160,'#c27e26',5),line(275,210,410,210,'#377d98',5));
+a.push(label(485,125,'Consumer unit location: confirm'),label(485,170,'Routes and permitted cable zones'),label(485,215,'Penetration fire stopping'),label(485,265,'RCD / protection: qualified designer'),label(485,310,'Part P / inspection and test records'));
+}else if(c==='17'){
+title='EXTERNAL THRESHOLD / GROUND LEVEL / DRAINAGE';
+a.push(rect(100,120,165,230,'#c5a497'),rect(265,120,125,230,'#e0e8ee'),rect(95,345,500,40,'#b3b8bd'));
+a.push('<path d="M390 330 L705 355" stroke="#8797a4" stroke-width="15" fill="none"/>',line(95,296,700,296,'#a5293d',4));
+a.push(label(420,140,'Accessible threshold: geometry to confirm'),label(420,190,'Waterproofing / DPC continuity'),label(420,235,'External paving falls and runoff'),label(420,275,'Drainage / channel location'),label(420,420,'Part M / Part C / Part H interface'));
+}else if(c==='02'){
+title='DAMP PROTECTION - DPC / DPM CONTINUITY';
+a.push(rect(115,90,95,235,'#c7a090'),rect(210,90,125,235,'#dce8ef'),rect(335,90,95,235,'#b7c3ce'));
+a.push(rect(115,325,480,45,'#b1b5bb'),line(90,309,600,309,'#af2d43',5),line(105,80,345,80,'#af2d43',4));
+a.push(label(485,115,'DPC and DPM to connect'),label(485,170,'Finished external ground level: verify'),label(485,220,'Gas / radon barrier where required'),label(485,270,'Threshold waterproofing coordination'));
+}else if(c==='06'){
+title='UPPER FLOOR - JOISTS / ACOUSTIC / FIRE';
+a.push(rect(105,95,520,32,'#b1a18b'),rect(105,127,520,38,'#d4e6c6'),rect(105,165,520,85,'#e1e9f2'),rect(105,250,520,23,'#c9c4c0'));
+a.push(line(155,165,155,250,'#627990',7),line(290,165,290,250,'#627990',7),line(430,165,430,250,'#627990',7));
+a.push(label(650,113,'Deck / finish'),label(650,159,'Acoustic layers: verify'),label(650,201,'Joists and spacing: engineer'),label(650,265,'Ceiling fire lining'),label(105,360,'Sound / fire performance and penetrations require review'));
 }else{
 title='PROJECT DESIGN COORDINATION';
 a.push(rect(110,100,600,250,'#eef3f7'),line(110,180,710,180),line(110,260,710,260));
