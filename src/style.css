@@ -18,3 +18,11 @@
 .brSelected>div span{overflow-wrap:anywhere}.brSelected>div button{padding:6px 9px;font-size:11px;width:auto;flex-shrink:0}.brSelected>button{margin-top:14px;width:100%}
 .brUploadResults{padding:12px;background:#f4f8f5;border-radius:8px}.brUploadResults p{font-size:12px;margin:5px 0;overflow-wrap:anywhere}
 .bigUpload small{display:block;margin-top:8px;color:#758092}
+
+/* Mac desktop and narrower screens: keep every project tab visible without horizontal scrolling. */
+.tabs{display:flex;flex-wrap:wrap;overflow:visible;gap:7px;max-width:100%;align-items:stretch}
+.tabs button{white-space:normal;overflow-wrap:anywhere;flex:0 1 auto;min-width:105px;max-width:210px;line-height:1.25;padding:10px 12px;text-align:center}
+.projectHead,.projectTools{flex-wrap:wrap;min-width:0}
+.shell main{min-width:0;max-width:100%;overflow-x:hidden}
+@media(max-width:1200px){.tabs button{min-width:90px;font-size:12px;padding:9px 10px}}
+@media(max-width:740px){.tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.tabs button{width:100%;max-width:none;min-width:0}aside{flex-wrap:wrap;overflow:visible}aside button{white-space:normal}}
