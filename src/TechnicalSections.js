@@ -19,12 +19,12 @@ title='FLOOR BUILD-UP / PERIMETER';
 a.push(rect(90,100,490,25,'#c6b7a5'),rect(90,125,490,65,'#dceac5'),rect(90,190,490,55,'#c3c3c3'),line(90,247,580,247,'#b12a3b',5),rect(90,252,490,95,'#dfd7c9'));
 a.push(dim(65,100,65,347,'Overall floor build-up: verify'));
 a.push(label(600,115,'Floor finish / screed'),label(600,160,'Insulation / void'),label(600,225,'Structural slab / deck'),label(600,255,'DPM / airtightness'),label(600,325,'Sub-base / ground'));
-}else if(['04','05'].includes(c)){
+}else if(c==='04'){
 title='WALL / OPENING SECTION';
 a.push(rect(110,90,110,280,'#cba79a'),rect(220,90,135,280,'#dbe9f2'),rect(355,90,105,280,'#b9c7d2'));
 a.push(line(105,310,465,310,'#b12a3b',5),dim(110,405,460,405,'Wall overall thickness: verify'));
 a.push(label(510,140,'Outer leaf'),label(510,205,'Cavity / insulation'),label(510,265,'Inner leaf'),label(510,330,'DPC / cavity tray at junction'));
-}else if(['07','08','09'].includes(c)){
+}else if(c==='07'){
 title='PITCHED ROOF / EAVES JUNCTION';
 a.push('<path d="M100 240 L415 65 L730 240" fill="none" stroke="#394b5e" stroke-width="20"/>');
 a.push('<path d="M112 260 L415 92 L718 260" fill="none" stroke="#b6d3e2" stroke-width="16"/>');
@@ -83,6 +83,18 @@ title='UPPER FLOOR - JOISTS / ACOUSTIC / FIRE';
 a.push(rect(105,95,520,32,'#b1a18b'),rect(105,127,520,38,'#d4e6c6'),rect(105,165,520,85,'#e1e9f2'),rect(105,250,520,23,'#c9c4c0'));
 a.push(line(155,165,155,250,'#627990',7),line(290,165,290,250,'#627990',7),line(430,165,430,250,'#627990',7));
 a.push(label(650,113,'Deck / finish'),label(650,159,'Acoustic layers: verify'),label(650,201,'Joists and spacing: engineer'),label(650,265,'Ceiling fire lining'),label(105,360,'Sound / fire performance and penetrations require review'));
+}else if(c==='08'){
+title='ROOF COVERING / UNDERLAY / BATTEN SECTION';
+a.push('<path d="M95 265 L580 105" stroke="#58677b" stroke-width="25" fill="none"/>','<path d="M100 295 L585 135" stroke="#ad9a82" stroke-width="10" fill="none"/>','<path d="M110 320 L595 160" stroke="#bfccd4" stroke-width="6" fill="none"/>');
+a.push(label(620,105,'Tile/slate system: '+String(choice||'TBC').slice(0,22)),label(620,155,'Roof pitch and exposure: verify'),label(620,205,'Battens / fixings to manufacturer design'),label(620,255,'Underlay and drainage path'),label(620,305,'Flashings, eaves and ridge coordination'));
+}else if(c==='09'){
+title='WARM / COLD ROOF INSULATION & VCL';
+a.push('<path d="M85 245 L590 100" stroke="#5d6978" stroke-width="18" fill="none"/>','<path d="M90 266 L595 121" stroke="#d2e1e9" stroke-width="10" fill="none"/>','<path d="M95 310 L600 165" stroke="#d1e6c4" stroke-width="35" fill="none"/>','<path d="M105 338 L610 193" stroke="#b12a3b" stroke-width="5" fill="none"/>');
+a.push(label(570,345,'VCL / airtightness line: continuity required'),label(570,385,'Thermal bridge at eaves: verify'),label(570,425,'Condensation and U-value calculation required'),label(150,420,'Insulation arrangement: '+String(choice||'TBC').slice(0,35)));
+}else if(c==='05'){
+title='INTERNAL BEARING WALL / BEAM CONNECTION';
+a.push(rect(105,95,500,55,'#c3c9d0'),rect(255,150,175,230,'#bbcad5'),rect(235,150,215,38,'#657d91'));
+a.push(label(630,135,'Load path and bearing lengths: engineer'),label(630,180,'Beam size and connection: engineer'),label(630,225,'Fire protection and acoustic seal'),label(630,270,'Padstone / movement joint: engineer'),label(630,320,'Refer to structural drawing/calculations'));
 }else{
 title='PROJECT DESIGN COORDINATION';
 a.push(rect(110,100,600,250,'#eef3f7'),line(110,180,710,180),line(110,260,710,260));
