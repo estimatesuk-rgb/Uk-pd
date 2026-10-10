@@ -2,6 +2,7 @@ import React,{useEffect,useMemo,useState} from 'react';
 import {addProjectActivity,incorporateAiProposals,scopedActivityCatalog,SAFETY_RESEARCH_SOURCES} from './RamsScope.js';
 import {printProjectRams} from './RamsReport.js';
 import {downloadRamsWord} from './RamsWord.js';
+import {drawingRevisionIssues,activityDrawingIssues} from './RamsEvidence.js';
 import {CDM_REFERENCES,CPP_GROUPS,SCHEDULE3,RAMS_ACTIVITIES,COSHH_REQUIRED,DOCUMENTS,PERMIT_TYPES} from './RamsLibrary.js';
 const shell={border:'1px solid #d8e1e9',borderRadius:8,padding:14,background:'#fff',margin:'12px 0'};
 const field={width:'100%',padding:9,border:'1px solid #ccd7e2',borderRadius:5,marginTop:5};
@@ -24,21 +25,10 @@ export function assessF10(notification={}){
 const officialSource='https://www.hse.gov.uk/pubns/priced/l153.pdf';
 export function ramsAudit(pkg={},docs=[]){
  const issues=[],cpp=pkg.cpp||{},items=pkg.activities||{},coshh=pkg.coshh||{},sch=pkg.schedule3||{},rev=pkg.review||{};
- const currentDocs=array(docs).filter(d=>d.status==='Current');
- const documentRevision=d=>String(d?.revision||'Not provided');
- const findCurrent=id=>currentDocs.find(d=>String(d.id)===String(id));
  for(const group of CPP_GROUPS)for(const [key,label] of group.fields){if(!String(cpp[group.id]?.[key]||'').trim())issues.push('CPP / '+group.name+' / '+label)}
  const scan=pkg.ai;
  if(scan){
-  const previous=array(scan.document_snapshot);
-  if(currentDocs.length&&!previous.length)issues.push('Drawing revision verification unavailable: re-analyse current plans to establish a document and revision baseline');
-  if(previous.length){
-   for(const d of currentDocs){
-    const earlier=previous.find(x=>String(x.id)===String(d.id));
-    if(!earlier||documentRevision(earlier)!==documentRevision(d)||String(earlier.file_path||'')!==String(d.file_path||''))issues.push('Drawing revision changed: '+(d.document_no||d.title||d.file_path||d.id)+' — repeat design-risk and contractor RAMS review');
-   }
-   for(const d of previous)if(!findCurrent(d.id))issues.push('Drawing removed or superseded since AI analysis: '+(d.label||d.id)+' — review affected RAMS before issue');
-  }
+  issues.push(...drawingRevisionIssues(scan,docs));
   const read=array(scan.files_read).length;
   if(Number(scan.files_total||0)>read)issues.push('Drawing analysis incomplete: '+read+' of '+scan.files_total+' current drawings read');
   for(const warning of array(scan.warnings))issues.push('AI drawing warning: '+String(warning));
@@ -60,11 +50,7 @@ export function ramsAudit(pkg={},docs=[]){
    else for(const [i,r] of a.hazardRows.entries())for(const key of ['hazard','people','initial','controls','residual'])if(!String(r?.[key]||'').trim())issues.push(activity.name+' — hazard '+(i+1)+' / '+key+' missing');
    const sources=array(a.sources);
    if(sources.some(source=>!String(source.note||'').trim()))issues.push(activity.name+' — drawing source needs page/detail annotation');
-   for(const source of sources){
-    const current=findCurrent(source.documentId);
-    if(!current)issues.push(activity.name+' — linked drawing no longer current: '+(source.name||source.documentId||'unknown'));
-    else if(documentRevision(current)!==documentRevision(source))issues.push(activity.name+' — linked drawing revision out of date: '+(source.name||current.document_no||current.title||current.id)+'; update and review the activity');
-   }
+   issues.push(...activityDrawingIssues(sources,docs,activity.name));
    if(!sources.length&&!String(a.evidence||'').trim())issues.push(activity.name+' — no drawing reference or documented site/survey evidence');
   }
  }
@@ -223,7 +209,7 @@ export default function RamsWorkspace({project,docs=[],questions=[],db,onSaved})
  <div className='reportInfoHead'><div><span className='packageCode'>CDM 2015 — CONTRACTOR DRAFT</span><h2>Construction Phase Plan · RAMS · COSHH</h2><p className='muted'>Drawing-linked technical safety workspace, HSE reference inventory and accountable site review. The Principal Designer supplies residual design risks; the Principal Contractor or sole contractor establishes and approves safe working arrangements.</p></div><div><b>{audit.issues.length} open checks</b><p className='muted'>{docsList.length} current project documents</p></div></div>
  <div style={{display:'flex',gap:10,flexWrap:'wrap',margin:'12px 0'}}><button disabled={busy} onClick={analyse}>{busy?'Working…':'Analyse uploaded plans for RAMS'}</button><button disabled={busy} onClick={()=>save()}>Save RAMS draft</button><button className='outline' onClick={()=>printProjectRams(project,pkg,docsList,audit.issues)}>Print full reference-style A4 draft pack</button><button className='outline' onClick={async()=>{try{await downloadRamsWord(project,pkg,docsList,audit.issues);setStatus('Editable Word RAMS draft downloaded — professional approval still required.')}catch(e){setStatus('Word export failed: '+(e?.message||e))}}}>Download editable Word RAMS pack</button></div>
  <p role='status' style={{color:'#31516a',minHeight:22}}>{status||'No legal approval is issued by this software. Resolve open checks and obtain contractor review before site use.'}</p>
- {audit.issues.some(x=>x.startsWith('Drawing revision')||x.includes('linked drawing'))&&<div role='alert' style={{padding:12,border:'2px solid #b71f32',background:'#fff2f3',marginBottom:12}}><strong>DRAWING CHANGE — RAMS MUST BE RE-REVIEWED</strong><ul>{audit.issues.filter(x=>x.startsWith('Drawing revision')||x.includes('linked drawing')||x.startsWith('Drawing removed')).map((x,i)=><li key={i}>{x}</li>)}</ul><p>Update the drawing analysis and affected risk assessments, methods and COSHH/CPP arrangements before competent contractor acceptance.</p></div>}
+ {audit.issues.some(x=>x.startsWith('Drawing revision')||x.includes('linked drawing')||x.startsWith('Drawing removed'))&&<div role='alert' style={{padding:12,border:'2px solid #b71f32',background:'#fff2f3',marginBottom:12}}><strong>DRAWING CHANGE — RAMS MUST BE RE-REVIEWED</strong><ul>{audit.issues.filter(x=>x.startsWith('Drawing revision')||x.includes('linked drawing')||x.startsWith('Drawing removed')).map((x,i)=><li key={i}>{x}</li>)}</ul><p>Update the drawing analysis and affected risk assessments, methods and COSHH/CPP arrangements before competent contractor acceptance.</p></div>}
  <div style={grid}><div style={shell}><b>Risk assessments / method statements</b><h3>{audit.relevant} relevant</h3><small>Each requires method, controls, evidence and briefing</small></div><div style={shell}><b>Substance assessments</b><h3>{audit.coshh} identified</h3><small>Exact current SDS / exposure assessment required</small></div><div style={shell}><b>Site readiness</b><h3>{audit.issues.length} gaps</h3><small>Draft until signed professional and contractor review</small></div></div>
  <div style={{display:'flex',gap:8,flexWrap:'wrap',margin:'14px 0'}}>{GROUPS.map(p=><button key={p} className={page===p?'selected':'outline'} onClick={()=>setPage(p)}>{({cpp:'Construction Phase Plan',activities:'Risk assessments & methods',coshh:'COSHH',schedule3:'Schedule 3',permits:'Records & permits',review:'Dutyholders & issue',evidence:'Drawing evidence & AI'})[p]}</button>)}</div>
  {page==='evidence'&&<div style={shell}><h3>Pre-construction information and drawing-derived risks</h3><p>The AI checks current project drawings in batches of up to five (8 MB maximum per batch). Files that fail to load are reported as missing evidence, not silently marked as reviewed. Actual site methods still require contractor review.</p><h4>Current drawing register</h4><table><thead><tr><th>Document</th><th>Revision</th><th>Status</th></tr></thead><tbody>{docsList.map(d=><tr key={d.id}><td>{d.document_no||d.title||d.file_path}</td><td>{d.revision||'Unrecorded'}</td><td>{d.status}</td></tr>)}</tbody></table>{docsList.length>5&&<p style={{color:'#a54a20'}}>This project has {docsList.length} drawings. The AI will process multiple batches and report every failed or unread file; larger projects may require additional AI usage allowance.</p>}
