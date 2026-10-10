@@ -2,7 +2,7 @@
 // Source evidence and human review are mandatory; formatting is not an approval.
 import {CPP_GROUPS,SCHEDULE3,DOCUMENTS,PERMIT_TYPES} from './RamsLibrary.js';
 import {scopedActivityCatalog} from './RamsScope.js';
-const html=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;':'&quot;',"'":'&#39;'}[c]));
+const html=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const lines=s=>String(s??'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
 const listed=s=>lines(s).length?'<ol>'+lines(s).map(t=>'<li>'+html(t.replace(/^\d+[.)]\s*/,''))+'</li>').join('')+'</ol>':'<p>NOT CONFIRMED — enter activity-specific steps.</p>';
 const v=x=>'<span style="white-space:pre-wrap">'+html(String(x||'TO BE CONFIRMED'))+'</span>';
