@@ -1,4 +1,4 @@
-import {Document,Packer,Paragraph,TextRun,Table,TableRow,TableCell,HeadingLevel,Header,Footer,AlignmentType,WidthType,ShadingType} from 'docx';
+import {Document,Packer,Paragraph,TextRun,Table,TableRow,TableCell,HeadingLevel,Header,Footer,AlignmentType,WidthType,ShadingType,ImageRun} from 'docx';
 import {CPP_GROUPS,SCHEDULE3,DOCUMENTS,PERMIT_TYPES} from './RamsLibrary.js';
 import {scopedActivityCatalog} from './RamsScope.js';
 const navy='173453',red='C92D38';
@@ -46,9 +46,14 @@ export async function downloadRamsWord(project,pkg,docs=[],issues=[]){
  add(...title('Excluded work package register','SCOPE-01',project,pkg),kv(scopedActivityCatalog(pkg).filter(a=>pkg.activities?.[a.id]?.applicability==='Not applicable').map(a=>[a.name,pkg.activities[a.id]?.reason])));
  add(...title('Missing information and pre-issue blockers','REV-01',project,pkg),...((issues.length?issues:['No missing form field recorded; competent professional approval remains mandatory.']).map(x=>para('• '+x))),
  para('This remains a draft. Neither the Principal Designer nor AI approves contractor RAMS or certifies compliance.'));
+ let brandImage=null;
+ try{
+  const response=await fetch('/ukpd-logo.jpg',{cache:'force-cache'});
+  if(response.ok){const bytes=new Uint8Array(await response.arrayBuffer());if(bytes.length>100&&bytes.length<300000)brandImage=new ImageRun({data:bytes,transformation:{width:140,height:52},type:'jpg'});}
+ }catch{/* Logo upload or connection failure must not prevent RAMS export. */}
  const doc=new Document({creator:'UK Principal Designers Ltd',title:(project.name||'Project')+' RAMS DRAFT',
  sections:[{properties:{page:{size:{width:11906,height:16838},margin:{top:950,bottom:950,left:950,right:950}}},
- headers:{default:new Header({children:[new Paragraph({alignment:AlignmentType.RIGHT,children:[new TextRun({text:'UK PRINCIPAL DESIGNERS LTD  |  CONTROLLED DOCUMENT',font:'Arial',size:16,bold:true,color:navy})]})]})},
+ headers:{default:new Header({children:[new Paragraph({alignment:AlignmentType.RIGHT,children:[...(brandImage?[brandImage,new TextRun({text:'   ',font:'Arial'})]:[]),new TextRun({text:'UK PRINCIPAL DESIGNERS LTD  |  CONTROLLED DOCUMENT',font:'Arial',size:16,bold:true,color:navy})]})]})},
  footers:{default:new Footer({children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new TextRun({text:(project.project_no||'UKPD')+'  |  REV '+(pkg.revision||'P01')+'  |  DRAFT — NOT APPROVED FOR CONSTRUCTION',font:'Arial',size:16,color:red})]})]})},
  children:elements}]});
  const blob=await Packer.toBlob(doc),url=URL.createObjectURL(blob),a=document.createElement('a');
