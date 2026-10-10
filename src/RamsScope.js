@@ -18,6 +18,7 @@ export function incorporateAiProposals(pkg={},proposals=[],documents=[]){
  for(const proposal of Array.isArray(proposals)?proposals:[]){
   if(!proposal || typeof proposal!=='object')continue;
   const name=activityName(proposal);
+  if(!name || name==='Unidentified work package')continue;
   const existingId=RAMS_ACTIVITIES.some(a=>a.id===proposal.activity_id)?proposal.activity_id:null;
   // Unknown AI activity IDs become additional project work packages, not silent omissions.
   const id=existingId || customActivityId(name);
