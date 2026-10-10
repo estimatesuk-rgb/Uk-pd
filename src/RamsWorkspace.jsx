@@ -121,16 +121,41 @@ export default function RamsWorkspace({project,docs=[],questions=[],db,onSaved})
  async function save(next=pkg){setBusy(true);setStatus('Saving RAMS to project database…');try{const {error}=await db.from('projects').update({rams_package:next}).eq('id',project.id);if(error)throw error;if(onSaved)onSaved(current=>({...current,rams_package:next}));setStatus('RAMS draft saved to project');return true}catch(e){setStatus('Save failed: '+e.message);return false}finally{setBusy(false)}}
  async function analyse(){
   if(!docsList.length){setStatus('Upload current drawings before requesting plan review.');return}
-  setBusy(true);setStatus('AI checking current drawings and project requirements…');
+  setBusy(true);
+  const batches=[];for(let i=0;i<docsList.length;i+=5)batches.push(docsList.slice(i,i+5));
+  const combined={summary:'',analysed_files:[],suggested_activities:[],coshh_candidates:[],significant_design_risks:[],schedule3_flags:[],missing_information:[],warnings:[],files_read:[],unsupported:[]};
+  let processed=0;
   try{
-   const {data,error}=await db.functions.invoke('rams-assistant',{body:{project_id:project.id}});
-   if(error)throw error;if(data?.error)throw new Error(data.error);
-   const ai=data?.analysis;if(!ai)throw new Error('No analysis returned');
-   const withProposals=incorporateAiProposals(pkg,ai.suggested_activities,docsList);
-   const next={...withProposals,ai,revision:pkg.revision||'P01',status:'AI DRAFT — CONTRACTOR REVIEW REQUIRED'};
+   for(let i=0;i<batches.length;i++){
+    setStatus('Analysing current drawing batch '+(i+1)+' of '+batches.length+'; do not close the project…');
+    const batch=batches[i];
+    try{
+     const {data,error}=await db.functions.invoke('rams-assistant',{body:{project_id:project.id,document_ids:batch.map(d=>d.id)}});
+     if(error)throw error;if(data?.error)throw new Error(data.error);
+     if(!data?.analysis)throw new Error('AI did not return drawing analysis');
+     const ai=data.analysis;
+     for(const key of ['analysed_files','suggested_activities','coshh_candidates','significant_design_risks','schedule3_flags','missing_information','warnings','files_read','unsupported'])combined[key].push(...array(ai[key]));
+     if(ai.summary)combined.summary+=(combined.summary?'\n':'')+'Batch '+(i+1)+': '+ai.summary;
+     processed+=batch.length;
+    }catch(batchErr){
+     combined.warnings.push('Drawing batch '+(i+1)+' failed: '+String(batchErr?.message||batchErr)+'. Re-run after resolving this failure.');
+     combined.missing_information.push('Unreviewed drawings in failed batch: '+batch.map(d=>d.document_no||d.title||d.file_path).join(', '));
+    }
+   }
+   if(!combined.files_read.length)throw new Error(combined.warnings.join(' ')||'No drawings could be analysed');
+   const dedupe=(v,key)=>[...new Map(v.map(x=>[typeof x==='string'?x:String(x?.[key]||JSON.stringify(x)),x])).values()];
+   combined.suggested_activities=dedupe(combined.suggested_activities,'activity_id');
+   combined.coshh_candidates=dedupe(combined.coshh_candidates,'substance');
+   combined.significant_design_risks=dedupe(combined.significant_design_risks,'risk');
+   combined.generated_at=new Date().toISOString();
+   combined.files_total=docsList.length;
+   combined.files_reviewed=combined.files_read.length;
+   combined.status=combined.files_read.length<docsList.length?'INCOMPLETE AI DRAFT — SOME FILES NOT READ':'AI DRAFT — VERIFY SOURCE REFERENCES';
+   const withProposals=incorporateAiProposals(pkg,combined.suggested_activities,docsList);
+   const next={...withProposals,ai:combined,revision:pkg.revision||'P01',status:'AI DRAFT — CONTRACTOR REVIEW REQUIRED'};
    setPkg(next);
    const ok=await save(next);
-   setStatus(ok?'AI draft linked to evidence and saved; review suggested additions, omissions and open questions.':'AI draft obtained but save failed — save before leaving.');
+   setStatus(ok?('AI analysis saved. '+combined.files_read.length+'/'+docsList.length+' current files read; '+combined.warnings.length+' warnings. Review all proposed work and site questions.'):'Analysis obtained, but save failed. Save before leaving.');
    setPage('evidence');
   }catch(err){setStatus('Analysis failed: '+(err?.message||String(err)))}
   finally{setBusy(false)}
@@ -174,11 +199,11 @@ export default function RamsWorkspace({project,docs=[],questions=[],db,onSaved})
  <p role='status' style={{color:'#31516a',minHeight:22}}>{status||'No legal approval is issued by this software. Resolve open checks and obtain contractor review before site use.'}</p>
  <div style={grid}><div style={shell}><b>Risk assessments / method statements</b><h3>{audit.relevant} relevant</h3><small>Each requires method, controls, evidence and briefing</small></div><div style={shell}><b>Substance assessments</b><h3>{audit.coshh} identified</h3><small>Exact current SDS / exposure assessment required</small></div><div style={shell}><b>Site readiness</b><h3>{audit.issues.length} gaps</h3><small>Draft until signed professional and contractor review</small></div></div>
  <div style={{display:'flex',gap:8,flexWrap:'wrap',margin:'14px 0'}}>{GROUPS.map(p=><button key={p} className={page===p?'selected':'outline'} onClick={()=>setPage(p)}>{({cpp:'Construction Phase Plan',activities:'Risk assessments & methods',coshh:'COSHH',schedule3:'Schedule 3',permits:'Records & permits',review:'Dutyholders & issue',evidence:'Drawing evidence & AI'})[p]}</button>)}</div>
- {page==='evidence'&&<div style={shell}><h3>Pre-construction information and drawing-derived risks</h3><p>Only PDFs and images the AI actually reads can be cited. The AI processes up to five current project drawings per analysis batch, up to 8 MB total. Other documents remain listed and require further review.</p><h4>Current drawing register</h4><table><thead><tr><th>Document</th><th>Revision</th><th>Status</th></tr></thead><tbody>{docsList.map(d=><tr key={d.id}><td>{d.document_no||d.title||d.file_path}</td><td>{d.revision||'Unrecorded'}</td><td>{d.status}</td></tr>)}</tbody></table>{docsList.length>5&&<p style={{color:'#a54a20'}}>Only the five newest current drawings will be analysed in one free-tier batch. Older documents must not be treated as reviewed.</p>}
+ {page==='evidence'&&<div style={shell}><h3>Pre-construction information and drawing-derived risks</h3><p>The AI checks current project drawings in batches of up to five (8 MB maximum per batch). Files that fail to load are reported as missing evidence, not silently marked as reviewed. Actual site methods still require contractor review.</p><h4>Current drawing register</h4><table><thead><tr><th>Document</th><th>Revision</th><th>Status</th></tr></thead><tbody>{docsList.map(d=><tr key={d.id}><td>{d.document_no||d.title||d.file_path}</td><td>{d.revision||'Unrecorded'}</td><td>{d.status}</td></tr>)}</tbody></table>{docsList.length>5&&<p style={{color:'#a54a20'}}>This project has {docsList.length} drawings. The AI will process multiple batches and report every failed or unread file; larger projects may require additional AI usage allowance.</p>}
  {pkg.ai?<><h4>AI plan-review findings</h4><p><b>{pkg.ai.summary}</b></p><p className='muted'>Last analysis {pkg.ai.generated_at||'Unknown'} · Documents read: {array(pkg.ai.files_read).join(', ')||'Not recorded'}.</p>
  <h4>Proposed activities</h4>{array(pkg.ai.suggested_activities).map((x,i)=><div key={i} style={{...shell,background:'#f5f7fa'}}><b>{catalog.find(y=>y.id===x.activity_id)?.name||x.activity_name||x.activity_id}</b><p>{x.reason}</p><small>Drawing: {x.source_document||'NOT EVIDENCED'} · {x.source_note||'No page detail'} · Confidence {x.confidence||'Low'}</small><p><b>Verify:</b> {x.verification}</p><button className='outline' onClick={()=>{setChoice(catalog.some(y=>y.id===x.activity_id)?x.activity_id:('custom_'+String(x.activity_name||x.activity_id||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,75)));setPage('activities')}}>Review this RAMS item</button></div>)}
  <h4>Significant residual design risks</h4><ul>{array(pkg.ai.significant_design_risks).map((x,i)=><li key={i}><b>{x.risk}</b> — {x.source_document||'No drawing evidence'}; {x.action}</li>)}</ul>
- <h4>Information still required</h4><ul>{array(pkg.ai.missing_information).map((x,i)=><li key={i}>{x}</li>)}</ul>
+ <h4>Analysis coverage and warnings</h4><p>{pkg.ai.files_reviewed||array(pkg.ai.files_read).length} of {pkg.ai.files_total||docsList.length} current documents read.</p><ul>{array(pkg.ai.warnings).map((x,i)=><li key={i} style={{color:'#a54a20'}}>{x}</li>)}</ul><h4>Information still required</h4><ul>{array(pkg.ai.missing_information).map((x,i)=><li key={i}>{x}</li>)}</ul>
  <h4>Possible COSHH products to confirm</h4><ul>{array(pkg.ai.coshh_candidates).map((x,i)=><li key={i}><b>{x.substance}</b> — {x.verification} <button className='outline' onClick={()=>{const id='substance-'+(Math.max(1,...Object.keys(pkg.coshh||{}).map(k=>Number(k.match(/^substance-(\d+)$/)?.[1])||0))+1);setPkg(old=>({...old,coshh:{...(old.coshh||{}),[id]:{applicability:'To check',product:x.substance,task:catalog.find(y=>y.id===x.activity_id)?.name||'',sds:'',source_document:x.source_document||'',assessor:''}}}));setCoshhId(id);setPage('coshh');setStatus('COSHH draft added; obtain current manufacturer SDS and complete assessment before saving.')}}>Create COSHH record</button></li>)}</ul></>:<p className='muted'>No drawing analysis yet. Run the AI above after uploading drawings. Filename matches alone are not accepted as drawing evidence.</p>}</div>}
  {page==='evidence'&&<div style={shell}><h3>Job-specific construction questions</h3><p className='muted'>Record decisions not stated on drawings. They are not proof of safe working methods until supported and accepted by the contractor.</p>
  {array(pkg.ai?.missing_information).map((q,i)=><div key={i}>{fieldInput(q,pkg.scopeAnswers?.[i],v=>setRoot('scopeAnswers',{...(pkg.scopeAnswers||{}),[i]:v}))}</div>)}
