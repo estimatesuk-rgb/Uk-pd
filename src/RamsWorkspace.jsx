@@ -25,6 +25,14 @@ const officialSource='https://www.hse.gov.uk/pubns/priced/l153.pdf';
 export function ramsAudit(pkg={}){
  const issues=[],cpp=pkg.cpp||{},items=pkg.activities||{},coshh=pkg.coshh||{},sch=pkg.schedule3||{},rev=pkg.review||{};
  for(const group of CPP_GROUPS)for(const [key,label] of group.fields){if(!String(cpp[group.id]?.[key]||'').trim())issues.push('CPP / '+group.name+' / '+label)}
+ const scan=pkg.ai;
+ if(scan){
+  const read=array(scan.files_read).length;
+  if(Number(scan.files_total||0)>read)issues.push('Drawing analysis incomplete: '+read+' of '+scan.files_total+' current drawings read');
+  for(const warning of array(scan.warnings))issues.push('AI drawing warning: '+String(warning));
+  for(const item of array(scan.missing_information))issues.push('Design / site information not resolved: '+String(item));
+  for(const item of array(scan.significant_design_risks))if(item&&!String(item.action||'').trim())issues.push('Principal Designer design-risk action requires coordination: '+String(item.risk||'Unknown'));
+ }
  const f10=assessF10(pkg.notification||{});
  if(f10.notifiable===null)issues.push('F10 screening: enter working days, peak workers and total person-days');
  if(f10.notifiable===true&&!String(pkg.notification?.reference||'').trim())issues.push('F10: notification/reference and responsible person need confirmation');
