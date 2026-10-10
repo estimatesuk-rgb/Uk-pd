@@ -28,6 +28,8 @@ jobs:
           node-version: '24'
       - name: Install dependencies
         run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Test RAMS drawing evidence safeguards
+        run: node --test tests/rams-evidence.test.mjs
       - name: Build application
         run: npm run build
       - name: Check output

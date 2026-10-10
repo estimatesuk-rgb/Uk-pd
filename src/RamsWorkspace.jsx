@@ -2,6 +2,7 @@ import React,{useEffect,useMemo,useState} from 'react';
 import {addProjectActivity,incorporateAiProposals,scopedActivityCatalog,SAFETY_RESEARCH_SOURCES} from './RamsScope.js';
 import {printProjectRams} from './RamsReport.js';
 import {downloadRamsWord} from './RamsWord.js';
+import {drawingRevisionIssues,activityDrawingIssues} from './RamsEvidence.js';
 import {CDM_REFERENCES,CPP_GROUPS,SCHEDULE3,RAMS_ACTIVITIES,COSHH_REQUIRED,DOCUMENTS,PERMIT_TYPES} from './RamsLibrary.js';
 const shell={border:'1px solid #d8e1e9',borderRadius:8,padding:14,background:'#fff',margin:'12px 0'};
 const field={width:'100%',padding:9,border:'1px solid #ccd7e2',borderRadius:5,marginTop:5};
@@ -22,11 +23,12 @@ export function assessF10(notification={}){
  return {status:notifiable?'F10 notification threshold met':'F10 threshold not met on entered programme',notifiable};
 }
 const officialSource='https://www.hse.gov.uk/pubns/priced/l153.pdf';
-export function ramsAudit(pkg={}){
+export function ramsAudit(pkg={},docs=[]){
  const issues=[],cpp=pkg.cpp||{},items=pkg.activities||{},coshh=pkg.coshh||{},sch=pkg.schedule3||{},rev=pkg.review||{};
  for(const group of CPP_GROUPS)for(const [key,label] of group.fields){if(!String(cpp[group.id]?.[key]||'').trim())issues.push('CPP / '+group.name+' / '+label)}
  const scan=pkg.ai;
  if(scan){
+  issues.push(...drawingRevisionIssues(scan,docs));
   const read=array(scan.files_read).length;
   if(Number(scan.files_total||0)>read)issues.push('Drawing analysis incomplete: '+read+' of '+scan.files_total+' current drawings read');
   for(const warning of array(scan.warnings))issues.push('AI drawing warning: '+String(warning));
@@ -48,6 +50,7 @@ export function ramsAudit(pkg={}){
    else for(const [i,r] of a.hazardRows.entries())for(const key of ['hazard','people','initial','controls','residual'])if(!String(r?.[key]||'').trim())issues.push(activity.name+' — hazard '+(i+1)+' / '+key+' missing');
    const sources=array(a.sources);
    if(sources.some(source=>!String(source.note||'').trim()))issues.push(activity.name+' — drawing source needs page/detail annotation');
+   issues.push(...activityDrawingIssues(sources,docs,activity.name));
    if(!sources.length&&!String(a.evidence||'').trim())issues.push(activity.name+' — no drawing reference or documented site/survey evidence');
   }
  }
@@ -83,7 +86,7 @@ export function ramsAudit(pkg={}){
  return {issues,ready:issues.length===0,relevant:Object.values(items).filter(actApplicable).length,coshh:Object.values(coshh).filter(x=>x?.applicability==='Relevant').length,f10};
 }
 function printRams(p,pkg,docs){
- const audit=ramsAudit(pkg),chunks=[];
+ const audit=ramsAudit(pkg,docs),chunks=[];
  const h=(title,ref)=>'<section class="page"><header><strong>UK PRINCIPAL DESIGNERS LTD</strong><h1>'+esc(title)+'</h1><p>'+esc(p.name||'Project')+' | '+esc(p.site_address||'Address to confirm')+' | '+esc(ref)+' | REV '+esc(pkg.revision||'P01')+' | '+esc(pkg.issueDate||iso())+'</p></header>';
  const e=s=>'<div class="entry">'+esc(s||'NOT CONFIRMED')+'</div>';
  const tableRows=rows=>'<table><tbody>'+rows.map(([a,b])=>'<tr><th>'+esc(a)+'</th><td>'+e(b)+'</td></tr>').join('')+'</tbody></table>';
@@ -116,7 +119,7 @@ export default function RamsWorkspace({project,docs=[],questions=[],db,onSaved})
  const [pkg,setPkg]=useState(()=>({...initial(),...(project.rams_package||{})}));
  const [page,setPage]=useState('evidence'),[choice,setChoice]=useState('site_setup'),[group,setGroup]=useState('project'),[coshhId,setCoshhId]=useState('substance-1'),[busy,setBusy]=useState(false),[status,setStatus]=useState(''),[newActivity,setNewActivity]=useState('');
  useEffect(()=>{setPkg({...initial(),...(project.rams_package||{})});setStatus('')},[project.id]);
- const audit=useMemo(()=>ramsAudit(pkg),[pkg]);
+ const audit=useMemo(()=>ramsAudit(pkg,docs),[pkg,docs]);
  const setRoot=(key,value)=>{setPkg(old=>({...old,[key]:value}));setStatus('Unsaved changes')};
  const setItem=(key,id,fieldName,value)=>setPkg(old=>({...old,[key]:{...(old[key]||{}),[id]:{...(old[key]?.[id]||{}),[fieldName]:value}}}));
  const setCpp=(grp,key,value)=>setPkg(old=>({...old,cpp:{...(old.cpp||{}),[grp]:{...(old.cpp?.[grp]||{}),[key]:value}}}));
@@ -156,6 +159,7 @@ export default function RamsWorkspace({project,docs=[],questions=[],db,onSaved})
    combined.coshh_candidates=dedupe(combined.coshh_candidates,'substance');
    combined.significant_design_risks=dedupe(combined.significant_design_risks,'risk');
    combined.generated_at=new Date().toISOString();
+   combined.document_snapshot=docsList.map(d=>({id:d.id,revision:d.revision||'Not provided',file_path:d.file_path||'',label:d.document_no||d.title||d.file_path||d.id}));
    combined.files_total=docsList.length;
    combined.files_reviewed=combined.files_read.length;
    combined.status=combined.files_read.length<docsList.length?'INCOMPLETE AI DRAFT — SOME FILES NOT READ':'AI DRAFT — VERIFY SOURCE REFERENCES';
@@ -205,6 +209,7 @@ export default function RamsWorkspace({project,docs=[],questions=[],db,onSaved})
  <div className='reportInfoHead'><div><span className='packageCode'>CDM 2015 — CONTRACTOR DRAFT</span><h2>Construction Phase Plan · RAMS · COSHH</h2><p className='muted'>Drawing-linked technical safety workspace, HSE reference inventory and accountable site review. The Principal Designer supplies residual design risks; the Principal Contractor or sole contractor establishes and approves safe working arrangements.</p></div><div><b>{audit.issues.length} open checks</b><p className='muted'>{docsList.length} current project documents</p></div></div>
  <div style={{display:'flex',gap:10,flexWrap:'wrap',margin:'12px 0'}}><button disabled={busy} onClick={analyse}>{busy?'Working…':'Analyse uploaded plans for RAMS'}</button><button disabled={busy} onClick={()=>save()}>Save RAMS draft</button><button className='outline' onClick={()=>printProjectRams(project,pkg,docsList,audit.issues)}>Print full reference-style A4 draft pack</button><button className='outline' onClick={async()=>{try{await downloadRamsWord(project,pkg,docsList,audit.issues);setStatus('Editable Word RAMS draft downloaded — professional approval still required.')}catch(e){setStatus('Word export failed: '+(e?.message||e))}}}>Download editable Word RAMS pack</button></div>
  <p role='status' style={{color:'#31516a',minHeight:22}}>{status||'No legal approval is issued by this software. Resolve open checks and obtain contractor review before site use.'}</p>
+ {audit.issues.some(x=>x.startsWith('Drawing revision')||x.includes('linked drawing')||x.startsWith('Drawing removed'))&&<div role='alert' style={{padding:12,border:'2px solid #b71f32',background:'#fff2f3',marginBottom:12}}><strong>DRAWING CHANGE — RAMS MUST BE RE-REVIEWED</strong><ul>{audit.issues.filter(x=>x.startsWith('Drawing revision')||x.includes('linked drawing')||x.startsWith('Drawing removed')).map((x,i)=><li key={i}>{x}</li>)}</ul><p>Update the drawing analysis and affected risk assessments, methods and COSHH/CPP arrangements before competent contractor acceptance.</p></div>}
  <div style={grid}><div style={shell}><b>Risk assessments / method statements</b><h3>{audit.relevant} relevant</h3><small>Each requires method, controls, evidence and briefing</small></div><div style={shell}><b>Substance assessments</b><h3>{audit.coshh} identified</h3><small>Exact current SDS / exposure assessment required</small></div><div style={shell}><b>Site readiness</b><h3>{audit.issues.length} gaps</h3><small>Draft until signed professional and contractor review</small></div></div>
  <div style={{display:'flex',gap:8,flexWrap:'wrap',margin:'14px 0'}}>{GROUPS.map(p=><button key={p} className={page===p?'selected':'outline'} onClick={()=>setPage(p)}>{({cpp:'Construction Phase Plan',activities:'Risk assessments & methods',coshh:'COSHH',schedule3:'Schedule 3',permits:'Records & permits',review:'Dutyholders & issue',evidence:'Drawing evidence & AI'})[p]}</button>)}</div>
  {page==='evidence'&&<div style={shell}><h3>Pre-construction information and drawing-derived risks</h3><p>The AI checks current project drawings in batches of up to five (8 MB maximum per batch). Files that fail to load are reported as missing evidence, not silently marked as reviewed. Actual site methods still require contractor review.</p><h4>Current drawing register</h4><table><thead><tr><th>Document</th><th>Revision</th><th>Status</th></tr></thead><tbody>{docsList.map(d=><tr key={d.id}><td>{d.document_no||d.title||d.file_path}</td><td>{d.revision||'Unrecorded'}</td><td>{d.status}</td></tr>)}</tbody></table>{docsList.length>5&&<p style={{color:'#a54a20'}}>This project has {docsList.length} drawings. The AI will process multiple batches and report every failed or unread file; larger projects may require additional AI usage allowance.</p>}
