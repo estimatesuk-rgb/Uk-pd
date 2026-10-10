@@ -50,7 +50,7 @@ export default function Estimates({db,project,docs=[]}){
  const direct=sum.materials+sum.plant+sum.labour,oh=direct*num(estimate.overheads)/100,profit=(direct+oh)*num(estimate.profit)/100,pcTotal=(estimate.pc_sums||[]).reduce((n,p)=>n+num(p.amount)*(1+num(p.attendance_percent)/100),0),provisionalTotal=(estimate.provisional_sums||[]).filter(x=>x.include!==false).reduce((n,p)=>n+num(p.amount),0),dayworksTotal=(estimate.dayworks||[]).reduce((n,d)=>n+(num(d.labour)+num(d.materials)+num(d.plant))*(1+num(d.markup)/100),0),contingencyBase=direct+oh+profit+pcTotal+provisionalTotal+dayworksTotal,contingency=estimate.contingency_mode==='lump'?num(estimate.contingency_value):contingencyBase*num(estimate.contingency_value)/100,subtotal=contingencyBase+contingency,total=subtotal*(1+num(estimate.vat)/100);
  function printQuote(){
  const w=window.open('','_blank');if(!w)return alert('Allow pop-ups to generate the quotation');
- const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;':'&quot;'}[c]));
+ const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const quoteRef=estimate.quote_ref||project.project_no||'Draft';
  const lines=estimate.items.map(i=>'<tr><td>'+esc(i.ref_no||'')+'</td><td>'+esc(i.description)+'</td><td>'+esc(i.quantity)+' '+esc(i.unit)+'</td><td>'+esc(money(perLine(i)))+'</td></tr>').join('');
  const row=(name,value)=>'<tr><td colspan="3">'+esc(name)+'</td><td>'+esc(money(value))+'</td></tr>';
