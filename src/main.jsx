@@ -26,23 +26,45 @@ function Register({type,ps,open}){return <div className="panel"><h2>{type} regis
 function ProjectTable({ps,open}){return <section className="panel"><table><thead><tr><th>Project</th><th>Client</th><th>Offer</th><th>Status</th><th>Risk</th><th>Approval</th></tr></thead><tbody>{ps.map(p=><tr onClick={()=>open(p)}><td><b>{p.name}</b><small>{p.project_no||'No project number'}</small></td><td>{p.client_name||'—'}</td><td>{p.offer_code||'—'}</td><td>{pretty(p.status)}</td><td><i className={'risk '+p.risk}>{p.risk}</i></td><td>{p.competent_person_approved?'Approved':'Pending'}</td></tr>)}</tbody></table>{!ps.length&&<div className="empty">No projects yet.</div>}</section>}
 function ProjectFee({project,documents=[],onSaved}){
  const [area,setArea]=useState('');
+ const [visits,setVisits]=useState('0');
+ const [weeks,setWeeks]=useState('0');
+ const [complexity,setComplexity]=useState('auto');
  const [status,setStatus]=useState('');
  const [saving,setSaving]=useState(false);
- useEffect(()=>{setArea('');setStatus('')},[project.id]);
- const text=[project.name,project.scope,project.project_description,project.construction_method,project.assumptions].filter(Boolean).join(' ').toLowerCase();
- const complex=/demolition|basement|listed|heritage|high.rise|steel frame|commercial|industrial|change of use|conversion/.test(text);
- const moderate=/extension|refurb|loft|renovation|alteration/.test(text);
- const count=Number((text.match(/\b(\d+)\s*(?:dwellings|houses|flats|units)\b/)||[])[1])||1;
- const parsedArea=Number(area);
- const knownArea=area.trim()!==''&&Number.isFinite(parsedArea)&&parsedArea>0;
+ useEffect(()=>{setArea('');setVisits('0');setWeeks('0');setComplexity('auto');setStatus('')},[project.id]);
+ const scope=[project.name,project.scope,project.project_description,project.construction_method,project.assumptions].filter(Boolean).join(' ');
+ const text=scope.toLowerCase();
+ const areaMatch=scope.match(/\b(?:gross internal (?:floor )?area|gia|floor area|total floor area)\s*[:=\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:m²|m2|sqm|sq\.?\s*m)\b/i)||scope.match(/\b([\d,]+(?:\.\d+)?)\s*(?:m²|m2|sqm)\s*(?:gia|gross internal|floor area)\b/i);
+ const suggestedArea=areaMatch?Number(areaMatch[1].replaceAll(',','')):null;
+ const manualArea=area.trim()?Number(area):null;
+ const effectiveArea=manualArea&&manualArea>0?manualArea:suggestedArea&&suggestedArea>0?suggestedArea:null;
+ const autoComplex=/demolition|basement|listed|heritage|high.rise|steel frame|commercial|industrial|change of use|conversion/.test(text)?'complex':/extension|refurb|loft|renovation|alteration/.test(text)?'moderate':'standard';
+ const level=complexity==='auto'?autoComplex:complexity;
+ const count=Math.min(100,Math.max(1,Number((text.match(/\b(\d+)\s*(?:dwellings|houses|flats|units)\b/)||[])[1])||1));
  const base=PD_PACKAGES[project.offer_code]?.fee||395;
- const sizeFactor=knownArea?Math.max(1,Math.min(3.5,Math.sqrt(parsedArea/150))):1;
- const typeFactor=complex?1.4:moderate?1.15:1;
+ const sizeFactor=effectiveArea?Math.max(1,Math.min(3.5,Math.sqrt(effectiveArea/150))):1;
+ const typeFactor=level==='complex'?1.4:level==='moderate'?1.15:1;
  const quantityFactor=Math.max(1,Math.min(2.5,1+(count-1)*0.12));
  const drawingFactor=documents.length>8?1.15:1;
- const calculated=Math.ceil(base*sizeFactor*typeFactor*quantityFactor*drawingFactor/25)*25;
- async function apply(){setSaving(true);setStatus('Saving proposed fee…');try{const{data,error}=await db.from('projects').update({base_price:calculated}).eq('id',project.id).select().single();if(error)throw error;onSaved(data);setStatus('Fee saved to project. Review appointment scope before issuing a quotation.')}catch(e){setStatus('Fee not saved: '+e.message)}finally{setSaving(false)}}
- return <section className="panel"><h2>Automatic fee calculation</h2><p className="muted">Indicative UKPD professional fee, calculated from the selected service, described work, project size and uploaded drawing count. This is not a construction cost estimate.</p><div className="formgrid"><label>Gross internal floor area (m²) — confirm from plans<input type="number" min="1" step="1" value={area} onChange={e=>setArea(e.target.value)} placeholder="Enter measured floor area"/></label><div><b>Service</b><p>{project.offer_code} — {PD_PACKAGES[project.offer_code]?.name||'Review service'}</p></div><div><b>Project characteristics</b><p>{complex?'Complex / specialist works':moderate?'Alterations / refurbishment':'Standard or unclassified works'} · {count} unit(s) · {documents.length} drawing(s)</p></div></div><h3>Provisional fee: £{calculated.toLocaleString('en-GB')} + VAT</h3><p className="muted">{knownArea?'Area factor applied from entered floor area.':'Floor area not confirmed — minimum size factor used. Enter the measured area for a better calculation.'} Assumptions, site visits, programme, risk, design responsibility and exclusions require review before quoting.</p><button type="button" disabled={saving} onClick={apply}>{saving?'Saving…':'Save proposed fee to project'}</button><p role="status">{status}</p></section>;
+ const core=Math.ceil(base*sizeFactor*typeFactor*quantityFactor*drawingFactor/25)*25;
+ const visitCount=Math.max(0,Math.min(100,Number(visits)||0));
+ const programmeWeeks=Math.max(0,Math.min(260,Number(weeks)||0));
+ const visitAllowance=visitCount*250;
+ const programmeAllowance=Math.max(0,programmeWeeks-12)*35;
+ const calculated=Math.ceil((core+visitAllowance+programmeAllowance)/25)*25;
+ async function apply(){setSaving(true);setStatus('Saving proposed fee…');try{const{data,error}=await db.from('projects').update({base_price:calculated}).eq('id',project.id).select().single();if(error)throw error;onSaved(data);setStatus('Provisional fee saved. Confirm scope, appointment and assumptions before quotation.')}catch(e){setStatus('Fee not saved: '+e.message)}finally{setSaving(false)}}
+ return <section className="panel"><h2>Automatic PD fee calculator</h2><p className="muted">Provisional professional fee based on the selected service, project information, plan register and confirmed inputs. The app does not yet measure floor areas directly from drawing geometry.</p><div className="formgrid">
+ <label>Gross internal floor area (m²)<input type="number" min="1" step="1" value={area} onChange={e=>setArea(e.target.value)} placeholder={suggestedArea?'From project notes: '+suggestedArea:'Enter area measured from plans'}/></label>
+ <label>Project complexity<select value={complexity} onChange={e=>setComplexity(e.target.value)}><option value="auto">Automatic — {autoComplex}</option><option value="standard">Standard</option><option value="moderate">Alterations / moderate</option><option value="complex">Complex / specialist</option></select></label>
+ <label>Site visits required<input type="number" min="0" max="100" step="1" value={visits} onChange={e=>setVisits(e.target.value)}/></label>
+ <label>Programme duration (weeks)<input type="number" min="0" max="260" step="1" value={weeks} onChange={e=>setWeeks(e.target.value)}/></label>
+ </div>
+ <p><b>Service:</b> {project.offer_code} — {PD_PACKAGES[project.offer_code]?.name||'Review service'} · <b>Units:</b> {count} · <b>Uploaded drawings:</b> {documents.length}</p>
+ {suggestedArea&&<p className="muted">Project notes mention {suggestedArea.toLocaleString('en-GB')} m². Confirm this against the plans before relying on the fee.</p>}
+ <h3>Provisional fee: £{calculated.toLocaleString('en-GB')} + VAT</h3>
+ <p className="muted">Base and complexity allowance: £{core.toLocaleString('en-GB')} · Site visits: £{visitAllowance.toLocaleString('en-GB')} · Programme allowance beyond 12 weeks: £{programmeAllowance.toLocaleString('en-GB')}.</p>
+ <p className="muted">{effectiveArea?'Floor-area factor included.':'Floor area unknown: minimum size factor applied.'} Travel, exceptional risk, specialist design and third-party fees must be reviewed. No fee is contractually issued by this calculation.</p>
+ <button type="button" disabled={saving} onClick={apply}>{saving?'Saving…':'Save proposed fee to project'}</button><p role="status">{status}</p></section>;
 }
 function Project({p,back}){const[current,setCurrent]=useState(p);const[t,setT]=useState('Overview'),[data,setData]=useState({actions:[],drawings:[],design_changes:[],information_requirements:[],documents:[],payments:[],enquiries:[],evidence:[],technical_reviews:[],scope_change_events:[],pd_compliance_items:[],pd_dutyholders:[],pd_inspections:[],report_issues:[],handover:[],ai_project_questions:[],rams_items:[]}),[title,setTitle]=useState(''),[quick,setQuick]=useState('');
 useEffect(()=>{Promise.all(Object.keys(data).map(k=>db.from(k).select('*').eq('project_id',p.id).order('created_at',{ascending:false}))).then(rs=>{let x={};Object.keys(data).forEach((k,i)=>x[k]=rs[i].data||[]);setData(x)})},[p.id]);useEffect(()=>{const listener=async e=>{if(e.detail?.projectId!==p.id)return;const{data:docs,error}=await db.from('documents').select('*').eq('project_id',p.id).order('created_at',{ascending:false});if(!error)setData(x=>({...x,documents:docs||[]}))};window.addEventListener('ukpd-documents-updated',listener);return()=>window.removeEventListener('ukpd-documents-updated',listener)},[p.id]);
