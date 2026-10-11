@@ -4,6 +4,7 @@ import * as pdfjs from 'pdfjs-dist';
 import * as XLSX from 'xlsx';
 import './estimates.css';
 import {scaleSheetRegister,calibrationStatus as storedCalibrationStatus,missingCalibration as pagesAwaitingCalibration} from './calibration.mjs';
+import {clampZoom,normalizedDrawingPoint,anchoredScroll,pinchGeometry} from './drawingZoom.mjs';
 pdfjs.GlobalWorkerOptions.workerSrc=new URL('pdfjs-dist/build/pdf.worker.min.mjs',import.meta.url).toString();
 const fresh={items:[],highlights:[],builder_id:'',takeoff_review_status:'Draft',takeoff_reviewer:'',takeoff_reviewed_at:'',measurement_standard:'NRM2',drawing_stages:{},supplier_price_date:'',supplier_price_source:'',global_adjustment:0,overheads:15,profit:10,vat:20,pc_sums:[],provisional_sums:[],dayworks:[],contingency_mode:'percent',contingency_value:0,quote_intro:'We are pleased to provide our quotation for the works described below.',quote_scope:'',quote_validity:'30 days',quote_payment_terms:'Payment schedule to be agreed before commencement.',quote_exclusions:'Items not expressly included are excluded.',quote_terms:'Subject to agreed contract terms.',quote_ref:'',quote_revisions:[]};
 const initialItem={ref_no:'',work_section:'Measured Works',description:'',trade:'General',drawing:'',quantity:0,unit:'m²',material_rate:0,plant_rate:0,labour_hours:0,labour_rate:0,supplier:'',price_url:'',status:'Needs verification'};
@@ -19,7 +20,10 @@ export default function Estimates({db,project,docs=[]}){
  const [aiBusy,setAiBusy]=useState(false),[aiReview,setAiReview]=useState(null); const [drawing,setDrawing]=useState(''),[page,setPage]=useState(1),[pageCount,setPageCount]=useState(1),[image,setImage]=useState(''),[dimensions,setDimensions]=useState([0,0]);
  const [calibrate,setCalibrate]=useState(false),[reference,setReference]=useState(null),[calibrationMetres,setCalibrationMetres]=useState(''),[calibrationFirst,setCalibrationFirst]=useState(null),[drag,setDrag]=useState(null),[hover,setHover]=useState(null),[markName,setMarkName]=useState('New work'),[stage,setStage]=useState('Proposed');
  const [calibrationWizard,setCalibrationWizard]=useState(false),[calibrationPages,setCalibrationPages]=useState([]),[calibrationLoading,setCalibrationLoading]=useState(false),[calibrationSaving,setCalibrationSaving]=useState(false);
- const canvas=useRef(null),overlay=useRef(null);
+ const canvas=useRef(null),overlay=useRef(null),drawingScroll=useRef(null);
+ const [zoom,setZoom]=useState(1),[panMode,setPanMode]=useState(false);
+ const zoomRef=useRef(1),pointerPositions=useRef(new Map()),pinchRef=useRef(null),panRef=useRef(null),gestureRef=useRef(false),scrollAnimation=useRef(null);
+ useEffect(()=>{zoomRef.current=1;setZoom(1);setPanMode(false);pointerPositions.current.clear();pinchRef.current=null;panRef.current=null;gestureRef.current=false;setDrag(null);setHover(null);return()=>{if(scrollAnimation.current)cancelAnimationFrame(scrollAnimation.current)}},[drawing,page]);
  const fileDocs=docs.filter(d=>d.status!=='Superseded'&&/\.(pdf|png|jpg|jpeg)$/i.test(d.document_no||d.title||d.file_path||''));
  useEffect(()=>{db.from('estimate_rate_library').select('*').order('description').limit(5000).then(({data,error})=>{if(!error)setRateLibrary(data||[])});},[db]);
  useEffect(()=>{db.from('estimate_builders').select('*').order('name').then(({data,error})=>{if(!error)setBuilders(data||[])});},[db]);
@@ -266,13 +270,97 @@ export default function Estimates({db,project,docs=[]}){
  }
  const builder=builders.find(b=>String(b.id)===String(estimate.builder_id));
 
- function point(e){const rect=overlay.current.getBoundingClientRect();return {x:Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width)),y:Math.max(0,Math.min(1,(e.clientY-rect.top)/rect.height))}}
- function distanceOnDrawing(a,b){return Math.hypot((a.x-b.x)*dimensions[0],(a.y-b.y)*dimensions[1])}
- function start(e){
+ function point(e){return normalizedDrawingPoint(e.clientX,e.clientY,overlay.current.getBoundingClientRect())}
+ // CSS zoom only changes the page's on-screen size, never the underlying drawing coordinates.
+ function setDrawingZoom(requested,anchor=null,origin=null){
+   const viewer=drawingScroll.current;
+   if(!viewer)return;
+   const oldZoom=zoomRef.current,nextZoom=clampZoom(requested);
+   const dest=anchor||{x:viewer.clientWidth/2,y:viewer.clientHeight/2};
+   const source=origin||{scrollLeft:viewer.scrollLeft,scrollTop:viewer.scrollTop,anchorX:dest.x,anchorY:dest.y,zoom:oldZoom};
+   const nextScroll=anchoredScroll({
+     scrollLeft:source.scrollLeft,scrollTop:source.scrollTop,
+     fromZoom:source.zoom,toZoom:nextZoom,
+     anchorX:source.anchorX,anchorY:source.anchorY,targetX:dest.x,targetY:dest.y
+   });
+   zoomRef.current=nextZoom;
+   setZoom(nextZoom);
+   if(scrollAnimation.current)cancelAnimationFrame(scrollAnimation.current);
+   scrollAnimation.current=requestAnimationFrame(()=>{
+     viewer.scrollLeft=nextScroll.left;viewer.scrollTop=nextScroll.top;scrollAnimation.current=null;
+   });
+ }
+ function handleZoomWheel(e){
+   if(!e.ctrlKey&&!e.metaKey)return;
+   e.preventDefault();
+   const bounds=drawingScroll.current.getBoundingClientRect();
+   setDrawingZoom(zoomRef.current*(e.deltaY<0?1.12:1/1.12),{x:e.clientX-bounds.left,y:e.clientY-bounds.top});
+ }
+ function handleDrawingPointerDown(e){
    if(!drawing||!dimensions[0]||!dimensions[1])return;
-   e.preventDefault();overlay.current.setPointerCapture(e.pointerId);
+   e.preventDefault();
+   overlay.current.setPointerCapture(e.pointerId);
+   pointerPositions.current.set(e.pointerId,{x:e.clientX,y:e.clientY});
+   if(pointerPositions.current.size>=2){
+     gestureRef.current=true;panRef.current=null;setDrag(null);setHover(null);
+     if(pointerPositions.current.size===2){
+       const [a,b]=[...pointerPositions.current.values()],geo=pinchGeometry(a,b);
+       const bounds=drawingScroll.current.getBoundingClientRect();
+       pinchRef.current={
+         distance:Math.max(1,geo.distance),zoom:zoomRef.current,
+         scrollLeft:drawingScroll.current.scrollLeft,scrollTop:drawingScroll.current.scrollTop,
+         anchorX:geo.x-bounds.left,anchorY:geo.y-bounds.top
+       };
+     }
+     return;
+   }
+   if(gestureRef.current)return;
+   if(panMode){
+     panRef.current={
+       pointerId:e.pointerId,x:e.clientX,y:e.clientY,
+       left:drawingScroll.current.scrollLeft,top:drawingScroll.current.scrollTop
+     };
+     return;
+   }
    const p=point(e);setDrag(p);setHover(p);
  }
+ function handleDrawingPointerMove(e){
+   if(pointerPositions.current.has(e.pointerId))
+     pointerPositions.current.set(e.pointerId,{x:e.clientX,y:e.clientY});
+   if(pointerPositions.current.size>=2&&pinchRef.current){
+     e.preventDefault();
+     const [a,b]=[...pointerPositions.current.values()],geo=pinchGeometry(a,b);
+     const bounds=drawingScroll.current.getBoundingClientRect(),start=pinchRef.current;
+     setDrawingZoom(start.zoom*geo.distance/start.distance,
+       {x:geo.x-bounds.left,y:geo.y-bounds.top},start);
+     return;
+   }
+   if(panRef.current?.pointerId===e.pointerId){
+     e.preventDefault();
+     const p=panRef.current;
+     drawingScroll.current.scrollLeft=p.left-(e.clientX-p.x);
+     drawingScroll.current.scrollTop=p.top-(e.clientY-p.y);
+     return;
+   }
+   if(!gestureRef.current&&(drag||calibrationFirst))setHover(point(e));
+ }
+ function handleDrawingPointerUp(e){
+   const wasActive=pointerPositions.current.has(e.pointerId);
+   pointerPositions.current.delete(e.pointerId);
+   const handled=Boolean(gestureRef.current||panRef.current);
+   if(pointerPositions.current.size<2)pinchRef.current=null;
+   if(panRef.current?.pointerId===e.pointerId)panRef.current=null;
+   if(!pointerPositions.current.size)gestureRef.current=false;
+   if(handled){setDrag(null);setHover(null);return}
+   if(wasActive)finish(e);
+ }
+ function handleDrawingPointerCancel(e){
+   pointerPositions.current.delete(e.pointerId);panRef.current=null;
+   if(pointerPositions.current.size<2)pinchRef.current=null;
+   if(!pointerPositions.current.size)gestureRef.current=false;
+   setDrag(null);setHover(null);
+ }
+ function distanceOnDrawing(a,b){return Math.hypot((a.x-b.x)*dimensions[0],(a.y-b.y)*dimensions[1])}
  function finish(e){
    if(!drag)return;
    const end=point(e),x=Math.min(end.x,drag.x),y=Math.min(end.y,drag.y),w=Math.abs(end.x-drag.x),h=Math.abs(end.y-drag.y);
@@ -361,7 +449,19 @@ export default function Estimates({db,project,docs=[]}){
   <button type="button" className="outline" disabled={calibrationSaving||!calibrationWizard||!drawing} onClick={()=>saveCalibration(true)}>Reference only (no measurements)</button>
   <span role="status" aria-live="polite">{calibrate?(calibrationFirst?'Tap second end of the dimension':'Tap first and second ends, or drag along the dimension'):reference?'Line selected — enter metres and save':selectedCalibrationStatus==='calibrated'?'This page has a saved scale':selectedCalibrationStatus==='reference-only'?'Reference-only page':'Scale not set for this page'}</span>
  </div><div className="estimateToolbar"><label>Choose uploaded plan<select value={drawing} onChange={e=>{setDrawing(e.target.value);setPage(1);setReference(null);setCalibrationFirst(null);setCalibrate(false)}}><option value="">Select existing or proposed PDF</option>{fileDocs.map(d=><option key={d.id} value={d.id}>{d.document_no||d.title}</option>)}</select></label><label>Area label<input value={markName} onChange={e=>setMarkName(e.target.value)}/></label><label>Drawing stage<select value={stage} onChange={e=>setStage(e.target.value)}><option>Proposed</option><option>Existing</option><option>Demolition</option><option>Retained</option></select></label>{pageCount>1&&<label>Page<select value={page} onChange={e=>{setPage(Number(e.target.value));setReference(null);setCalibrationFirst(null);setCalibrate(false)}}>{Array.from({length:pageCount},(_,i)=><option key={i} value={i+1}>{i+1}</option>)}</select></label>}</div>
- <div className="estimateDrawingScroll"><div className="estimateDrawing" style={image?{}:{width:dimensions[0]||800}}>{image?<img src={image} alt="Drawing to mark" onLoad={e=>setDimensions([e.currentTarget.naturalWidth,e.currentTarget.naturalHeight])}/>:<canvas ref={canvas}/>}<div ref={overlay} className="estimateOverlay" onPointerDown={start} onPointerMove={e=>(drag||calibrationFirst)&&setHover(point(e))} onPointerUp={finish} onPointerCancel={()=>{setDrag(null);setHover(null)}}>{(reference?.points||calibrationFirst)&&<svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none',overflow:'visible'}} viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+ <div className="estimateToolbar estimateZoomControls" aria-label="Drawing zoom and movement">
+   <button type="button" disabled={!drawing||!dimensions[0]} onClick={()=>setDrawingZoom(zoomRef.current/1.5)} aria-label="Zoom out on drawing">− Zoom out</button>
+   <button type="button" disabled={!drawing||!dimensions[0]} onClick={()=>setDrawingZoom(zoomRef.current*1.5)} aria-label="Zoom in on drawing">+ Zoom in</button>
+   <button type="button" disabled={!drawing||!dimensions[0]} onClick={()=>setDrawingZoom((drawingScroll.current.clientWidth-24)/dimensions[0])}>Fit width</button>
+   <button type="button" disabled={!drawing||!dimensions[0]} onClick={()=>setDrawingZoom(1)}>100%</button>
+   <button type="button" className={panMode?'selected':''} aria-pressed={panMode} disabled={!drawing||!dimensions[0]} onClick={()=>{setPanMode(v=>!v);setDrag(null);setHover(null)}}>{panMode?'Pan on — tap to select points':'Move drawing'}</button>
+   <span role="status" aria-live="polite">{Math.round(zoom*100)}% zoom</span>
+   <small>Pinch with two fingers to zoom. Use <strong>Move drawing</strong> to drag around; switch it off before tapping calibration points. Zoom does not change scale.</small>
+ </div>
+ <div ref={drawingScroll} className="estimateDrawingScroll" onWheel={handleZoomWheel}>
+   <div className="estimateDrawing" style={{width:dimensions[0]?dimensions[0]*zoom:800,height:dimensions[1]?dimensions[1]*zoom:undefined}}>
+   {image?<img src={image} alt="Drawing to mark" style={{width:dimensions[0]?dimensions[0]*zoom:undefined,height:dimensions[1]?dimensions[1]*zoom:undefined}} onLoad={e=>setDimensions([e.currentTarget.naturalWidth,e.currentTarget.naturalHeight])}/>:<canvas ref={canvas} style={{width:dimensions[0]?dimensions[0]*zoom:undefined,height:dimensions[1]?dimensions[1]*zoom:undefined}}/>}
+   <div ref={overlay} className="estimateOverlay" style={{cursor:panMode?'grab':'crosshair'}} onPointerDown={handleDrawingPointerDown} onPointerMove={handleDrawingPointerMove} onPointerUp={handleDrawingPointerUp} onPointerCancel={handleDrawingPointerCancel}>{(reference?.points||calibrationFirst)&&<svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none',overflow:'visible'}} viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
  {reference?.points&&<line x1={reference.points[0].x*100} y1={reference.points[0].y*100} x2={reference.points[1].x*100} y2={reference.points[1].y*100} stroke="#0076ba" strokeWidth=".5"/>}
  {calibrationFirst&&<circle cx={calibrationFirst.x*100} cy={calibrationFirst.y*100} r=".8" fill="#0076ba"/>}
  {calibrationFirst&&hover&&<line x1={calibrationFirst.x*100} y1={calibrationFirst.y*100} x2={hover.x*100} y2={hover.y*100} stroke="#0076ba" strokeWidth=".35" strokeDasharray="1 .6"/>}
