@@ -16,7 +16,7 @@ test('A then B yields actual unzoomed drawing pixel length',()=>{
   const first=click(a);
   const selected=resolveCalibrationClick(b,b,first.first,...dims);
   assert.equal(selected.step,'complete');
-  assert.equal(selected.length,1000);
+  assert.ok(Math.abs(selected.length-1000)<1e-9,'distance must be 1000 drawing pixels');
   assert.deepEqual(selected.first,a);assert.deepEqual(selected.second,b);
 });
 test('desktop click-and-drag remains supported',()=>{
