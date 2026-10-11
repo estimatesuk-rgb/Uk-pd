@@ -12,3 +12,12 @@
 .estimateScaleControls button{min-height:44px}
 .estimateScaleControls label{min-width:190px}
 @media(max-width:650px){.estimateCalibrationPages{grid-template-columns:1fr}.estimateScaleControls{align-items:stretch}.estimateScaleControls button{width:100%}.estimateScaleControls label{min-width:100%}}
+
+/* Zoom the rendered sheet rather than its backing canvas, so calibration pixels stay invariant. */
+.estimateDrawingScroll{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.estimateZoomControls{align-items:center}
+.estimateZoomControls button{min-height:44px;width:auto;white-space:normal}
+.estimateZoomControls button.selected{outline:3px solid #486a85;outline-offset:1px}
+.estimateZoomControls small{flex:1 1 240px;line-height:1.4}
+.estimateZoomControls [role="status"]{font-weight:700;white-space:nowrap;min-width:90px}
+@media(max-width:650px){.estimateZoomControls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch}.estimateZoomControls button{width:100%}.estimateZoomControls small{grid-column:1/-1}.estimateZoomControls [role="status"]{align-self:center}}
