@@ -21,3 +21,9 @@
 .estimateZoomControls small{flex:1 1 240px;line-height:1.4}
 .estimateZoomControls [role="status"]{font-weight:700;white-space:nowrap;min-width:90px}
 @media(max-width:650px){.estimateZoomControls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch}.estimateZoomControls button{width:100%}.estimateZoomControls small{grid-column:1/-1}.estimateZoomControls [role="status"]{align-self:center}}
+
+/* Clear mouse, touch and tablet pen feedback during calibration. */
+.estimateScaleControls button.selected{outline:3px solid #006a9d;outline-offset:2px;background:#e0f0f8;color:#153b55}
+.estimateDrawingScroll{position:relative}
+.estimateOverlay{user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+.estimateZoomControls small{font-size:13px}
