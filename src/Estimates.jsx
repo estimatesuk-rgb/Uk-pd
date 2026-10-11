@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx';
 import './estimates.css';
 import {scaleSheetRegister,calibrationStatus as storedCalibrationStatus,missingCalibration as pagesAwaitingCalibration} from './calibration.mjs';
 import {clampZoom,normalizedDrawingPoint,anchoredScroll,pinchGeometry} from './drawingZoom.mjs';
+import {resolveCalibrationClick} from './calibrationInteraction.mjs';
 pdfjs.GlobalWorkerOptions.workerSrc=new URL('pdfjs-dist/build/pdf.worker.min.mjs',import.meta.url).toString();
 const fresh={items:[],highlights:[],builder_id:'',takeoff_review_status:'Draft',takeoff_reviewer:'',takeoff_reviewed_at:'',measurement_standard:'NRM2',drawing_stages:{},supplier_price_date:'',supplier_price_source:'',global_adjustment:0,overheads:15,profit:10,vat:20,pc_sums:[],provisional_sums:[],dayworks:[],contingency_mode:'percent',contingency_value:0,quote_intro:'We are pleased to provide our quotation for the works described below.',quote_scope:'',quote_validity:'30 days',quote_payment_terms:'Payment schedule to be agreed before commencement.',quote_exclusions:'Items not expressly included are excluded.',quote_terms:'Subject to agreed contract terms.',quote_ref:'',quote_revisions:[]};
 const initialItem={ref_no:'',work_section:'Measured Works',description:'',trade:'General',drawing:'',quantity:0,unit:'m²',material_rate:0,plant_rate:0,labour_hours:0,labour_rate:0,supplier:'',price_url:'',status:'Needs verification'};
@@ -422,21 +423,18 @@ export default function Estimates({db,project,docs=[]}){
      w=Math.abs(end.x-initial.x),h=Math.abs(end.y-initial.y);
    setDrag(null);setHover(null);
    if(calibrate){
-     const dragged=distanceOnDrawing(initial,end)>=5;
-     const previous=firstCalibrationPoint.current;
-     if(!dragged&&!previous){
-       firstCalibrationPoint.current=end;
-       setCalibrationFirst(end);
+     const result=resolveCalibrationClick(initial,end,firstCalibrationPoint.current,dimensions[0],dimensions[1]);
+     if(result.step==='point-a'){
+       firstCalibrationPoint.current=result.first;
+       setCalibrationFirst(result.first);
        setNotice('Point A selected. Now click or tap point B at the other end of that printed dimension.');
        return;
      }
-     const first=dragged?initial:previous;
-     const length=distanceOnDrawing(first,end);
-     if(length<5){
+     if(result.step==='too-close'||result.step==='invalid'){
        setNotice('Points A and B are too close. Select two distinct ends of the printed dimension.');
        return;
      }
-     setReference({length,drawing_id:drawing,page,points:[first,end]});
+     setReference({length:result.length,drawing_id:drawing,page,points:[result.first,result.second]});
      firstCalibrationPoint.current=null;
      setCalibrationFirst(null);setCalibrate(false);
      setNotice('A and B selected. Enter the dimension in metres, then press Save scale & next.');
