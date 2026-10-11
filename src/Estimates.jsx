@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx';
 import './estimates.css';
 import {scaleSheetRegister,calibrationStatus as storedCalibrationStatus,missingCalibration as pagesAwaitingCalibration} from './calibration.mjs';
 import {clampZoom,normalizedDrawingPoint,anchoredScroll,pinchGeometry} from './drawingZoom.mjs';
+import {resolveCalibrationClick} from './calibrationInteraction.mjs';
 pdfjs.GlobalWorkerOptions.workerSrc=new URL('pdfjs-dist/build/pdf.worker.min.mjs',import.meta.url).toString();
 const fresh={items:[],highlights:[],builder_id:'',takeoff_review_status:'Draft',takeoff_reviewer:'',takeoff_reviewed_at:'',measurement_standard:'NRM2',drawing_stages:{},supplier_price_date:'',supplier_price_source:'',global_adjustment:0,overheads:15,profit:10,vat:20,pc_sums:[],provisional_sums:[],dayworks:[],contingency_mode:'percent',contingency_value:0,quote_intro:'We are pleased to provide our quotation for the works described below.',quote_scope:'',quote_validity:'30 days',quote_payment_terms:'Payment schedule to be agreed before commencement.',quote_exclusions:'Items not expressly included are excluded.',quote_terms:'Subject to agreed contract terms.',quote_ref:'',quote_revisions:[]};
 const initialItem={ref_no:'',work_section:'Measured Works',description:'',trade:'General',drawing:'',quantity:0,unit:'m²',material_rate:0,plant_rate:0,labour_hours:0,labour_rate:0,supplier:'',price_url:'',status:'Needs verification'};
@@ -21,26 +22,76 @@ export default function Estimates({db,project,docs=[]}){
  const [calibrate,setCalibrate]=useState(false),[reference,setReference]=useState(null),[calibrationMetres,setCalibrationMetres]=useState(''),[calibrationFirst,setCalibrationFirst]=useState(null),[drag,setDrag]=useState(null),[hover,setHover]=useState(null),[markName,setMarkName]=useState('New work'),[stage,setStage]=useState('Proposed');
  const [calibrationWizard,setCalibrationWizard]=useState(false),[calibrationPages,setCalibrationPages]=useState([]),[calibrationLoading,setCalibrationLoading]=useState(false),[calibrationSaving,setCalibrationSaving]=useState(false);
  const canvas=useRef(null),overlay=useRef(null),drawingScroll=useRef(null);
+ // Physical PDF bitmap resolution can change on zoom; logical page dimensions must not.
+ const pdfView=useRef(null),pdfRender=useRef(null);
+ // Mouse/pointer events can be batched: keep the press and first calibration tap synchronously.
+ const pressedPoint=useRef(null),firstCalibrationPoint=useRef(null);
  const [zoom,setZoom]=useState(1),[panMode,setPanMode]=useState(false);
  const zoomRef=useRef(1),pointerPositions=useRef(new Map()),pinchRef=useRef(null),panRef=useRef(null),gestureRef=useRef(false),scrollAnimation=useRef(null);
- useEffect(()=>{zoomRef.current=1;setZoom(1);setPanMode(false);pointerPositions.current.clear();pinchRef.current=null;panRef.current=null;gestureRef.current=false;setDrag(null);setHover(null);return()=>{if(scrollAnimation.current)cancelAnimationFrame(scrollAnimation.current)}},[drawing,page]);
+ useEffect(()=>{zoomRef.current=1;setZoom(1);setPanMode(false);pointerPositions.current.clear();pinchRef.current=null;panRef.current=null;gestureRef.current=false;pressedPoint.current=null;firstCalibrationPoint.current=null;setDrag(null);setHover(null);return()=>{if(scrollAnimation.current)cancelAnimationFrame(scrollAnimation.current)}},[drawing,page]);
  const fileDocs=docs.filter(d=>d.status!=='Superseded'&&/\.(pdf|png|jpg|jpeg)$/i.test(d.document_no||d.title||d.file_path||''));
  useEffect(()=>{db.from('estimate_rate_library').select('*').order('description').limit(5000).then(({data,error})=>{if(!error)setRateLibrary(data||[])});},[db]);
  useEffect(()=>{db.from('estimate_builders').select('*').order('name').then(({data,error})=>{if(!error)setBuilders(data||[])});},[db]);
- useEffect(()=>{let cancelled=false;async function load(){
-   setImage('');setDimensions([0,0]);if(!drawing)return;
-   const d=fileDocs.find(x=>x.id===drawing);if(!d)return;
-   const {data,error}=await db.storage.from('project-files').createSignedUrl(d.file_path,1200);
-   if(error||!data?.signedUrl){setNotice(error?.message||'Drawing could not be opened');return}
-   try{const url=data.signedUrl,ext=(d.document_no||d.title||d.file_path||'').split('.').pop().toLowerCase();
-     if(ext!=='pdf'){if(!cancelled){setImage(url);setPageCount(1)}return}
-     const doc=await pdfjs.getDocument({url}).promise;if(cancelled)return;
-     setPageCount(doc.numPages);const pg=await doc.getPage(Math.min(page,doc.numPages));if(cancelled)return;
-     const viewport=pg.getViewport({scale:1.4});const c=canvas.current;if(!c)return;c.width=viewport.width;c.height=viewport.height;
-     await pg.render({canvasContext:c.getContext('2d'),viewport}).promise;
-     if(!cancelled)setDimensions([viewport.width,viewport.height])
-   }catch(e){if(!cancelled)setNotice('Drawing preview failed: '+e.message)}
- }load();return()=>{cancelled=true}},[drawing,page,docs,db]);
+ // Fetch a selected sheet only when the drawing or page changes, never on each zoom.
+ useEffect(()=>{
+   let cancelled=false,doc=null;
+   pdfView.current=null;
+   setImage('');setDimensions([0,0]);
+   if(!drawing)return;
+   async function load(){
+     const d=fileDocs.find(x=>x.id===drawing);if(!d)return;
+     const {data,error}=await db.storage.from('project-files').createSignedUrl(d.file_path,1200);
+     if(cancelled)return;
+     if(error||!data?.signedUrl){setNotice(error?.message||'Drawing could not be opened');return}
+     try{
+       const url=data.signedUrl,ext=(d.document_no||d.title||d.file_path||'').split('.').pop().toLowerCase();
+       if(ext!=='pdf'){setImage(url);setPageCount(1);return}
+       const loading=pdfjs.getDocument({url});
+       doc=await loading.promise;
+       if(cancelled){await doc.destroy();doc=null;return}
+       const pg=await doc.getPage(Math.min(page,doc.numPages));
+       if(cancelled)return;
+       const bounds=pg.getViewport({scale:1.4});
+       pdfView.current={doc,pg,drawing,page};
+       setPageCount(doc.numPages);
+       setDimensions([bounds.width,bounds.height]);
+     }catch(e){if(!cancelled)setNotice('Drawing preview failed: '+(e?.message||e))}
+   }
+   load();
+   return()=>{cancelled=true;pdfView.current=null;
+     if(pdfRender.current)pdfRender.current.cancel();
+     if(doc){doc.destroy().catch(()=>{});doc=null}
+   };
+ },[drawing,page,docs,db]);
+ // PDF pages contain vectors. Re-render at an appropriate backing resolution at every
+ // zoom level instead of stretching a fixed 1.4x preview into blurry enlarged pixels.
+ useEffect(()=>{
+   const sheet=pdfView.current;
+   if(image||!sheet||sheet.drawing!==drawing||sheet.page!==page||!dimensions[0]||!dimensions[1])return;
+   let disposed=false;
+   const timer=window.setTimeout(async()=>{
+     const previous=pdfRender.current;
+     if(previous){previous.cancel();try{await previous.promise}catch{}}
+     if(disposed||pdfView.current!==sheet||!canvas.current)return;
+     const backingRatio=Math.min(2,Math.max(1,window.devicePixelRatio||1));
+     const target=Math.max(0.25,zoom*backingRatio);
+     // Protect memory on large A0/A1 sheets, especially iPad and iPhone.
+     const maxBySide=6144/Math.max(dimensions[0],dimensions[1]);
+     const maxByArea=Math.sqrt(18000000/(dimensions[0]*dimensions[1]));
+     const resolution=Math.min(target,maxBySide,maxByArea);
+     const viewport=sheet.pg.getViewport({scale:1.4*resolution});
+     const el=canvas.current;
+     el.width=Math.max(1,Math.round(viewport.width));
+     el.height=Math.max(1,Math.round(viewport.height));
+     const task=sheet.pg.render({canvasContext:el.getContext('2d'),viewport});
+     pdfRender.current=task;
+     try{await task.promise}catch(e){
+       if(!disposed&&e?.name!=='RenderingCancelledException')
+         setNotice('Drawing redraw failed: '+String(e?.message||e))
+     }finally{if(pdfRender.current===task)pdfRender.current=null}
+   },100);
+   return()=>{disposed=true;clearTimeout(timer);if(pdfRender.current)pdfRender.current.cancel()};
+ },[drawing,page,image,zoom,dimensions[0],dimensions[1]]);
  // Render all drawing pages locally: Cloudflare vision accepts images, not raw PDFs.
  // Only the signed-in user's drawing images are sent to our own authenticated Worker.
  const MAX_AI_PAGES=20;
@@ -80,6 +131,8 @@ export default function Estimates({db,project,docs=[]}){
  const missingCalibration=(entries,from=estimate)=>pagesAwaitingCalibration(entries,from);
  function chooseCalibrationPage(entry){
    setDrawing(entry.document_id);setPage(entry.page);
+   // Scale picking wins over Move mode when changing pages.
+   setPanMode(false);panRef.current=null;pressedPoint.current=null;firstCalibrationPoint.current=null;
    setCalibrate(true);setCalibrationFirst(null);setReference(null);setCalibrationMetres('');
    setDrag(null);setHover(null);
    setTimeout(()=>document.getElementById('estimate-drawing-takeoff')?.scrollIntoView({behavior:'smooth',block:'start'}),0);
@@ -124,7 +177,7 @@ export default function Estimates({db,project,docs=[]}){
    try{
      const {error}=await db.from('projects').update({estimate_data:next}).eq('id',project.id);
      if(error)throw error;
-     setEstimate(next);setReference(null);setCalibrationMetres('');setCalibrationFirst(null);setCalibrate(false);
+     setEstimate(next);setReference(null);setCalibrationMetres('');setCalibrationFirst(null);firstCalibrationPoint.current=null;setCalibrate(false);
      const pending=missingCalibration(calibrationPages,next);
      if(pending.length){
        chooseCalibrationPage(pending[0]);
@@ -302,7 +355,7 @@ export default function Estimates({db,project,docs=[]}){
    overlay.current.setPointerCapture(e.pointerId);
    pointerPositions.current.set(e.pointerId,{x:e.clientX,y:e.clientY});
    if(pointerPositions.current.size>=2){
-     gestureRef.current=true;panRef.current=null;setDrag(null);setHover(null);
+     gestureRef.current=true;panRef.current=null;pressedPoint.current=null;setDrag(null);setHover(null);
      if(pointerPositions.current.size===2){
        const [a,b]=[...pointerPositions.current.values()],geo=pinchGeometry(a,b);
        const bounds=drawingScroll.current.getBoundingClientRect();
@@ -322,7 +375,7 @@ export default function Estimates({db,project,docs=[]}){
      };
      return;
    }
-   const p=point(e);setDrag(p);setHover(p);
+   const p=point(e);pressedPoint.current=p;setDrag(p);setHover(p);
  }
  function handleDrawingPointerMove(e){
    if(pointerPositions.current.has(e.pointerId))
@@ -342,7 +395,7 @@ export default function Estimates({db,project,docs=[]}){
      drawingScroll.current.scrollTop=p.top-(e.clientY-p.y);
      return;
    }
-   if(!gestureRef.current&&(drag||calibrationFirst))setHover(point(e));
+   if(!gestureRef.current&&(pressedPoint.current||firstCalibrationPoint.current))setHover(point(e));
  }
  function handleDrawingPointerUp(e){
    const wasActive=pointerPositions.current.has(e.pointerId);
@@ -351,33 +404,40 @@ export default function Estimates({db,project,docs=[]}){
    if(pointerPositions.current.size<2)pinchRef.current=null;
    if(panRef.current?.pointerId===e.pointerId)panRef.current=null;
    if(!pointerPositions.current.size)gestureRef.current=false;
-   if(handled){setDrag(null);setHover(null);return}
+   if(handled){pressedPoint.current=null;setDrag(null);setHover(null);return}
    if(wasActive)finish(e);
  }
  function handleDrawingPointerCancel(e){
    pointerPositions.current.delete(e.pointerId);panRef.current=null;
    if(pointerPositions.current.size<2)pinchRef.current=null;
    if(!pointerPositions.current.size)gestureRef.current=false;
-   setDrag(null);setHover(null);
+   pressedPoint.current=null;setDrag(null);setHover(null);
  }
  function distanceOnDrawing(a,b){return Math.hypot((a.x-b.x)*dimensions[0],(a.y-b.y)*dimensions[1])}
  function finish(e){
-   if(!drag)return;
-   const end=point(e),x=Math.min(end.x,drag.x),y=Math.min(end.y,drag.y),w=Math.abs(end.x-drag.x),h=Math.abs(end.y-drag.y);
+   // React state might not have committed before a quick click/tap's pointerup.
+   const initial=pressedPoint.current;
+   pressedPoint.current=null;
+   if(!initial)return;
+   const end=point(e),x=Math.min(end.x,initial.x),y=Math.min(end.y,initial.y),
+     w=Math.abs(end.x-initial.x),h=Math.abs(end.y-initial.y);
    setDrag(null);setHover(null);
    if(calibrate){
-     const dragged=distanceOnDrawing(drag,end)>=5;
-     if(!dragged&&!calibrationFirst){
-       setCalibrationFirst(end);
-       setNotice('First end selected. Tap the OTHER end of the same written drawing dimension, or drag directly between its ends.');
+     const result=resolveCalibrationClick(initial,end,firstCalibrationPoint.current,dimensions[0],dimensions[1]);
+     if(result.step==='point-a'){
+       firstCalibrationPoint.current=result.first;
+       setCalibrationFirst(result.first);
+       setNotice('Point A selected. Now click or tap point B at the other end of that printed dimension.');
        return;
      }
-     const first=dragged?drag:calibrationFirst;
-     const length=distanceOnDrawing(first,end);
-     if(length<5){setNotice('Those points are too close together. Choose the two ends of a longer known dimension.');return}
-     setReference({length,drawing_id:drawing,page,points:[first,end]});
+     if(result.step==='too-close'||result.step==='invalid'){
+       setNotice('Points A and B are too close. Select two distinct ends of the printed dimension.');
+       return;
+     }
+     setReference({length:result.length,drawing_id:drawing,page,points:[result.first,result.second]});
+     firstCalibrationPoint.current=null;
      setCalibrationFirst(null);setCalibrate(false);
-     setNotice('Dimension selected. Enter the written length in metres and press Save scale & next.');
+     setNotice('A and B selected. Enter the dimension in metres, then press Save scale & next.');
      return;
    }
    if(w<.01||h<.01)return;
@@ -443,7 +503,12 @@ export default function Estimates({db,project,docs=[]}){
    })}</div>
  </div>}<div className="estimateForm"><label>Drawing register — classify each drawing before measuring<div style={{display:'grid',gap:8,marginTop:8}}>{fileDocs.length?fileDocs.map(d=><div key={d.id} style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}><span style={{flex:'1 1 190px'}}>{d.document_no||d.title} (rev {d.revision||'not stated'})</span><select aria-label={'Drawing stage for '+(d.document_no||d.title)} value={(estimate.drawing_stages||{})[d.id]||'Unclassified'} onChange={e=>patch('drawing_stages',{...(estimate.drawing_stages||{}),[d.id]:e.target.value})}><option>Unclassified</option><option>Existing</option><option>Proposed</option><option>Demolition</option><option>Detail / Supporting</option></select></div>):<span>No current plans uploaded. Open Project → Upload Plans.</span>}</div></label></div><div className="estimateForm"><label>Measurement standard<select value={estimate.measurement_standard||'NRM2'} onChange={e=>patch('measurement_standard',e.target.value)}><option>NRM2</option><option>SMM7</option></select></label><label>Take-off review status<select value={estimate.takeoff_review_status||'Draft'} onChange={e=>patch('takeoff_review_status',e.target.value)}><option>Draft</option><option>QS review required</option><option>QS reviewed</option></select></label><label>QS reviewer / checker<input value={estimate.takeoff_reviewer||''} onChange={e=>patch('takeoff_reviewer',e.target.value)} placeholder="Full name"/></label><label>Review date<input type="date" value={estimate.takeoff_reviewed_at||''} onChange={e=>patch('takeoff_reviewed_at',e.target.value)}/></label></div><p className="muted">The selected measurement standard is recorded for review; automated NRM2/SMM7 rules are not yet implemented. Upload Existing, Proposed and Demolition plans in the project Documents section, then identify them by stage here. Scale measurements remain indicative pending QS verification.</p><p className="muted">For accurate quantities, the written drawing dimensions must be verified. Press <strong>Select a dimension</strong>, then on a phone tap the two ends of the SAME printed dimension (or drag on a desktop). Enter the written length in metres. Scale is retained by drawing revision and page. Area take-off remains provisional until independently checked.</p>
  <div className="estimateToolbar estimateScaleControls">
-  <button type="button" onClick={()=>{setCalibrate(true);setCalibrationFirst(null);setReference(null);setNotice('Tap the first end of a known dimension on the drawing (or drag from one end to the other).')}} disabled={!drawing||!dimensions[0]||!calibrationWizard||calibrationSaving}>Select a dimension</button>
+  <button type="button" aria-pressed={calibrate} className={calibrate?'selected':''} onClick={()=>{
+     // Turning on calibration always turns off Move drawing so points really register.
+     setPanMode(false);panRef.current=null;pressedPoint.current=null;firstCalibrationPoint.current=null;
+     setCalibrate(true);setCalibrationFirst(null);setReference(null);setDrag(null);
+     setNotice('Select point A, then point B. A blue marker appears for each point.');
+   }} disabled={!drawing||!dimensions[0]||!calibrationWizard||calibrationSaving}>{calibrate?'Selecting A → B':'Select a dimension (A → B)'}</button>
   <label>Printed dimension length (metres)<input type="number" inputMode="decimal" min="0" step="any" value={calibrationMetres} onChange={e=>setCalibrationMetres(e.target.value)} placeholder="e.g. 3.6" /></label>
   <button type="button" disabled={calibrationSaving||!reference||reference.drawing_id!==drawing||reference.page!==page||!(Number(calibrationMetres)>0)} onClick={()=>saveCalibration(false)}>{calibrationSaving?'Saving…':'Save scale & next'}</button>
   <button type="button" className="outline" disabled={calibrationSaving||!calibrationWizard||!drawing} onClick={()=>saveCalibration(true)}>Reference only (no measurements)</button>
@@ -454,16 +519,20 @@ export default function Estimates({db,project,docs=[]}){
    <button type="button" disabled={!drawing||!dimensions[0]} onClick={()=>setDrawingZoom(zoomRef.current*1.5)} aria-label="Zoom in on drawing">+ Zoom in</button>
    <button type="button" disabled={!drawing||!dimensions[0]} onClick={()=>setDrawingZoom((drawingScroll.current.clientWidth-24)/dimensions[0])}>Fit width</button>
    <button type="button" disabled={!drawing||!dimensions[0]} onClick={()=>setDrawingZoom(1)}>100%</button>
-   <button type="button" className={panMode?'selected':''} aria-pressed={panMode} disabled={!drawing||!dimensions[0]} onClick={()=>{setPanMode(v=>!v);setDrag(null);setHover(null)}}>{panMode?'Pan on — tap to select points':'Move drawing'}</button>
-   <span role="status" aria-live="polite">{Math.round(zoom*100)}% zoom</span>
-   <small>Pinch with two fingers to zoom. Use <strong>Move drawing</strong> to drag around; switch it off before tapping calibration points. Zoom does not change scale.</small>
+   <button type="button" className={panMode?'selected':''} aria-pressed={panMode} disabled={!drawing||!dimensions[0]} onClick={()=>{
+     setPanMode(v=>!v);pressedPoint.current=null;panRef.current=null;setDrag(null);setHover(null);
+     if(!panMode)setNotice('Move drawing mode. Click and drag, or drag with one finger. Choose Select a dimension to resume A to B.');
+   }}>{panMode?'Move on — select dimension to stop':'Move drawing'}</button>
+   <span role="status" aria-live="polite">{Math.round(zoom*100)}% zoom · {image?'Image': 'High-resolution PDF'}</span>
+   <small>Mouse: click point A, then B. Touchscreen: tap A, then B. Zoom or move the drawing first; selecting a dimension automatically stops Move mode. The checked measurement stays unchanged when zooming. Scanned image clarity depends on the original file.</small>
  </div>
  <div ref={drawingScroll} className="estimateDrawingScroll" onWheel={handleZoomWheel}>
    <div className="estimateDrawing" style={{width:dimensions[0]?dimensions[0]*zoom:800,height:dimensions[1]?dimensions[1]*zoom:undefined}}>
    {image?<img src={image} alt="Drawing to mark" style={{width:dimensions[0]?dimensions[0]*zoom:undefined,height:dimensions[1]?dimensions[1]*zoom:undefined}} onLoad={e=>setDimensions([e.currentTarget.naturalWidth,e.currentTarget.naturalHeight])}/>:<canvas ref={canvas} style={{width:dimensions[0]?dimensions[0]*zoom:undefined,height:dimensions[1]?dimensions[1]*zoom:undefined}}/>}
-   <div ref={overlay} className="estimateOverlay" style={{cursor:panMode?'grab':'crosshair'}} onPointerDown={handleDrawingPointerDown} onPointerMove={handleDrawingPointerMove} onPointerUp={handleDrawingPointerUp} onPointerCancel={handleDrawingPointerCancel}>{(reference?.points||calibrationFirst)&&<svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none',overflow:'visible'}} viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+   <div ref={overlay} className="estimateOverlay" style={{cursor:panMode?'grab':'crosshair'}} onPointerDown={handleDrawingPointerDown} onPointerMove={handleDrawingPointerMove} onPointerUp={handleDrawingPointerUp} onPointerCancel={handleDrawingPointerCancel} onLostPointerCapture={e=>{if(pointerPositions.current.has(e.pointerId))handleDrawingPointerCancel(e)}}>{(reference?.points||calibrationFirst)&&<svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none',overflow:'visible'}} viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
  {reference?.points&&<line x1={reference.points[0].x*100} y1={reference.points[0].y*100} x2={reference.points[1].x*100} y2={reference.points[1].y*100} stroke="#0076ba" strokeWidth=".5"/>}
- {calibrationFirst&&<circle cx={calibrationFirst.x*100} cy={calibrationFirst.y*100} r=".8" fill="#0076ba"/>}
+ {reference?.points?.map((p,i)=><g key={i}><circle cx={p.x*100} cy={p.y*100} r="1.4" fill="#0076ba" stroke="white" strokeWidth=".3"/><text x={p.x*100+1.7} y={p.y*100-1.7} fontSize="2.8" fill="#004b75" stroke="white" strokeWidth=".2" paintOrder="stroke">{i===0?'A':'B'}</text></g>)}
+ {calibrationFirst&&<g><circle cx={calibrationFirst.x*100} cy={calibrationFirst.y*100} r="1.5" fill="#0076ba" stroke="white" strokeWidth=".3"/><text x={calibrationFirst.x*100+1.7} y={calibrationFirst.y*100-1.7} fontSize="2.8" fill="#004b75" stroke="white" strokeWidth=".2" paintOrder="stroke">A</text></g>}
  {calibrationFirst&&hover&&<line x1={calibrationFirst.x*100} y1={calibrationFirst.y*100} x2={hover.x*100} y2={hover.y*100} stroke="#0076ba" strokeWidth=".35" strokeDasharray="1 .6"/>}
  </svg>}{currentHighlights.map(h=><div key={h.id} className="estimateMark" style={{left:h.x*100+'%',top:h.y*100+'%',width:h.w*100+'%',height:h.h*100+'%',background:pricedBoq(h).length?"rgba(35,156,82,.34)":linkedBoq(h).length?"rgba(234,172,37,.3)":"rgba(205,57,57,.2)",borderColor:pricedBoq(h).length?"#239c52":linkedBoq(h).length?"#eaaa25":"#cd3939"}} title={h.name+" — "+(pricedBoq(h).length?"Priced: "+pricedBoq(h).map(i=>i.ref_no||i.description).join(", "):linkedBoq(h).length?"Linked but unpriced":"Not linked to BOQ")}/>) }{drag&&hover&&!calibrate&&<div className="estimateMark drawingNew" style={{left:Math.min(drag.x,hover.x)*100+'%',top:Math.min(drag.y,hover.y)*100+'%',width:Math.abs(drag.x-hover.x)*100+'%',height:Math.abs(drag.y-hover.y)*100+'%'}}/>}</div></div></div><p className="muted">Drawing key: 🟢 Green = linked to a priced BOQ item; 🟡 Amber = linked but unpriced; 🔴 Red = not linked to BOQ. Drawings must be calibrated and measured quantities reviewed before issue.</p>
  {currentHighlights.map(h=><div key={h.id} className="estimateHighlightRow">{h.stage}: {h.name} (page {h.page}) {metresPerPixel?'— '+regionMeasures(h).area.toFixed(2)+' m², perimeter '+regionMeasures(h).perimeter.toFixed(2)+' m':''} — {pricedBoq(h).length?'PRICED ('+pricedBoq(h).map(i=>i.ref_no||i.description).join(', ')+')':linkedBoq(h).length?'LINKED / UNPRICED':'NOT LINKED'} <button type="button" onClick={()=>addMeasured(h)}>Add measured area to BOQ</button> <button className="outline" onClick={()=>patch('highlights',estimate.highlights.filter(x=>x.id!==h.id))}>Remove</button></div>)}
