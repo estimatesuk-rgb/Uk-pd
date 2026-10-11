@@ -1,6 +1,6 @@
 // Drawing coordinates are stored at their original, unzoomed proportions.
 // Resizing for visibility must never change the calibration distance.
-export function clampZoom(value,min=0.25,max=5){
+export function clampZoom(value,min=0.08,max=8){
  const n=Number(value);
  return Number.isFinite(n)?Math.max(min,Math.min(max,n)):1;
 }
