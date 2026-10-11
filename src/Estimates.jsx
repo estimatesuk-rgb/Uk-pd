@@ -16,7 +16,8 @@ export default function Estimates({db,project,docs=[]}){
  const [builders,setBuilders]=useState([]),[builderForm,setBuilderForm]=useState(null),[builderSaving,setBuilderSaving]=useState(false),[logoUploading,setLogoUploading]=useState(false);const [rateLibrary,setRateLibrary]=useState([]);
  const [editingBoq,setEditingBoq]=useState(null);const [takeoffNotes,setTakeoffNotes]=useState('');const [item,setItem]=useState(initialItem),[pcDraft,setPcDraft]=useState({description:'',amount:'',attendance_percent:'0'}),[provisionalDraft,setProvisionalDraft]=useState({description:'',amount:'',defined:false,include:true}),[dayworkDraft,setDayworkDraft]=useState({description:'',labour:0,materials:0,plant:0,markup:0}),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);
  const [aiBusy,setAiBusy]=useState(false),[aiReview,setAiReview]=useState(null); const [drawing,setDrawing]=useState(''),[page,setPage]=useState(1),[pageCount,setPageCount]=useState(1),[image,setImage]=useState(''),[dimensions,setDimensions]=useState([0,0]);
- const [calibrate,setCalibrate]=useState(false),[reference,setReference]=useState(''),[calibrationMetres,setCalibrationMetres]=useState(''),[drag,setDrag]=useState(null),[hover,setHover]=useState(null),[markName,setMarkName]=useState('New work'),[stage,setStage]=useState('Proposed');
+ const [calibrate,setCalibrate]=useState(false),[reference,setReference]=useState(null),[calibrationMetres,setCalibrationMetres]=useState(''),[calibrationFirst,setCalibrationFirst]=useState(null),[drag,setDrag]=useState(null),[hover,setHover]=useState(null),[markName,setMarkName]=useState('New work'),[stage,setStage]=useState('Proposed');
+ const [calibrationWizard,setCalibrationWizard]=useState(false),[calibrationPages,setCalibrationPages]=useState([]),[calibrationLoading,setCalibrationLoading]=useState(false),[calibrationSaving,setCalibrationSaving]=useState(false);
  const canvas=useRef(null),overlay=useRef(null);
  const fileDocs=docs.filter(d=>d.status!=='Superseded'&&/\.(pdf|png|jpg|jpeg)$/i.test(d.document_no||d.title||d.file_path||''));
  useEffect(()=>{db.from('estimate_rate_library').select('*').order('description').limit(5000).then(({data,error})=>{if(!error)setRateLibrary(data||[])});},[db]);
@@ -67,6 +68,82 @@ export default function Estimates({db,project,docs=[]}){
    }
    return {sources,count};
  }
+
+ // Calibration belongs to a SPECIFIC drawing revision and page. A scale taken
+ // from a different sheet, a superseded drawing or a different view is unsafe.
+ function scaleSheetRegister(sources){
+   return sources.flatMap(({d,filename,numPages})=>Array.from({length:numPages},(_,index)=>({
+     document_id:d.id,filename,revision:String(d.revision||''),file_path:String(d.file_path||''),page:index+1,
+   })));
+ }
+ function calibrationStatus(entry,from=estimate){
+   const value=(from.calibrations||{})[entry.document_id+'#'+entry.page];
+   if(!value||value.source_path!==entry.file_path||String(value.source_revision||'')!==entry.revision)return 'needed';
+   if(value.status==='reference-only'&&value.reference_only_confirmed===true)return 'reference-only';
+   if(value.status==='calibrated'&&Number.isFinite(Number(value.metresPerPixel))&&Number(value.metresPerPixel)>0
+      &&Number.isFinite(Number(value.metres))&&Number(value.metres)>0
+      &&Number.isFinite(Number(value.pixelLength))&&Number(value.pixelLength)>=5)return 'calibrated';
+   return 'needed';
+ }
+ const missingCalibration=(entries,from=estimate)=>entries.filter(entry=>calibrationStatus(entry,from)==='needed');
+ function chooseCalibrationPage(entry){
+   setDrawing(entry.document_id);setPage(entry.page);
+   setCalibrate(true);setCalibrationFirst(null);setReference(null);setCalibrationMetres('');
+   setDrag(null);setHover(null);
+   setTimeout(()=>document.getElementById('estimate-drawing-takeoff')?.scrollIntoView({behavior:'smooth',block:'start'}),0);
+ }
+ async function beginCalibration(){
+   if(calibrationLoading||aiBusy)return;
+   setCalibrationLoading(true);setNotice('Working… checking how many pages need scaling.');
+   let sources=[];
+   try{
+     const {sources:loaded}=await prepareAiDrawings();sources=loaded;
+     const entries=scaleSheetRegister(sources),missing=missingCalibration(entries);
+     setCalibrationPages(entries);setCalibrationWizard(true);
+     if(missing.length){
+       chooseCalibrationPage(missing[0]);
+       setNotice(missing.length+' drawing page(s) need a checked scale. Select the ends of a printed dimension and enter the length in metres. Reference-only pages can be marked separately.');
+     }else setNotice('Every drawing page has a saved scale or is explicitly reference-only. You can start the AI take-off.');
+   }catch(error){setNotice('Calibration setup failed: '+String(error?.message||error))}
+   finally{for(const src of sources)if(src.pdf){try{await src.pdf.destroy()}catch{}}setCalibrationLoading(false)}
+ }
+ async function saveCalibration(referenceOnly=false){
+   if(calibrationSaving||!drawing)return;
+   const entry=calibrationPages.find(x=>x.document_id===drawing&&x.page===page);
+   if(!entry){setNotice('Choose a drawing from the calibration checklist first.');return}
+   const length=Number(calibrationMetres),line=Number(reference?.length);
+   if(!referenceOnly&&(reference?.drawing_id!==drawing||reference?.page!==page||
+      !Number.isFinite(line)||line<5||!Number.isFinite(length)||length<=0)){
+     setNotice('Select BOTH ends of a known dimension on this drawing, then enter its actual length in metres.');return;
+   }
+   if(referenceOnly&&!window.confirm('Mark this page as reference-only? It will be read by AI but MUST NOT be used for automatic scaled quantities. Only choose this for details or other pages without a single measurable scale.'))return;
+   const status=referenceOnly?'reference-only':'calibrated';
+   const saved={
+     status,source_path:entry.file_path,source_revision:entry.revision,
+     calibrated_at:new Date().toISOString(),reference_only_confirmed:referenceOnly,
+     ...(referenceOnly?{}:{
+       metresPerPixel:length/line,metres:length,pixelLength:line,
+       reference_points:reference.points||null,
+       method:'two drawing points against stated dimension — QS verify',
+     }),
+   };
+   const next={...estimate,calibrations:{...(estimate.calibrations||{}),[drawing+'#'+page]:saved}};
+   setCalibrationSaving(true);
+   try{
+     const {error}=await db.from('projects').update({estimate_data:next}).eq('id',project.id);
+     if(error)throw error;
+     setEstimate(next);setReference(null);setCalibrationMetres('');setCalibrationFirst(null);setCalibrate(false);
+     const pending=missingCalibration(calibrationPages,next);
+     if(pending.length){
+       chooseCalibrationPage(pending[0]);
+       setNotice((referenceOnly?'Reference-only status':'Checked dimension and page scale')+' saved. '+pending.length+' page(s) still need review.');
+     }else{
+       setNotice('All pages are now scaled or marked reference-only. Press Start AI Take-Off to process the complete drawing package.');
+       setTimeout(()=>document.getElementById('estimate-ai-takeoff')?.scrollIntoView({behavior:'smooth',block:'start'}),0);
+     }
+   }catch(error){setNotice('Could not SAVE the drawing scale: '+String(error?.message||error))}
+   finally{setCalibrationSaving(false)}
+ }
  async function postCloudflareTakeoff(endpoint,payload,token){
    const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify(payload)});
    let data={};try{data=await response.json()}catch{}
@@ -102,7 +179,15 @@ export default function Estimates({db,project,docs=[]}){
      const {data:{session}}=await db.auth.getSession();
      if(!session?.access_token)throw Error('Sign in again before running AI take-off.');
      const prepared=await prepareAiDrawings();sources=prepared.sources;
-     const {count}=prepared;const reviewed=[];let complete=0;
+     const {count}=prepared;const checkedPages=scaleSheetRegister(sources);
+     setCalibrationPages(checkedPages);
+     const unchecked=missingCalibration(checkedPages);
+     if(unchecked.length){
+       setCalibrationWizard(true);chooseCalibrationPage(unchecked[0]);
+       setNotice('Before AI take-off, '+unchecked.length+' drawing page(s) need scale calibration or an explicit reference-only decision. No AI request has been sent.');
+       return;
+     }
+     const reviewed=[];let complete=0;
      for(const source of sources){
        for(let pageNumber=1;pageNumber<=source.numPages;pageNumber++){
          setNotice('Working… reading drawing page '+(complete+1)+' of '+count+' with Cloudflare AI.');
@@ -192,10 +277,42 @@ export default function Estimates({db,project,docs=[]}){
   finally{setBuilderSaving(false)}
  }
  const builder=builders.find(b=>String(b.id)===String(estimate.builder_id));
+
  function point(e){const rect=overlay.current.getBoundingClientRect();return {x:Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width)),y:Math.max(0,Math.min(1,(e.clientY-rect.top)/rect.height))}}
- function start(e){if(!drawing)return;e.preventDefault();overlay.current.setPointerCapture(e.pointerId);const p=point(e);setDrag(p);setHover(p)}
- function finish(e){if(!drag)return;const end=point(e),x=Math.min(end.x,drag.x),y=Math.min(end.y,drag.y),w=Math.abs(end.x-drag.x),h=Math.abs(end.y-drag.y);setDrag(null);setHover(null);if(calibrate){const length=Math.hypot((end.x-drag.x)*dimensions[0],(end.y-drag.y)*dimensions[1]);if(length<5)return setNotice('Reference line too short. Drag along a longer known dimension.');setReference({length,drawing_id:drawing,page});setCalibrate(false);setNotice('Reference line selected. Enter its real length in metres and apply calibration.');return;}if(w<.01||h<.01)return;patch('highlights',[...estimate.highlights,{id:crypto.randomUUID(),drawing_id:drawing,page,x,y,w,h,name:markName,stage}]);setNotice('Highlighted region saved in draft. Enter verified dimensions to price its work.')}
- const calibration=(estimate.calibrations||{})[drawing+'#'+page];const metresPerPixel=calibration?.metresPerPixel||0;
+ function distanceOnDrawing(a,b){return Math.hypot((a.x-b.x)*dimensions[0],(a.y-b.y)*dimensions[1])}
+ function start(e){
+   if(!drawing||!dimensions[0]||!dimensions[1])return;
+   e.preventDefault();overlay.current.setPointerCapture(e.pointerId);
+   const p=point(e);setDrag(p);setHover(p);
+ }
+ function finish(e){
+   if(!drag)return;
+   const end=point(e),x=Math.min(end.x,drag.x),y=Math.min(end.y,drag.y),w=Math.abs(end.x-drag.x),h=Math.abs(end.y-drag.y);
+   setDrag(null);setHover(null);
+   if(calibrate){
+     const dragged=distanceOnDrawing(drag,end)>=5;
+     if(!dragged&&!calibrationFirst){
+       setCalibrationFirst(end);
+       setNotice('First end selected. Tap the OTHER end of the same written drawing dimension, or drag directly between its ends.');
+       return;
+     }
+     const first=dragged?drag:calibrationFirst;
+     const length=distanceOnDrawing(first,end);
+     if(length<5){setNotice('Those points are too close together. Choose the two ends of a longer known dimension.');return}
+     setReference({length,drawing_id:drawing,page,points:[first,end]});
+     setCalibrationFirst(null);setCalibrate(false);
+     setNotice('Dimension selected. Enter the written length in metres and press Save scale & next.');
+     return;
+   }
+   if(w<.01||h<.01)return;
+   patch('highlights',[...estimate.highlights,{id:crypto.randomUUID(),drawing_id:drawing,page,x,y,w,h,name:markName,stage}]);
+   setNotice('Highlighted region saved in draft. Enter verified dimensions to price its work.');
+ }
+
+ const selectedCalibrationEntry=calibrationPages.find(x=>x.document_id===drawing&&x.page===page);
+ const selectedCalibrationStatus=selectedCalibrationEntry?calibrationStatus(selectedCalibrationEntry):'needed';
+ const calibration=(estimate.calibrations||{})[drawing+'#'+page];
+ const metresPerPixel=selectedCalibrationStatus==='calibrated'?Number(calibration?.metresPerPixel)||0:0;
  const regionMeasures=h=>({area:h.w*dimensions[0]*h.h*dimensions[1]*metresPerPixel**2,perimeter:2*(h.w*dimensions[0]+h.h*dimensions[1])*metresPerPixel});
  function addMeasured(h){if(!metresPerPixel||!Number.isFinite(metresPerPixel)||dimensions[0]<=0||dimensions[1]<=0)return alert('Calibrate this page against a known dimension first');if((estimate.drawing_stages||{})[drawing]==='Unclassified'||!(estimate.drawing_stages||{})[drawing])return alert('Classify this drawing as Existing, Proposed, Demolition or Supporting before measuring.');const m=regionMeasures(h);setItem({...initialItem,description:h.name,trade:'Measured '+h.stage.toLowerCase()+' work',drawing:(fileDocs.find(x=>x.id===drawing)?.document_no||'')+' p'+page,quantity:Number(m.area.toFixed(2)),unit:'m²',status:'Manual rectangle take-off — QS review required',takeoff_evidence:{highlight_id:h.id,drawing_id:drawing,page,region:{x:h.x,y:h.y,w:h.w,h:h.h},calibration_m_per_px:metresPerPixel,method:'calibrated rectangle',drawing_stage:(estimate.drawing_stages||{})[drawing],work_stage:h.stage,confidence:'unverified'}});setNotice('Area '+m.area.toFixed(2)+' m² added to BOQ entry editor. Check before adding.')}
  const currentHighlights=(estimate.highlights||[]).filter(x=>x.drawing_id===drawing&&x.page===page); const linkedBoq=h=>(estimate.items||[]).filter(i=>i.takeoff_evidence?.highlight_id===h.id); const pricedBoq=h=>linkedBoq(h).filter(i=>perLine(i)>0);
