@@ -35,7 +35,122 @@ export default function Estimates({db,project,docs=[]}){
      if(!cancelled)setDimensions([viewport.width,viewport.height])
    }catch(e){if(!cancelled)setNotice('Drawing preview failed: '+e.message)}
  }load();return()=>{cancelled=true}},[drawing,page,docs,db]);
- async function runAiTakeoff(){if(aiBusy)return;if(!fileDocs.length){setNotice('Upload plans in Documents before running take-off.');return}setAiBusy(true);setNotice('Reading uploaded plans with AI...');try{const {data,error}=await db.functions.invoke('analyse-project-documents',{body:{project_id:project.id}});if(error)throw error;if(data?.error)throw Error(data.error);if(!data?.drawing_review)throw Error('No drawing review was returned.');setAiReview(data.drawing_review);setNotice('Drawing review complete. Check the findings and verify quantities before pricing.');}catch(e){let msg=e.message||String(e);try{const details=await e.context?.json?.();if(details?.error)msg=details.error;if(details?.unsupported?.length)msg+=': '+details.unsupported.join(', ')}catch{}setNotice('AI plan reader failed: '+msg)}finally{setAiBusy(false)}}
+ // Render all drawing pages locally: Cloudflare vision accepts images, not raw PDFs.
+ // Only the signed-in user's drawing images are sent to our own authenticated Worker.
+ const MAX_AI_PAGES=20;
+ function canvasAsImage(canvas){
+   let image=canvas.toDataURL('image/jpeg',0.72);
+   for(let tries=0;image.length>2800000&&tries<3;tries++){
+     const smaller=document.createElement('canvas');smaller.width=Math.max(320,Math.floor(canvas.width*0.75));smaller.height=Math.max(320,Math.floor(canvas.height*0.75));
+     smaller.getContext('2d').drawImage(canvas,0,0,smaller.width,smaller.height);canvas=smaller;image=canvas.toDataURL('image/jpeg',0.65)
+   }
+   if(image.length>2800000)throw Error('Drawing is too large for Cloudflare AI. Reduce the image size.');
+   return image;
+ }
+ async function prepareAiDrawings(){
+   const sources=[];let count=0;
+   for(const d of fileDocs){
+     const {data:signed,error}=await db.storage.from('project-files').createSignedUrl(d.file_path,1200);
+     if(error||!signed?.signedUrl)throw Error('Cannot read drawing '+(d.document_no||d.title||''));
+     const filename=d.document_no||d.title||d.file_path||'Drawing';
+     const ext=filename.split('.').pop().toLowerCase();
+     if(ext==='pdf'){
+       const pdf=await pdfjs.getDocument({url:signed.signedUrl}).promise;
+       count+=pdf.numPages;
+       if(count>MAX_AI_PAGES){await pdf.destroy();throw Error('There are more than '+MAX_AI_PAGES+' drawing pages. This free AI trial will not silently skip sheets. Split the drawing package into a reviewed batch before running it.')}
+       sources.push({d,filename,pdf,numPages:pdf.numPages});
+     }else if(['png','jpeg','jpg','webp'].includes(ext)){
+       count++;
+       if(count>MAX_AI_PAGES)throw Error('There are more than '+MAX_AI_PAGES+' drawing pages. No partial take-off was saved.');
+       sources.push({d,filename,url:signed.signedUrl,numPages:1});
+     }else throw Error('Unsupported drawing type for '+filename+'. Use a PDF, PNG or JPEG.');
+   }
+   return {sources,count};
+ }
+ async function postCloudflareTakeoff(endpoint,payload,token){
+   const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify(payload)});
+   let data={};try{data=await response.json()}catch{}
+   if(!response.ok||data?.error)throw Error(data?.error||'Cloudflare AI request failed (HTTP '+response.status+').');
+   return data;
+ }
+ async function renderAiPage(source,pageNumber){
+   const canvas=document.createElement('canvas');
+   if(source.pdf){
+     const pg=await source.pdf.getPage(pageNumber);
+     const base=pg.getViewport({scale:1});
+     const scale=Math.min(2,1900/Math.max(base.width,base.height));
+     const viewport=pg.getViewport({scale});
+     canvas.width=Math.max(1,Math.ceil(viewport.width));canvas.height=Math.max(1,Math.ceil(viewport.height));
+     await pg.render({canvasContext:canvas.getContext('2d'),viewport}).promise;
+   }else{
+     const response=await fetch(source.url);
+     if(!response.ok)throw Error('Could not download '+source.filename);
+     const bitmap=await createImageBitmap(await response.blob());
+     const scale=Math.min(1,1900/Math.max(bitmap.width,bitmap.height));
+     canvas.width=Math.max(1,Math.ceil(bitmap.width*scale));canvas.height=Math.max(1,Math.ceil(bitmap.height*scale));
+     canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);
+     bitmap.close?.();
+   }
+   return canvasAsImage(canvas);
+ }
+ async function runAiTakeoff(){
+   if(aiBusy)return;
+   if(!fileDocs.length){setNotice('Upload plans in Documents before running take-off.');return}
+   setAiBusy(true);setAiReview(null);setNotice('Working… preparing drawing pages.');
+   let sources=[];
+   try{
+     const {data:{session}}=await db.auth.getSession();
+     if(!session?.access_token)throw Error('Sign in again before running AI take-off.');
+     const prepared=await prepareAiDrawings();sources=prepared.sources;
+     const {count}=prepared;const reviewed=[];let complete=0;
+     for(const source of sources){
+       for(let pageNumber=1;pageNumber<=source.numPages;pageNumber++){
+         setNotice('Working… reading drawing page '+(complete+1)+' of '+count+' with Cloudflare AI.');
+         const image=await renderAiPage(source,pageNumber);
+         const result=await postCloudflareTakeoff('/api/estimate-plan-review',{
+           project_id:project.id,document_id:source.d.id,page_number:pageNumber,image,
+         },session.access_token);
+         if(!result?.page||!Array.isArray(result.page.takeoff_draft))throw Error('Cloudflare AI did not return a usable page review.');
+         reviewed.push(result.page);complete++;
+       }
+     }
+     setNotice('Working… comparing existing and proposed drawings and preparing draft BOQ.');
+     const comparison=await postCloudflareTakeoff('/api/estimate-plan-summary',{project_id:project.id,pages:reviewed},session.access_token);
+     if(!comparison.drawing_review||!Array.isArray(comparison.takeoff_draft))throw Error('Cloudflare AI comparison was incomplete; no estimate was saved.');
+     const normalizedUnit=unit=>({'m2':'m²','m3':'m³','m²':'m²','m³':'m³'}[String(unit||'').toLowerCase()]||String(unit||'item'));
+     const norm=x=>String(x||'').toLowerCase().trim().replace(/\s+/g,' ');
+     const seen=new Set((estimate.items||[]).map(i=>i.ai_draft_key).filter(Boolean));
+     const added=[];
+     for(const draft of comparison.takeoff_draft){
+       const description=String(draft.description||'').trim();
+       if(!description)continue;
+       const unit=normalizedUnit(draft.unit),reference=String(draft.drawing_reference||'').trim();
+       const key=[norm(description),norm(unit),norm(reference)].join('|');
+       if(seen.has(key))continue;seen.add(key);
+       const measured=typeof draft.quantity==='number'&&Number.isFinite(draft.quantity)&&draft.quantity>0&&
+         typeof draft.measurement_basis==='string'&&draft.measurement_basis.trim().length>8;
+       const quantity=measured?draft.quantity:0;
+       const match=rateLibrary.find(r=>norm(r.description)===norm(description)&&norm(r.unit)===norm(unit));
+       added.push({...initialItem,id:crypto.randomUUID(),ref_no:String((estimate.items||[]).length+added.length+1).padStart(3,'0'),
+         work_section:draft.work_section||'AI draft',description,unit,quantity,drawing:reference,
+         material_rate:match?num(match.material_rate):0,plant_rate:match?num(match.plant_rate):0,
+         labour_rate:match?num(match.labour_rate):0,labour_hours:match?num(match.labour_hours):0,
+         status:measured?'AI provisional quantity — QS verify':'Needs measurement — AI scope only',
+         ai_draft_key:key,rate_source:match?.supplier||'',rate_checked_at:match?.updated_at||null,
+         takeoff_evidence:{source:'Cloudflare Workers AI',confidence:'unverified',draft:true,measurement_basis:draft.measurement_basis||'No confirmed dimensions',drawing_reference:reference,quantity_status:draft.quantity_status||'Needs measurement'},
+       });
+     }
+     const next={...estimate,items:[...(estimate.items||[]),...added],
+       ai_drawing_review:comparison.drawing_review,ai_last_analysed_at:new Date().toISOString(),
+       takeoff_review_status:'AI draft — QS review required'};
+     const {error:saveError}=await db.from('projects').update({estimate_data:next}).eq('id',project.id);
+     if(saveError)throw Error('Could not save draft BOQ: '+saveError.message);
+     setEstimate(next);setAiReview(comparison.drawing_review);
+     const needsMeasurement=added.filter(x=>!x.quantity).length;
+     setNotice('Cloudflare AI reviewed '+count+' page(s) and saved '+added.length+' new DRAFT BOQ item(s); '+needsMeasurement+' need measurement. Check all quantities and rates before pricing or issuing a quotation.');
+   }catch(e){setNotice('AI plan reader failed: '+(e.message||String(e))+' No partial BOQ was saved.')}
+   finally{for(const source of sources)if(source.pdf){try{await source.pdf.destroy()}catch{}}setAiBusy(false)}
+ }
  function patch(k,v){setEstimate(x=>({...x,[k]:v}))}
  async function save(next=estimate){setBusy(true);try{const{error}=await db.from('projects').update({estimate_data:next}).eq('id',project.id);setNotice(error?'Save failed: '+error.message:'Estimate and drawing highlights saved')}finally{setBusy(false)}}
  async function uploadBuilderLogo(f){
