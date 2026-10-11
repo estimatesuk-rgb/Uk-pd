@@ -3,6 +3,7 @@ import {Document,Packer,Paragraph,TextRun,Table,TableRow,TableCell,HeadingLevel,
 import * as pdfjs from 'pdfjs-dist';
 import * as XLSX from 'xlsx';
 import './estimates.css';
+import {scaleSheetRegister,calibrationStatus as storedCalibrationStatus,missingCalibration as pagesAwaitingCalibration} from './calibration.mjs';
 pdfjs.GlobalWorkerOptions.workerSrc=new URL('pdfjs-dist/build/pdf.worker.min.mjs',import.meta.url).toString();
 const fresh={items:[],highlights:[],builder_id:'',takeoff_review_status:'Draft',takeoff_reviewer:'',takeoff_reviewed_at:'',measurement_standard:'NRM2',drawing_stages:{},supplier_price_date:'',supplier_price_source:'',global_adjustment:0,overheads:15,profit:10,vat:20,pc_sums:[],provisional_sums:[],dayworks:[],contingency_mode:'percent',contingency_value:0,quote_intro:'We are pleased to provide our quotation for the works described below.',quote_scope:'',quote_validity:'30 days',quote_payment_terms:'Payment schedule to be agreed before commencement.',quote_exclusions:'Items not expressly included are excluded.',quote_terms:'Subject to agreed contract terms.',quote_ref:'',quote_revisions:[]};
 const initialItem={ref_no:'',work_section:'Measured Works',description:'',trade:'General',drawing:'',quantity:0,unit:'m²',material_rate:0,plant_rate:0,labour_hours:0,labour_rate:0,supplier:'',price_url:'',status:'Needs verification'};
@@ -71,21 +72,8 @@ export default function Estimates({db,project,docs=[]}){
 
  // Calibration belongs to a SPECIFIC drawing revision and page. A scale taken
  // from a different sheet, a superseded drawing or a different view is unsafe.
- function scaleSheetRegister(sources){
-   return sources.flatMap(({d,filename,numPages})=>Array.from({length:numPages},(_,index)=>({
-     document_id:d.id,filename,revision:String(d.revision||''),file_path:String(d.file_path||''),page:index+1,
-   })));
- }
- function calibrationStatus(entry,from=estimate){
-   const value=(from.calibrations||{})[entry.document_id+'#'+entry.page];
-   if(!value||value.source_path!==entry.file_path||String(value.source_revision||'')!==entry.revision)return 'needed';
-   if(value.status==='reference-only'&&value.reference_only_confirmed===true)return 'reference-only';
-   if(value.status==='calibrated'&&Number.isFinite(Number(value.metresPerPixel))&&Number(value.metresPerPixel)>0
-      &&Number.isFinite(Number(value.metres))&&Number(value.metres)>0
-      &&Number.isFinite(Number(value.pixelLength))&&Number(value.pixelLength)>=5)return 'calibrated';
-   return 'needed';
- }
- const missingCalibration=(entries,from=estimate)=>entries.filter(entry=>calibrationStatus(entry,from)==='needed');
+ function calibrationStatus(entry,from=estimate){return storedCalibrationStatus(entry,from)}
+ const missingCalibration=(entries,from=estimate)=>pagesAwaitingCalibration(entries,from);
  function chooseCalibrationPage(entry){
    setDrawing(entry.document_id);setPage(entry.page);
    setCalibrate(true);setCalibrationFirst(null);setReference(null);setCalibrationMetres('');
