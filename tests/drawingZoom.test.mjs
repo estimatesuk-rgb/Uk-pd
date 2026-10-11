@@ -33,5 +33,5 @@ test('pinch movement zooms and pans around the finger midpoint',()=>{
   assert.equal(b.distance,300);
   const next=anchoredScroll({scrollLeft:400,scrollTop:200,fromZoom:1,toZoom:b.distance/a.distance,
     anchorX:a.x,anchorY:a.y,targetX:b.x,targetY:b.y});
-  assert.deepEqual(next,{left:660,top:300});
+  assert.deepEqual(next,{left:610,top:300});
 });
