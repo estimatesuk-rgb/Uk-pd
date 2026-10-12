@@ -13,6 +13,7 @@ import {measureAutoPage} from './autoMeasurement.mjs';
 import {summariseAiCoverage} from './aiCoverage.mjs';
 import {duplicateAutoCandidate} from './aiDuplicateGuard.mjs';
 import {stageAiTakeoff,decideAiSuggestion} from './aiTakeoffQueue.mjs';
+import {findPotentialAiOverlaps} from './aiSuggestionConflict.mjs';
 pdfjs.GlobalWorkerOptions.workerSrc=new URL('pdfjs-dist/build/pdf.worker.min.mjs',import.meta.url).toString();
 const fresh={items:[],highlights:[],builder_id:'',takeoff_review_status:'Draft',takeoff_reviewer:'',takeoff_reviewed_at:'',measurement_standard:'NRM2',drawing_stages:{},supplier_price_date:'',supplier_price_source:'',global_adjustment:0,overheads:15,profit:10,vat:20,pc_sums:[],provisional_sums:[],dayworks:[],contingency_mode:'percent',contingency_value:0,quote_intro:'We are pleased to provide our quotation for the works described below.',quote_scope:'',quote_validity:'30 days',quote_payment_terms:'Payment schedule to be agreed before commencement.',quote_exclusions:'Items not expressly included are excluded.',quote_terms:'Subject to agreed contract terms.',quote_ref:'',quote_revisions:[]};
 const initialItem={ref_no:'',work_section:'Measured Works',description:'',trade:'General',drawing:'',quantity:0,unit:'m²',material_rate:0,plant_rate:0,labour_hours:0,labour_rate:0,supplier:'',price_url:'',status:'Needs verification'};
@@ -420,9 +421,14 @@ export default function Estimates({db,project,docs=[]}){
    if(aiBusy||busy)return;
    const proposal=(estimate.ai_pending_takeoff||[]).find(p=>p.id===id);
    if(!proposal)return setNotice('AI suggestion was not found. Refresh the estimate.');
+   const overlaps=findPotentialAiOverlaps(proposal.item,estimate.items||[]);
+   const caution=overlaps.length?'\n\nPOTENTIAL DOUBLE COUNT / QUANTITY CONFLICT: '+overlaps.map(x=>
+     'BOQ '+x.ref_no+' '+x.description+' ('+x.quantity+' '+x.unit+')').join('; ')+
+     '\nCheck both outlines before continuing.':'';
    if(decision==='add'&&!window.confirm('Add this AI suggestion to the draft BOQ for QS verification?\n'+
       proposal.item.description+' — '+proposal.item.quantity+' '+proposal.item.unit+
-      '\n'+proposal.item.drawing+'\nThis does not verify the drawing boundary, dimensions or price.'))return;
+      '\n'+proposal.item.drawing+caution+
+      '\n\nThis does not verify the drawing boundary, dimensions or price.'))return;
    const result=decideAiSuggestion(estimate,id,decision);
    if(result.error)return setNotice('Suggestion not added: '+result.error);
    setBusy(true);
@@ -835,6 +841,12 @@ export default function Estimates({db,project,docs=[]}){
      <div><strong>{p.kind==='measured'?'Measured suggestion':'Scope needing measurement'}:</strong>
        {' '+p.item.description+' — '+p.item.quantity+' '+p.item.unit+' · '+(p.item.drawing||'Drawing reference required')}
        <small> · QS must verify location, quantity and rate</small>
+       {findPotentialAiOverlaps(p.item,estimate.items||[]).map((m,i)=>
+         <p key={i} role="note"><strong>Possible overlap with BOQ {m.ref_no}:</strong>
+         {' '+m.description+' — '+m.quantity+' '+m.unit+'. '+m.reason+
+           (m.difference_percent!==null?' ('+m.difference_percent+'% change).':'')}
+         Do not add twice without checking the original drawing and measurement evidence.</p>
+       )}
      </div>
      <button type="button" disabled={busy||aiBusy} onClick={()=>reviewAiSuggestion(p.id,'add')}>Review and add as draft BOQ line</button>
      <button type="button" className="outline" disabled={busy||aiBusy} onClick={()=>reviewAiSuggestion(p.id,'dismiss')}>Dismiss</button>
