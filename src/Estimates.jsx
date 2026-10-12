@@ -9,6 +9,7 @@ import {resolveCalibrationClick} from './calibrationInteraction.mjs';
 import {prepareMasterRateImport,rateMatchKey} from './rateImport.mjs';
 import {measuredQuantity,findUniqueRate} from './takeoffMeasurement.mjs';
 import {applySavedRate,applySavedRates,rateLibraryCoverage,rateComponents} from './ratePricing.mjs';
+import {measureAutoPage} from './autoMeasurement.mjs';
 pdfjs.GlobalWorkerOptions.workerSrc=new URL('pdfjs-dist/build/pdf.worker.min.mjs',import.meta.url).toString();
 const fresh={items:[],highlights:[],builder_id:'',takeoff_review_status:'Draft',takeoff_reviewer:'',takeoff_reviewed_at:'',measurement_standard:'NRM2',drawing_stages:{},supplier_price_date:'',supplier_price_source:'',global_adjustment:0,overheads:15,profit:10,vat:20,pc_sums:[],provisional_sums:[],dayworks:[],contingency_mode:'percent',contingency_value:0,quote_intro:'We are pleased to provide our quotation for the works described below.',quote_scope:'',quote_validity:'30 days',quote_payment_terms:'Payment schedule to be agreed before commencement.',quote_exclusions:'Items not expressly included are excluded.',quote_terms:'Subject to agreed contract terms.',quote_ref:'',quote_revisions:[]};
 const initialItem={ref_no:'',work_section:'Measured Works',description:'',trade:'General',drawing:'',quantity:0,unit:'m²',material_rate:0,plant_rate:0,labour_hours:0,labour_rate:0,supplier:'',price_url:'',status:'Needs verification'};
@@ -203,8 +204,12 @@ export default function Estimates({db,project,docs=[]}){
  }
  async function renderAiPage(source,pageNumber){
    const canvas=document.createElement('canvas');
+   let dimensions=[0,0];
    if(source.pdf){
      const pg=await source.pdf.getPage(pageNumber);
+     // Calibration was taken against the same unzoomed 1.4x PDF viewport.
+     const logical=pg.getViewport({scale:1.4});
+     dimensions=[logical.width,logical.height];
      const base=pg.getViewport({scale:1});
      const scale=Math.min(2,1900/Math.max(base.width,base.height));
      const viewport=pg.getViewport({scale});
@@ -214,12 +219,13 @@ export default function Estimates({db,project,docs=[]}){
      const response=await fetch(source.url);
      if(!response.ok)throw Error('Could not download '+source.filename);
      const bitmap=await createImageBitmap(await response.blob());
+     dimensions=[bitmap.width,bitmap.height];
      const scale=Math.min(1,1900/Math.max(bitmap.width,bitmap.height));
      canvas.width=Math.max(1,Math.ceil(bitmap.width*scale));canvas.height=Math.max(1,Math.ceil(bitmap.height*scale));
      canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);
      bitmap.close?.();
    }
-   return canvasAsImage(canvas);
+   return {image:await canvasAsImage(canvas),dimensions};
  }
  async function runAiTakeoff(){
    if(aiBusy)return;
@@ -238,16 +244,26 @@ export default function Estimates({db,project,docs=[]}){
        setNotice('Before AI take-off, '+unchecked.length+' drawing page(s) need scale calibration or a construction-notes/no-scale decision. No AI request has been sent.');
        return;
      }
-     const reviewed=[];let complete=0;
+     const reviewed=[],autoCandidates=[],autoRejections=[];let complete=0;
      for(const source of sources){
        for(let pageNumber=1;pageNumber<=source.numPages;pageNumber++){
          setNotice('Working… reading drawing page '+(complete+1)+' of '+count+' with Cloudflare AI.');
-         const image=await renderAiPage(source,pageNumber);
+         const rendered=await renderAiPage(source,pageNumber);
          const result=await postCloudflareTakeoff('/api/estimate-plan-review',{
-           project_id:project.id,document_id:source.d.id,page_number:pageNumber,image,
+           project_id:project.id,document_id:source.d.id,page_number:pageNumber,image:rendered.image,
            calibration_status:calibrationStatus(checkedPages.find(p=>p.document_id===source.d.id&&p.page===pageNumber)),
          },session.access_token);
          if(!result?.page||!Array.isArray(result.page.takeoff_draft))throw Error('Cloudflare AI did not return a usable page review.');
+         const sheetEntry=checkedPages.find(p=>p.document_id===source.d.id&&p.page===pageNumber);
+         const savedScale=(estimate.calibrations||{})[source.d.id+'#'+pageNumber];
+         const {measured,rejected}=measureAutoPage(result.page.auto_marks,{
+           calibration_status:calibrationStatus(sheetEntry),
+           metresPerPixel:savedScale?.metresPerPixel,dimensions:rendered.dimensions,
+           classification:result.page.classification,document_id:source.d.id,page:pageNumber,
+         });
+         for(const measurement of measured)autoCandidates.push({...measurement,document_id:source.d.id,
+           filename:source.filename,page:pageNumber,metresPerPixel:savedScale.metresPerPixel});
+         for(const problem of rejected)autoRejections.push({...problem,filename:source.filename,page:pageNumber});
          reviewed.push(result.page);complete++;
        }
      }
@@ -257,36 +273,69 @@ export default function Estimates({db,project,docs=[]}){
      const normalizedUnit=unit=>({'m2':'m²','m3':'m³','m²':'m²','m³':'m³'}[String(unit||'').toLowerCase()]||String(unit||'item'));
      const norm=x=>String(x||'').toLowerCase().trim().replace(/\s+/g,' ');
      const seen=new Set((estimate.items||[]).map(i=>i.ai_draft_key).filter(Boolean));
-     const added=[];
+     const previousAuto=new Set((estimate.items||[]).map(i=>i.ai_auto_key).filter(Boolean));
+     const added=[],autoAdded=[],newHighlights=[];
+     const uniqueAuto=autoCandidates.filter(m=>!previousAuto.has(m.key));
+     const measuredDescriptions=new Set(uniqueAuto.map(m=>norm(m.mark.name)+'|'+norm(m.unit)));
      for(const draft of comparison.takeoff_draft){
        const description=String(draft.description||'').trim();
        if(!description)continue;
        const unit=normalizedUnit(draft.unit),reference=String(draft.drawing_reference||'').trim();
+       // Keep the measured line rather than also issuing a zero-quantity AI scope
+       // row for the same work type. Different descriptions remain separate.
+       if(measuredDescriptions.has(norm(description)+'|'+norm(unit)))continue;
        const key=[norm(description),norm(unit),norm(reference)].join('|');
        if(seen.has(key))continue;seen.add(key);
-       const measured=false && typeof draft.quantity==='number'&&Number.isFinite(draft.quantity)&&draft.quantity>0&&
-         typeof draft.measurement_basis==='string'&&draft.measurement_basis.trim().length>8;
-       // AI interpretation alone is not a verified measurement: keep scope, request checked quantities.
-       const quantity=measured?draft.quantity:0;
-       const rateResult=applySavedRate({description,unit},rateLibrary);
-       const match=rateResult.status==='matched'?rateResult.item:null;
-       added.push({...initialItem,id:crypto.randomUUID(),ref_no:String((estimate.items||[]).length+added.length+1).padStart(3,'0'),
-         work_section:draft.work_section||'AI draft',description,unit,quantity,drawing:reference,
-         material_rate:match?num(match.material_rate):0,plant_rate:match?num(match.plant_rate):0,
-         labour_rate:match?num(match.labour_rate):0,labour_hours:match?num(match.labour_hours):0,
-         status:measured?'AI provisional quantity — QS verify':'Needs measurement — AI scope only',
-         ai_draft_key:key,rate_source:match?.supplier||'',rate_checked_at:match?.updated_at||null,
-         takeoff_evidence:{source:'Cloudflare Workers AI',confidence:'unverified',draft:true,measurement_basis:draft.measurement_basis||'No confirmed dimensions',drawing_reference:reference,quantity_status:draft.quantity_status||'Needs measurement'},
+       const priced=applySavedRate({...initialItem,description,unit},rateLibrary).item;
+       added.push({...priced,id:crypto.randomUUID(),
+         ref_no:String((estimate.items||[]).length+added.length+1).padStart(3,'0'),
+         work_section:draft.work_section||'AI draft',description,unit,quantity:0,drawing:reference,
+         status:'Needs measurement — AI scope only',ai_draft_key:key,
+         takeoff_evidence:{source:'Cloudflare Workers AI',confidence:'unverified',draft:true,
+           measurement_basis:draft.measurement_basis||'No confirmed dimensions',
+           drawing_reference:reference,quantity_status:'Needs measurement'},
        });
      }
-     const next={...estimate,items:[...(estimate.items||[]),...added],
+     for(const entry of uniqueAuto){
+       const highlightId=crypto.randomUUID();
+       const existingManual=(estimate.highlights||[]).some(h=>
+         h.drawing_id===entry.document_id && h.page===entry.page
+         && norm(h.name)===norm(entry.mark.name)
+         && Math.abs(Number(h.x)-Number(entry.mark.x))<.003
+         && Math.abs(Number(h.y)-Number(entry.mark.y))<.003
+         && Math.abs(Number(h.w)-Number(entry.mark.w))<.003
+         && Math.abs(Number(h.h)-Number(entry.mark.h))<.003);
+       if(existingManual){autoRejections.push({description:entry.mark.name,
+         reason:'Overlaps an existing manually marked feature',filename:entry.filename,page:entry.page});continue}
+       const marks={...entry.mark,id:highlightId,drawing_id:entry.document_id,page:entry.page};
+       newHighlights.push(marks);
+       const description=entry.mark.name,unit=entry.unit;
+       const priced=applySavedRate({...initialItem,description,unit},rateLibrary).item;
+       autoAdded.push({...priced,id:crypto.randomUUID(),
+         ref_no:String((estimate.items||[]).length+added.length+autoAdded.length+1).padStart(3,'0'),
+         description,work_section:entry.work_section,unit,quantity:entry.quantity,
+         trade:'AI-detected '+entry.mark.stage.toLowerCase()+' work',
+         drawing:entry.filename+' p'+entry.page,ai_auto_key:entry.key,
+         status:'AI auto-measured outline — provisional; QS check required',
+         takeoff_evidence:{source:'Cloudflare Workers AI',automatic:true,confidence:'unverified',draft:true,
+           highlight_id:highlightId,drawing_id:entry.document_id,page:entry.page,
+           calibration_m_per_px:entry.metresPerPixel,kind:entry.mark.kind,
+           region:{x:entry.mark.x,y:entry.mark.y,w:entry.mark.w,h:entry.mark.h},
+           points:entry.mark.points||null,measurement_basis:entry.evidence,
+           method:entry.method,quantity_status:'Provisional - QS verify'},
+       });
+     }
+     const next={...estimate,items:[...(estimate.items||[]),...added,...autoAdded],
+       highlights:[...(estimate.highlights||[]),...newHighlights],
+       ai_auto_measurement_review:{accepted:autoAdded.length,rejected:autoRejections.slice(0,100),
+         checked_pages:count,analysed_at:new Date().toISOString()},
        ai_drawing_review:comparison.drawing_review,ai_last_analysed_at:new Date().toISOString(),
        takeoff_review_status:'AI draft — QS review required'};
      const {error:saveError}=await db.from('projects').update({estimate_data:next}).eq('id',project.id);
      if(saveError)throw Error('Could not save draft BOQ: '+saveError.message);
      setEstimate(next);setAiReview(comparison.drawing_review);
      const needsMeasurement=added.filter(x=>!x.quantity).length;
-     setNotice('Cloudflare AI reviewed '+count+' page(s) and saved '+added.length+' new DRAFT BOQ item(s); '+needsMeasurement+' need measurement. Check all quantities and rates before pricing or issuing a quotation.');
+     setNotice('AI reviewed '+count+' page(s): '+autoAdded.length+' calibrated AI-proposed outline(s) measured automatically (all provisional), '+added.length+' other scope item(s) still need measurement; '+autoRejections.length+' outline(s) held for review. Check outlines on each drawing and confirm all quantities before quotation.');
    }catch(e){setNotice('AI plan reader failed: '+(e.message||String(e))+' No partial BOQ was saved.')}
    finally{for(const source of sources)if(source.pdf){try{await source.pdf.destroy()}catch{}}setAiBusy(false)}
  }
@@ -672,6 +721,13 @@ export default function Estimates({db,project,docs=[]}){
  </svg>}{currentHighlights.filter(h=>!['length','count'].includes(h.kind)).map(h=><div key={h.id} className="estimateMark" style={{left:h.x*100+'%',top:h.y*100+'%',width:h.w*100+'%',height:h.h*100+'%',background:pricedBoq(h).length?"rgba(35,156,82,.34)":linkedBoq(h).length?"rgba(234,172,37,.3)":"rgba(205,57,57,.2)",borderColor:pricedBoq(h).length?"#239c52":linkedBoq(h).length?"#eaaa25":"#cd3939"}} title={h.name+" — "+(pricedBoq(h).length?"Priced: "+pricedBoq(h).map(i=>i.ref_no||i.description).join(", "):linkedBoq(h).length?"Linked but unpriced":"Not linked to BOQ")}/>) }{drag&&hover&&!calibrate&&<div className="estimateMark drawingNew" style={{left:Math.min(drag.x,hover.x)*100+'%',top:Math.min(drag.y,hover.y)*100+'%',width:Math.abs(drag.x-hover.x)*100+'%',height:Math.abs(drag.y-hover.y)*100+'%'}}/>}</div></div></div><p className="muted">Drawing key: 🟢 Green = linked to a priced BOQ item; 🟡 Amber = linked but unpriced; 🔴 Red = not linked to BOQ. Drawings must be calibrated and measured quantities reviewed before issue.</p>
  {currentHighlights.map(h=>{const m=regionMeasures(h);return <div key={h.id} className="estimateHighlightRow">{h.stage}: {h.name} — {h.kind||'area'} (page {h.page}) {m?m.quantity+' '+m.unit:''} — {pricedBoq(h).length?'PRICED':linkedBoq(h).length?'LINKED / UNPRICED':'NOT LINKED'} <button type="button" disabled={selectedCalibrationStatus==='reference-only'||(h.kind!=='count'&&!metresPerPixel)} onClick={()=>addMeasured(h)}>Add measured {h.kind||'area'} to BOQ</button> <button type="button" className="outline" onClick={()=>patch('highlights',estimate.highlights.filter(x=>x.id!==h.id))}>Remove</button></div>})}
  <h3>2. Build measured BOQ items</h3>
+  {estimate.ai_auto_measurement_review&&<div className="notice" role="status">
+   <b>AI automatic measurement preview:</b> {estimate.ai_auto_measurement_review.accepted||0} provisional measured outline(s)
+   across {estimate.ai_auto_measurement_review.checked_pages||0} reviewed page(s).
+   {(estimate.ai_auto_measurement_review.rejected||[]).length} attempted outline(s) require manual checking.
+   <p>These measurements are calculated from AI-suggested boundaries and your saved per-page scale, not from a verified geometric tracing. Open each marked drawing and check the coloured shapes, lengths or count points. Irregular outlines, hidden works, net wall areas and deductions still need QS take-off. No automatic measurement is deemed verified.</p>
+   {(estimate.ai_auto_measurement_review.rejected||[]).length>0&&<details><summary>See outlines held for review</summary><ul>{estimate.ai_auto_measurement_review.rejected.slice(0,30).map((m,i)=><li key={i}>{m.filename} page {m.page}: {m.description||'Unlabelled'} — {m.reason}</li>)}</ul></details>}
+  </div>}
   <div className="estimateToolbar" aria-label="Import master pricing rates">
    <label>Import Construction Rates Master (staff only)
     <input type="file" accept=".xlsx,.xls" aria-label="Import Construction Rates Master spreadsheet" disabled={rateImportBusy} onChange={importMasterRates}/>
@@ -681,7 +737,7 @@ export default function Estimates({db,project,docs=[]}){
    {rateImportReview.length>0&&<button type="button" className="outline" onClick={downloadRateReview}>Download {rateImportReview.length} rates for review</button>}
   </div>
   <p className="muted">Import skips existing rates, holds ambiguous or incomplete prices for QS review, and treats Priceajob unit prices as labour hours × hourly labour rate (excluding VAT). Rates are provisional until verified. Staff access is checked by the database.</p>
-  <div className="estimateToolbar"><button type="button" onClick={matchSavedRates} disabled={!estimate.items.length||!rateLibrary.length}>Match missing rates from library</button><span>{rateLibrary.length} imported entries: {coverage.materials} with material rates, {coverage.plant} with plant rates and {coverage.labour} with labour rates. Only one valid description/unit match is applied; ambiguous matches are held for QS review and existing prices stay unchanged.</span></div><div className="notice"><b>Measurement verification:</b> {estimate.items.filter(i=>i.takeoff_evidence?.confidence==='unverified').length} area take-off(s) remain unverified. Individual evidence must be checked before final quotation revisions. <button type="button" className="outline" onClick={()=>{const checked=window.confirm('Confirm that you personally checked all recorded drawing quantities, scale and measurements?');if(checked)patch('items',estimate.items.map(i=>i.takeoff_evidence?.confidence==='unverified'?{...i,takeoff_evidence:{...i.takeoff_evidence,confidence:'manually verified',verified_at:new Date().toISOString(),verified_by:estimate.takeoff_reviewer||'Reviewer'},status:'Manually verified take-off — confirm pricing'}:i))}}>Mark checked take-offs as verified</button></div><p className="muted">All manually measured items retain drawing/page/region and scale evidence where available. AI-detected quantities, element recognition and existing-versus-proposed subtraction are still under development; do not assume a highlighted rectangle is an automatic take-off.</p><div className="estimateForm">{[['ref_no','BoQ reference (auto if blank)'],['work_section','Work section'],['description','Work item / description'],['trade','Trade'],['drawing','Drawing reference'],['quantity','Verified quantity'],['material_rate','Material £/unit'],['plant_rate','Plant £/unit'],['labour_hours','Labour hours / unit'],['labour_rate','Labour £/hour'],['supplier','Supplier'],['price_url','Price source URL']].map(([k,l])=><label key={k}>{l}<input type={['quantity','material_rate','plant_rate','labour_hours','labour_rate'].includes(k)?'number':'text'} step="any" value={item[k]} onChange={e=>setItem(x=>({...x,[k]:e.target.value}))}/></label>)}<label>Unit<select value={item.unit} onChange={e=>setItem(x=>({...x,unit:e.target.value}))}>{['nr','m','m²','m³','kg','tonne','day','item'].map(x=><option key={x}>{x}</option>)}</select></label><button onClick={addItem}>Add BOQ item</button></div>
+  <div className="estimateToolbar"><button type="button" onClick={matchSavedRates} disabled={!estimate.items.length||!rateLibrary.length}>Match missing rates from library</button><span>{rateLibrary.length} imported entries: {coverage.materials} with material rates, {coverage.plant} with plant rates and {coverage.labour} with labour rates. Only one valid description/unit match is applied; ambiguous matches are held for QS review and existing prices stay unchanged.</span></div><div className="notice"><b>Measurement verification:</b> {estimate.items.filter(i=>i.takeoff_evidence?.confidence==='unverified').length} take-off item(s) (manual and AI) remain unverified. Individual evidence must be checked before final quotation revisions. <button type="button" className="outline" onClick={()=>{const checked=window.confirm('Confirm that you personally checked all recorded drawing quantities, scale and measurements?');if(checked)patch('items',estimate.items.map(i=>i.takeoff_evidence?.confidence==='unverified'?{...i,takeoff_evidence:{...i.takeoff_evidence,confidence:'manually verified',verified_at:new Date().toISOString(),verified_by:estimate.takeoff_reviewer||'Reviewer'},status:'Manually verified take-off — confirm pricing'}:i))}}>Mark checked take-offs as verified</button></div><p className="muted">All manually measured items retain drawing/page/region and scale evidence where available. AI-detected quantities, element recognition and existing-versus-proposed subtraction are still under development; do not assume a highlighted rectangle is an automatic take-off.</p><div className="estimateForm">{[['ref_no','BoQ reference (auto if blank)'],['work_section','Work section'],['description','Work item / description'],['trade','Trade'],['drawing','Drawing reference'],['quantity','Verified quantity'],['material_rate','Material £/unit'],['plant_rate','Plant £/unit'],['labour_hours','Labour hours / unit'],['labour_rate','Labour £/hour'],['supplier','Supplier'],['price_url','Price source URL']].map(([k,l])=><label key={k}>{l}<input type={['quantity','material_rate','plant_rate','labour_hours','labour_rate'].includes(k)?'number':'text'} step="any" value={item[k]} onChange={e=>setItem(x=>({...x,[k]:e.target.value}))}/></label>)}<label>Unit<select value={item.unit} onChange={e=>setItem(x=>({...x,unit:e.target.value}))}>{['nr','m','m²','m³','kg','tonne','day','item'].map(x=><option key={x}>{x}</option>)}</select></label><button onClick={addItem}>Add BOQ item</button></div>
  <div className="estimateForm"><label>Imported price list / supplier reference<input value={estimate.supplier_price_source||''} placeholder="e.g. Huws Gray trade price list" onChange={e=>patch('supplier_price_source',e.target.value)}/></label><label>Date rates last verified<input type="date" value={estimate.supplier_price_date||''} onChange={e=>patch('supplier_price_date',e.target.value)}/></label></div><p className="muted">Use agreed supplier price lists until merchant API access has been authorised. Record the price source/date, and confirm availability, delivery and VAT before issuing. No live supplier API connection is claimed.</p><p className="muted">Rates are applied from the saved library only on a unique, valid description and unit match. {coverage.materials} entries contain material costs, {coverage.plant} contain plant costs, {coverage.labour} contain labour costs and {coverage.invalid} have incomplete or unpriced components. The library can contain labour-only rates: missing materials or plant are <strong>not</strong> invented. Confirm source dates, delivery and VAT. No live merchant price connection is claimed.</p>
  <div role="status" className={pricingIssues.length?'notice':'muted'}><b>BOQ pricing review: {pricingIssues.length?pricingIssues.length+' check(s) outstanding':'No unpriced or invalid BOQ items detected'}</b>{pricingIssues.length>0&&<ul>{pricingIssues.map((issue,i)=><li key={i}>{issue.ref}: {issue.problem}</li>)}</ul>}<p>Drafts can be saved while checks are open; quotation revisions are blocked until every item has a valid quantity and a non-zero unit rate.</p></div>
  <div className="estimateTableScroll"><table className="estimateTable"><thead><tr>{['Ref','Section','Trade','Description','Qty','Unit','Materials','Plant','Labour','Unit rate','Total',''].map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{estimate.items.map(x=><tr key={x.id}><td>{x.ref_no||'—'}</td><td>{x.work_section||'Measured Works'}</td><td>{x.trade}</td><td>{x.description}<small>{x.drawing||''}{x.rate_source?' · Rate: '+x.rate_source:''}{x.rate_checked_at?' · '+String(x.rate_checked_at).slice(0,10):''}</small></td><td>{x.quantity}</td><td>{x.unit}</td><td>{money(num(x.material_rate)*num(x.quantity))}</td><td>{money(num(x.plant_rate)*num(x.quantity))}</td><td>{money(num(x.labour_hours)*num(x.labour_rate)*num(x.quantity))}</td><td>{money(num(x.material_rate)+num(x.plant_rate)+num(x.labour_hours)*num(x.labour_rate))}</td><td>{money(perLine(x))}</td><td><button className="outline" type="button" onClick={()=>setEditingBoq(editingBoq===x.id?null:x.id)}>{editingBoq===x.id?'Close':'Edit'}</button><button className="outline" type="button" onClick={()=>patch('items',estimate.items.filter(y=>y.id!==x.id))}>Delete</button></td></tr>)}</tbody></table></div>
