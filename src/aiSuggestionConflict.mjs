@@ -40,3 +40,29 @@ export function findPotentialAiOverlaps(item,existing,max=4){
   };
  });
 }
+
+export function auditExistingBoqOverlap(items,max=80){
+ const pairs=[];
+ const rows=Array.isArray(items)?items:[];
+ for(let i=0;i<rows.length;i++){
+  const item=rows[i];
+  if(!(Number(item?.quantity)>0))continue; // Unmeasured scope is a different review problem.
+  for(let j=0;j<i;j++){
+   const prior=rows[j];
+   if(!(Number(prior?.quantity)>0))continue;
+   const overlaps=findPotentialAiOverlaps(item,[prior],1);
+   if(overlaps.length){
+    pairs.push({
+      first:prior.ref_no||String(j+1).padStart(3,'0'),
+      second:item.ref_no||String(i+1).padStart(3,'0'),
+      first_description:prior.description,second_description:item.description,
+      first_quantity:prior.quantity,second_quantity:item.quantity,
+      unit:item.unit,reason:overlaps[0].reason,
+      difference_percent:overlaps[0].difference_percent
+    });
+    if(pairs.length>=max)return pairs;
+   }
+  }
+ }
+ return pairs;
+}
