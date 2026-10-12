@@ -721,9 +721,98 @@ $('specfile').onchange=async function(){
   finally{this.value='';}
 };
 $('clear-spec').onclick=async()=>{clearReviewSelections();$('specification').value='';$('suggestions').style.display='none';status('spec-status','Specification cleared.');$('source-file-label').textContent='No original document loaded.';releaseSource();showReview(false);try{await drop(SOURCE_KEY)}catch(e){console.warn(e)}save();};
-function findQty(line){const match=line.match(/(\d+(?:[.,]\d+)?)\s*(m²|m2|sqm|sq\.?\s*m|lm|lin\.?\s*m|m³|m3|nr|no\.?|each|item|ea)\b/i);if(match)return{qty:num(match[1]),unit:match[2].toLowerCase().replace(/[. ]/g,'')};return{qty:1,unit:''};}
-const stop=new Set(['with','into','then','shall','from','them','this','that','work','item','unit','allow','provide','renew','remove','prepare','install','include','measure','area','quantity','repair','making','complete','existing','supply','and','the','for']);
-function topMatch(line){const words=line.toLowerCase().replace(/[^a-z0-9 ]/g,' ').split(/\s+/).filter(w=>w.length>=3&&!stop.has(w));const q=findQty(line);const lineLow=line.toLowerCase();let ranked=rates.map(r=>{let d=r.description.toLowerCase(),score=0;for(const w of words){if(d.includes(w))score+=w.length>5?3:2;}if(new RegExp('\\b'+r.code+'\\b').test(lineLow))score+=20;const uu=r.unit.toLowerCase();if(q.unit&&(uu.includes(q.unit)||q.unit==='m2'&&uu==='m²'||q.unit==='no'&&uu==='nr'))score+=2;return{r,score};}).filter(x=>x.score>1).sort((a,b)=>b.score-a.score);return ranked.slice(0,2);}
+function findQty(line){
+  const source=String(line||'');
+  const match=source.match(/(?:^|[\s:])(\d+(?:[.,]\d+)?)\s*(m²|m2|sq\.?\s*m|sqm|sm|linear metres?|lin\.?\s*m|lm|m³|m3|cm|cu\.?\s*m|nr|no\.?|each|items?|ea|it|pr|kg|hrs?|hours?|days?|wks?|weeks?)\s*(?=$|[\s;,.])/i);
+  if(match){let unit=match[2].toLowerCase().replace(/[.\s]/g,'');if(['linearmetre','linearmetres','linm'].includes(unit))unit='lm';
+    if(['sqm','sq m','sm'].includes(unit))unit='m2';if(['cum','cm'].includes(unit))unit='m3';
+    if(['items','it'].includes(unit))unit='item';if(['hours','hrs','hour'].includes(unit))unit='hr';
+    if(['days'].includes(unit))unit='day';if(['weeks','wks','week'].includes(unit))unit='wk';
+    return{qty:Number(match[1].replace(',','.')),unit};
+  }
+  const leading=source.match(/^\s*(?:qty\s*[:=]?\s*)?(\d+(?:[.,]\d+)?)\s+(?!mm\b|cm\b|x\d)/i);
+  if(leading)return{qty:Number(leading[1].replace(',','.')),unit:''};
+  return{qty:1,unit:''};
+}
+const STOP_MATCH_WORDS=new Set(['with','into','then','shall','from','them','this','that','work','works','item','items','unit','allow','include','measure','area','quantity','total','section','sheet','required','require','thereof','complete','existing','specification','property','notes','where','under','over','from','and','the','for','per','all','any','each','type']);
+const ACTION_MATCH_WORDS=new Set(['renew','repair','remove','install','paint','clean','replace','rebed','seal','supply','service','test']);
+function canonicalMatchWord(raw){
+  let w=String(raw||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  if(!w||/^\d+$/.test(w))return '';
+  const aliases={
+    'wdw':'window','windows':'window','glazing':'glass','glazed':'glass','doors':'door','doorleaf':'door',
+    'skirtings':'skirting','skirts':'skirting','plinth':'skirting','architraves':'architrave',
+    'painting':'paint','painted':'paint','painter':'paint','paints':'paint','emulsion':'paint','emulsions':'paint','decorating':'paint','decoration':'paint','decorate':'paint','decorator':'paint',
+    'redecorating':'paint','redecorate':'paint','coatings':'paint',
+    'renewal':'renew','renewing':'renew','replacing':'renew','replacement':'renew','replaced':'renew','replace':'renew',
+    'repairing':'repair','repairs':'repair','repaired':'repair','patching':'repair','patch':'repair','makegood':'repair',
+    'removing':'remove','removed':'remove','stripout':'remove','demolish':'remove',
+    'installation':'install','fitting':'install','fitted':'install','fixing':'install','fittingout':'install',
+    'tiles':'tile','tiling':'tile','plastered':'plaster','plastering':'plaster','plasters':'plaster',
+    'plasterboards':'plasterboard','boards':'board','boarding':'board','radiators':'radiator',
+    'taps':'tap','basins':'basin','washbasin':'basin','wc':'toilet','wcs':'toilet','lavatory':'toilet','lavatories':'toilet',
+    'sockets':'socket','outlets':'socket','lamps':'light','lighting':'light','lights':'light',
+    'pvc':'upvc','upvc':'upvc','pipework':'pipe','pipes':'pipe','floors':'floor','flooring':'floor',
+    'ceilings':'ceiling','walls':'wall','gutters':'gutter','guttering':'gutter','fences':'fence','fencing':'fence',
+    'kitchenunits':'kitchen','kitchens':'kitchen','bathrooms':'bathroom','cylinders':'cylinder',
+    'cleaning':'clean','cleaned':'clean','sealed':'seal','sealing':'seal','seals':'seal',
+    'testing':'test','tested':'test','servicing':'service','serviced':'service'};
+  if(aliases[w])return aliases[w];
+  if(w.endsWith('ies')&&w.length>5)w=w.slice(0,-3)+'y';
+  else if(w.endsWith('ing')&&w.length>6)w=w.slice(0,-3);
+  else if(w.endsWith('es')&&w.length>5)w=w.slice(0,-2);
+  else if(w.endsWith('s')&&w.length>4)w=w.slice(0,-1);
+  return aliases[w]||w;
+}
+function matchWords(str){
+  return [...new Set(String(str||'').toLowerCase().replace(/(\d+)x(\d+)/g,'$1 $2').split(/[^a-z0-9]+/)
+   .map(canonicalMatchWord).filter(w=>w.length>=3&&!STOP_MATCH_WORDS.has(w)&&!/^\d+$/.test(w)))];
+}
+function matchUnits(unit){
+  const u=String(unit||'').toLowerCase();
+  const map={m2:['SM'],sqm:['SM'],sm:['SM'],lm:['LM'],m3:['CM'],cm:['CM'],
+    no:['NO','IT'],nr:['NO','IT'],ea:['NO','IT'],each:['NO','IT'],
+    item:['IT','NO'],it:['IT','NO'],pr:['PR'],kg:['KG'],hr:['HR'],day:['DAY'],wk:['WK']};
+  return map[u]||null;
+}
+function rankedRateMatches(query,limit=8,ignoreUnit=false){
+  const source=String(query||'').trim();
+  const explicit=source.match(/(?:SOR|NHF|CODE)\s*[:#-]?\s*(\d{3,8})\b/i);
+  if(explicit&&codes.has(explicit[1]))return [{r:codes.get(explicit[1]),score:999,kind:'Exact SOR code'}];
+  if(/^\d{3,8}$/.test(source)&&codes.has(source))return [{r:codes.get(source),score:999,kind:'Exact SOR code'}];
+  const qty=findQty(source),expected=ignoreUnit?null:matchUnits(qty.unit);
+  const key=matchWords(source);
+  if(!key.length)return[];
+  const queryActions=key.filter(w=>ACTION_MATCH_WORDS.has(w));
+  const queryObjects=key.filter(w=>!ACTION_MATCH_WORDS.has(w));
+  const matches=[];
+  for(const r of rates){
+    if(expected&&!expected.includes(String(r.unit||'').toUpperCase()))continue;
+    const short=matchWords(r.description);
+    const extra=matchWords([r.medium||'',r.long||'',r.trade||''].join(' '));
+    const sh=new Set(short),ex=new Set(extra);
+    let shortHits=0,extraHits=0,score=0;
+    for(const term of key){
+      if(sh.has(term)){shortHits++;score+=ACTION_MATCH_WORDS.has(term)?7:10;}
+      else if(ex.has(term)){extraHits++;score+=ACTION_MATCH_WORDS.has(term)?2:3;}
+    }
+    if(!shortHits&&!extraHits)continue;
+    const objHits=queryObjects.filter(w=>sh.has(w)||ex.has(w)).length;
+    if(queryObjects.length&&objHits===0)continue;
+    if(queryActions.length){
+      const actionHits=queryActions.filter(w=>sh.has(w)).length;
+      if(actionHits)score+=6;
+      else if([...sh].some(w=>ACTION_MATCH_WORDS.has(w)))score-=6;
+    }
+    if(shortHits===key.length)score+=12;
+    if(objHits>=2)score+=5;
+    if(r.trade&&source.toLowerCase().includes(r.trade.toLowerCase()))score+=2;
+    if(score>=3)matches.push({r,score,kind:shortHits?shortHits>=2?'Description match':'Keyword match':'Related wording'});
+  }
+  matches.sort((a,b)=>b.score-a.score||String(a.r.code).localeCompare(String(b.r.code)));
+  return matches.slice(0,limit);
+}
+function topMatch(line){return rankedRateMatches(line,6);}
 $('suggest').onclick=()=>{if(!rates.length){status('spec-status','Load the V8 ratebook before requesting suggestions.','bad');return;}const txt=$('specification').value.trim();if(!txt){status('spec-status','Please enter or upload a specification.','bad');return;}let lines=txt.split(/[\r\n]+/).map(s=>s.trim()).filter(s=>s.length>7).slice(0,35);let all=lines.map((line,i)=>{let matches=topMatch(line),q=findQty(line);return '<div class="spec"><div class="source">'+esc(line)+'</div>'+(matches.length?matches.map(x=>'<div class="suggest">'+esc(x.r.code)+' '+esc(x.r.description)+' • '+money(x.r.rate)+'/'+esc(x.r.unit)+' <button class="tiny secondary" data-confirm="'+i+'" data-code="'+esc(x.r.code)+'" data-q="'+q.qty+'">Add '+q.qty+' '+esc(x.r.unit)+'</button></div>').join(''):'<div class="suggest">No reliable match. Search the SOR manually.</div>')+'</div>';});$('suggestions').innerHTML='<p class="notice">These are text-similarity suggestions, NOT AI-verified take-offs. Check code, units and quantities before adding.</p>'+all.join('');$('suggestions').style.display='block';document.querySelectorAll('[data-confirm]').forEach(b=>b.onclick=()=>{add(b.dataset.code,Number(b.dataset.q));b.disabled=true;b.textContent='Added — review BoQ';});status('spec-status',lines.length+' specification lines ready to verify against the original.','ok');showReview(true);};
 const UK_EST_LOGO='/maintenance/uk-estimates-logo.png';
 function setPercent(value){
