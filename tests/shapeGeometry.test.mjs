@@ -18,7 +18,7 @@ const candidate={kind:'polygon',points:outline,description:'New irregular floor 
 test('non-rectangular L-shaped floor measures actual area not enclosing box',()=>{
  const m=measuredTrace({kind:'polygon',points:outline},size,scale);
  assert.deepEqual([m.quantity,m.unit,m.gross_area_m2],[6,'m²',6]);
- assert.equal(polygonArea(outline),.12);
+ assert.ok(Math.abs(polygonArea(outline)-.12)<1e-10);
  assert.equal(measuredQuantity({kind:'polygon',points:outline},size,scale).quantity,6);
 });
 test('only explicitly drawn internal openings are deducted, never negative BOQ quantities',()=>{
