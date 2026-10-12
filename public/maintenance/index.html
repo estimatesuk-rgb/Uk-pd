@@ -1674,6 +1674,20 @@ function reportTotals(lines){
   const adjusted=lines.reduce((s,r)=>s+r.total,0);
   return {base,adjustment:adjusted-base,adjusted,labour:lines.reduce((s,r)=>s+r.labour,0),materials:lines.reduce((s,r)=>s+r.materials,0),hours:lines.reduce((s,r)=>s+r.hours,0)};
 }
+
+function renderProgrammeForPrint(){
+  const p=buildJobProgramme();
+  if(!p.trades.length)return '';
+  const head='<div class="boq-section-title">JOB PLANNING &amp; SMV PROGRAMME — DRAFT</div>'+
+    '<p style="font-size:11px;margin:9px 0">Start: '+esc(planDisplayDate(p.start))+' · '+p.dayHours+' productive hours / operative / day · '+p.knownHours.toFixed(2)+' SMV hours · '+p.totalOperativeDays.toFixed(1)+' operative-days'+
+    ' · '+p.missing+' missing SMV and '+p.provisional+' provisional / manually allowed items</p>';
+  const table='<table class="boq-report-table"><thead><tr><th>Trade</th><th>Order</th><th>Operatives</th><th>SMV hours</th><th>Working days</th><th>Start rule</th><th>From</th><th>To</th><th>Status</th></tr></thead><tbody>'+
+    p.trades.map(t=>'<tr><td>'+esc(t.trade)+'</td><td>'+t.order+'</td><td>'+t.crew+'</td><td>'+t.hours.toFixed(2)+'</td><td>'+t.days+'</td><td>'+esc(t.rule==='parallel'?'Parallel':'After previous')+'</td>'+
+      '<td>'+esc(planDisplayDate(t.begins))+'</td><td>'+esc(planDisplayDate(t.finish))+'</td><td>'+esc(t.missing?'Missing '+t.missing+' SMV':t.provisional?'Provisional '+t.provisional:'Ratebook SMV')+'</td></tr>').join('')+
+    '</tbody></table>';
+  const warning='<p class="notice" style="margin:14px 0">Indicative working-day programme only. Missing SMV activities are excluded from dated durations; provisional/manual values need estimator approval. Bank holidays, access, travel, drying, curing, deliveries, crew availability and dependencies are not automatically accounted for. Verify before issuing.</p>';
+  return '<section style="break-before:page;page-break-before:always;padding-top:12px">'+head+table+warning+'</section>';
+}
 function renderBoqPaper(){
   const rows=reportLines(),t=reportTotals(rows),pct=adjustment();
   $('preview-adjustment').value=String(pct);
@@ -1696,6 +1710,7 @@ function renderBoqPaper(){
   html+='<tr><td>Labour allocation</td><td>'+money(t.labour)+'</td></tr>';
   html+='<tr><td>Materials allocation</td><td>'+money(t.materials)+'</td></tr>';
   html+='<tr><td><b>TOTAL EX VAT</b></td><td>'+money(t.adjusted)+'</td></tr></tbody></table></div>';
+  html+=renderProgrammeForPrint();
   html+='<div class="report-footer"><span>UK Estimates · Housing Maintenance &amp; Voids</span><span>Ref: '+esc($('reference').value||'Draft')+' · Draft for review prior to issue</span></div>';
   $('boq-paper').innerHTML=html;
 }
@@ -1762,6 +1777,90 @@ function writeBoqInfo(ws,row,leftLabel,leftValue,rightLabel,rightValue){
   cellReportText(ws,'I'+row,clean(rightValue)||'Not provided',{size:10,bold:true,fill:UK_EST_PALETTE.soft});
   ws.getRow(row).height=29;
 }
+
+function appendJobProgrammeWorksheet(wb,logo){
+  const p=buildJobProgramme();
+  const ws=wb.addWorksheet('Job Programme',{views:[{state:'frozen',ySplit:11,showGridLines:false}]});
+  [17,30,52,14,15,16,16,20,20,20,21,24].forEach((w,i)=>ws.getColumn(i+1).width=w);
+  ws.pageSetup={paperSize:8,orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0,
+    margins:{left:.3,right:.3,top:.4,bottom:.5,header:.2,footer:.2},printTitlesRow:'10:11'};
+  ws.headerFooter.oddFooter='UK Estimates Ltd — Indicative SMV Programme — Page &P of &N';
+  writeBoqBrandHeader(ws,logo,'JOB PLANNING & SMV','INDICATIVE TRADE PROGRAMME  |  PROVIDED SMVs & PLANNING ALLOWANCES');
+  writeBoqInfo(ws,5,'Property / site',$('address').value,'Job reference',$('reference').value);
+  writeBoqInfo(ws,6,'Client / authority',$('client').value,'Surveyor',$('surveyor').value);
+  writeBoqInfo(ws,7,'Commencement',planDisplayDate(p.start),'Indicative finish',planDisplayDate(p.latestFinish));
+  ws.mergeCells('A8:L9');
+  cellReportText(ws,'A8',
+    'DRAFT — '+p.knownHours.toFixed(2)+' known/provisional SMV labour hours at '+p.dayHours+' productive hours per operative per day. '+
+    p.missing+' items have missing SMV values and are excluded from duration. '+p.provisional+
+    ' items include provisional or manually entered planning allowances. Trade sequence and parallel starts are user-controlled. '+
+    'Monday–Friday only: validate bank holidays, access, travel, drying/curing, lead times, crew allocation and dependencies before issue.',
+    {size:10,colour:p.missing||p.provisional?'835D29':UK_EST_PALETTE.ink,fill:p.missing||p.provisional?'FFF2DC':UK_EST_PALETTE.soft});
+  ws.getRow(8).height=35;ws.getRow(9).height=23;
+  ws.mergeCells('A10:L10');cellReportText(ws,'A10','PLANNED TRADES & OPERATIVE ALLOCATION',{size:12,bold:true,colour:UK_EST_PALETTE.white,fill:UK_EST_PALETTE.navy});
+  ws.getRow(10).height=31;
+  const heads=['Order','Trade','Work packages','Crew','SMV hours','Hours/day','Workdays','From','To','Missing SMV','Provisional','Start mode'];
+  heads.forEach((h,i)=>{const c=cellReportText(ws,ws.getCell(11,i+1).address,h,{size:9,bold:true,colour:UK_EST_PALETTE.navy,fill:UK_EST_PALETTE.soft});c.alignment={vertical:'middle',wrapText:true};});
+  ws.getRow(11).height=32;
+  p.trades.forEach((t,i)=>{
+    const values=[t.order,t.trade,t.items,t.crew,t.hours,p.dayHours,t.days,
+      t.begins?planDisplayDate(t.begins):'Unscheduled',t.finish?planDisplayDate(t.finish):'Unscheduled',t.missing,t.provisional,
+      t.rule==='parallel'?'Starts alongside':'After previous'];
+    const row=ws.addRow(values);row.height=29;
+    for(let col=1;col<=12;col++){
+      const cell=row.getCell(col);cell.fill=boqFill(t.missing?'FFF2E9':t.provisional?'FFF8E7':i%2?UK_EST_PALETTE.light:UK_EST_PALETTE.white);
+      cell.font=boqFont(10,col===10&&t.missing?UK_EST_PALETTE.red:UK_EST_PALETTE.ink,col===2);
+      cell.alignment={vertical:'middle',wrapText:col===2||col===12,horizontal:[1,3,4,5,6,7,10,11].includes(col)?'right':'left'};
+    }
+    row.getCell(5).numFmt=UK_EST_NUMBER;
+  });
+  const summaryRow=12+p.trades.length;
+  ws.mergeCells('A'+summaryRow+':D'+summaryRow);
+  cellReportText(ws,'A'+summaryRow,'TOTAL PLANNED SMV HOURS',{bold:true,colour:UK_EST_PALETTE.white,fill:UK_EST_PALETTE.navy});
+  cellReportText(ws,'E'+summaryRow,p.knownHours,{bold:true,colour:UK_EST_PALETTE.white,fill:UK_EST_PALETTE.navy,numFmt:UK_EST_NUMBER});
+  ws.mergeCells('F'+summaryRow+':L'+summaryRow);
+  cellReportText(ws,'F'+summaryRow,'Includes '+p.provisional+' provisional items; excludes '+p.missing+' missing SMV items.',{size:10,fill:UK_EST_PALETTE.soft});
+  ws.getRow(summaryRow).height=30;
+  const titleRow=summaryRow+2,detailHeads=titleRow+1;
+  ws.mergeCells('A'+titleRow+':L'+titleRow);
+  cellReportText(ws,'A'+titleRow,'WORK PACKAGE SMV AUDIT — COMPLETE BOQ DETAIL',{size:12,bold:true,colour:UK_EST_PALETTE.white,fill:UK_EST_PALETTE.navy});
+  ws.getRow(titleRow).height=30;
+  const dh=['SOR code','Activity description','Trade','UOM','Quantity','Ratebook SMV min','Planning SMV min','Planned hours','SMV status','Source / method','Review','Notes'];
+  dh.forEach((h,i)=>{cellReportText(ws,ws.getCell(detailHeads,i+1).address,h,{size:9,bold:true,fill:UK_EST_PALETTE.soft});});
+  ws.getRow(detailHeads).height=34;
+  p.details.forEach((d,i)=>{
+    const values=[d.code,d.description,d.trade,d.unit,d.qty,d.ratebookSmv||'',d.smv??'',d.hours??'',d.status,d.source,
+      d.level==='missing'?'MISSING':d.level==='warning'?'REVIEW':'CHECKED',d.level==='missing'?'No SMV: time excluded from programme':d.level==='warning'?'Provisional / planning assumption':'Subject to programme approval'];
+    const row=ws.addRow(values);row.height=Math.max(30,Math.min(70,30+Math.floor(d.description.length/65)*13));
+    for(let col=1;col<=12;col++){
+      const cell=row.getCell(col);cell.fill=boqFill(d.level==='missing'?'FFF0F0':d.level==='warning'?'FFF8E7':i%2?UK_EST_PALETTE.light:UK_EST_PALETTE.white);
+      cell.font=boqFont(9,col===11&&d.level==='missing'?UK_EST_PALETTE.red:UK_EST_PALETTE.ink,col===1||col===11);
+      cell.alignment={vertical:'middle',wrapText:[2,3,9,10,12].includes(col),horizontal:[5,6,7,8].includes(col)?'right':'left'};
+    }
+    row.getCell(5).numFmt=UK_EST_NUMBER;
+    [6,7,8].forEach(col=>row.getCell(col).numFmt=UK_EST_NUMBER);
+  });
+  ws.autoFilter={from:{row:detailHeads,column:1},to:{row:detailHeads+Math.max(1,p.details.length),column:12}};
+  ws.printArea='A1:L'+Math.max(detailHeads+Math.max(1,p.details.length),summaryRow);
+  return p;
+}
+async function exportJobProgramme(){
+  if(!job.length){status('planner-status','Add priced BoQ work before downloading a programme.','bad');return;}
+  if(!window.ExcelJS){status('planner-status','Excel exporter is unavailable; reconnect and refresh to download the programme.','bad');return;}
+  const btn=$('planner-export'),original=btn.textContent;btn.disabled=true;btn.textContent='Preparing programme…';
+  try{
+    const wb=new ExcelJS.Workbook();wb.creator='UK Estimates Ltd';wb.title='SMV Job Programme';wb.created=new Date();
+    const logo=await boqLogoImage(wb);
+    const p=appendJobProgrammeWorksheet(wb,logo);
+    const data=await wb.xlsx.writeBuffer();
+    download(new Blob([data],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),
+      'UK_Estimates_SMV_Programme_'+(clean($('reference').value).replace(/[^a-z0-9_-]+/gi,'_')||activeJobId||'Job')+'.xlsx');
+    status('planner-status','Downloaded trade programme with '+p.details.length+' BoQ activities, '+p.missing+' missing SMV flags and '+p.provisional+' provisional allowances.','ok');
+  }catch(e){console.error('Programme export failed',e);status('planner-status','Could not export programme: '+(e.message||e),'bad');}
+  finally{btn.disabled=false;btn.textContent=original;}
+}
+$('planner-export').onclick=exportJobProgramme;
+
 async function exportProfessionalBoq(){
   if(!job.length){alert('Add at least one SOR item before downloading the Bill of Quantities.');return;}
   const button=$('export-excel'),previewButton=$('preview-download');
@@ -1898,6 +1997,7 @@ async function exportProfessionalBoq(){
       audit.headerFooter.oddFooter='UK Estimates — Source Row Audit — Page &P of &N';
       audit.printArea='A1:K'+(activities.length+4);
     }
+    appendJobProgrammeWorksheet(wb,logo);
     const output=await wb.xlsx.writeBuffer();
     download(new Blob([output],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),'UK_Estimates_BRANDED_BoQ_'+(clean($('reference').value).replace(/[^a-z0-9_-]+/gi,'_')||'Maintenance')+'_'+new Date().toISOString().slice(0,10)+'.xlsx');
     status('checks','Branded BoQ downloaded with logo, V8 percentage adjustment, line formulas and reconciled totals.','ok');
