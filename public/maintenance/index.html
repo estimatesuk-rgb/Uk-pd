@@ -741,9 +741,17 @@ function renderReviewSuggestions(){
   target.querySelectorAll('[data-source-search]').forEach(b=>b.onclick=()=>{
     const i=Number(b.dataset.sourceSearch),card=b.closest('.spec'),best=topMatch(lines[i])[0];
     target.querySelectorAll('.is-focused').forEach(e=>e.classList.remove('is-focused'));
-    card.classList.add('is-focused');activeReviewLine=i;focusOriginalForSelection(i).catch(console.warn);$('review-search').value=best?best.r.code:matchWords(lines[i]).slice(0,3).join(' ');
+    card.classList.add('is-focused');activeReviewLine=i;focusOriginalForSelection(i).catch(console.warn);
+    // Search by the actual source wording, not the first suggested SOR code.
+    // Searching the first code previously reduced alternatives to one result.
+    const source=lines[i];
+    const terms=matchWords(source).filter(w=>!ACTION_MATCH_WORDS.has(w));
+    $('review-search').value=terms.slice(0,2).join(' ')||matchWords(source).slice(0,2).join(' ')||source.slice(0,60);
     $('review-qty').value=card.querySelector('[data-suggest-qty]').value||1;
-    $('review-manual').open=true;renderReviewRates();
+    $('review-manual').open=true;
+    renderReviewRates();
+    $('review-manual').scrollIntoView({block:'nearest',behavior:'smooth'});
+    $('review-search').focus();
   });
   target.querySelectorAll('[data-source-add]').forEach(b=>b.onclick=()=>{
     const card=b.closest('.spec'),i=Number(b.dataset.sourceLine);
