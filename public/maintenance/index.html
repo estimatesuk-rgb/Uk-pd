@@ -1535,10 +1535,36 @@ function matchUnits(unit){
     item:['IT','NO'],it:['IT','NO'],pr:['PR'],kg:['KG'],hr:['HR'],day:['DAY'],wk:['WK']};
   return map[u]||null;
 }
+
+function scopeConflict(source,rate){
+  // Disqualify wrong material, thickness and fire-rating proposals before
+  // scoring; these are never safe to auto-learn from a similar description.
+  const text=repeatWorkKey(source).toLowerCase();
+  const target=[rate.description||'',rate.medium||''].join(' ').toLowerCase();
+  const values=t=>[...new Set([...t.matchAll(/\b(\d+(?:[.,]\d+)?)\s*(mm|cm)\b/g)].map(x=>Number(x[1].replace(',','.'))+x[2]))];
+  const inputDims=values(text),rateDims=values(target);
+  if(inputDims.length&&rateDims.length&&inputDims.some(x=>!rateDims.includes(x)))return true;
+  const words=new Set(matchWords(text)),candidate=new Set(matchWords(target));
+  if(words.has('door')&&candidate.has('door')){
+    const fire=t=>/\b(?:fd[\s-]?(?:30|60|90|120)|fire[\s-]?(?:door|rated|resistant))\b/i.test(t);
+    if(fire(text)!==fire(target))return true;
+    const fireNum=t=>t.match(/\bfd[\s-]?(30|60|90|120)\b/i)?.[1]||null;
+    if(fireNum(text)&&fireNum(target)&&fireNum(text)!==fireNum(target))return true;
+  }
+  if(words.has('ceiling')&&candidate.has('wall')&&!candidate.has('ceiling'))return true;
+  if(words.has('wall')&&candidate.has('ceiling')&&!candidate.has('wall'))return true;
+  const exclusive=['timber','steel','upvc','aluminium','copper','plastic'];
+  const required=exclusive.filter(x=>words.has(x)),offered=exclusive.filter(x=>candidate.has(x));
+  if(required.length&&offered.length&&!required.some(x=>offered.includes(x)))return true;
+  const requested=[...words].filter(x=>ACTION_MATCH_WORDS.has(x)),actions=[...candidate].filter(x=>ACTION_MATCH_WORDS.has(x));
+  if(requested.length&&actions.length&&!requested.some(x=>actions.includes(x)))return true;
+  return false;
+}
+
 function rankedRateMatches(query,limit=8,ignoreUnit=false){
   const source=String(query||'').trim();
   const explicit=source.match(/(?:SOR|NHF|CODE)\s*[:#-]?\s*(\d{3,8})\b/i);
-  if(explicit&&codes.has(explicit[1]))return [{r:codes.get(explicit[1]),score:999,kind:'Exact SOR code'}];
+  if(explicit&&codes.has(explicit[1])&&!scopeConflict(source,codes.get(explicit[1])))return [{r:codes.get(explicit[1]),score:999,kind:'Exact SOR code'}];
   if(/^\d{3,8}$/.test(source)&&codes.has(source))return [{r:codes.get(source),score:999,kind:'Exact SOR code'}];
   const qty=findQty(source),expected=ignoreUnit?null:matchUnits(qty.unit);
   const key=matchWords(source);
@@ -1548,6 +1574,7 @@ function rankedRateMatches(query,limit=8,ignoreUnit=false){
   const matches=[];
   for(const r of rates){
     if(expected&&!expected.includes(String(r.unit||'').toUpperCase()))continue;
+    if(scopeConflict(source,r))continue;
     const sh=r._shortTokens||new Set(matchWords(r.description));
     const ex=r._extraTokens||new Set(matchWords([r.medium,r.long,r.trade,r.section,r.subsection].join(' ')));
     let shortHits=0,extraHits=0,score=0;
@@ -1645,14 +1672,14 @@ function approvedRateForLine(line){
   if(!mapping||mapping.conflict)return null;
   const rate=codes.get(mapping.code),q=findQty(line);
   const units=matchUnits(q.unit);
-  return rate&&units&&units.includes(String(rate.unit||'').toUpperCase())&&!String(rate.code).startsWith('MANUAL-')?rate:null;
+  return rate&&units&&units.includes(String(rate.unit||'').toUpperCase())&&!scopeConflict(line,rate)&&!String(rate.code).startsWith('MANUAL-')?rate:null;
 }
 function rememberHumanApproval(index,code){
   const rate=codes.get(String(code));
   if(!rate||String(code).startsWith('MANUAL-')||!activeLibrarySignature)return false;
   const key=approvalKey(reviewSourceLines()[index]||'');
   const units=matchUnits(findQty(reviewSourceLines()[index]||'').unit);
-  if(!key||!units||!units.includes(String(rate.unit||'').toUpperCase()))return false;
+  if(!key||!units||!units.includes(String(rate.unit||'').toUpperCase())||scopeConflict(reviewSourceLines()[index],rate))return false;
   const earlier=approvedMatchMemory.get(key);
   if(earlier?.conflict)return false;
   if(earlier&&earlier.code!==rate.code)
@@ -1718,7 +1745,7 @@ function safeExactMatch(line){
   const explicit=String(line).match(/\b(?:SOR|NHF|CODE)\s*[:#-]?\s*(\d{3,8})\b/i);
   if(explicit){
     const exact=codes.get(explicit[1]);
-    if(!exact||!acceptedUnits.includes(String(exact.unit||'').toUpperCase()))return null;
+    if(!exact||!acceptedUnits.includes(String(exact.unit||'').toUpperCase())||scopeConflict(line,exact))return null;
     // Even an explicit SOR code may be mistyped. Never auto-approve it if the
     // same work line specifies a different thickness, material or activity.
     const descriptionKey=exactKey(line);
@@ -1728,7 +1755,7 @@ function safeExactMatch(line){
   const key=exactKey(line);
   if(!key)return null;
   const matches=(EXACT_RATE_INDEX.get(key)||[]).filter(r=>acceptedUnits.includes(String(r.unit||'').toUpperCase()));
-  return matches.length===1?matches[0]:null;
+  return matches.length===1&&!scopeConflict(line,matches[0])?matches[0]:null;
 }
 function applyExactMatches(){
   if(!rates.length){reviewAction('Import the checked V8 ratebook before applying verified matches.',true);return;}
