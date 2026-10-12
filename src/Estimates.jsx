@@ -14,6 +14,7 @@ import {summariseAiCoverage} from './aiCoverage.mjs';
 import {duplicateAutoCandidate} from './aiDuplicateGuard.mjs';
 import {stageAiTakeoff,decideAiSuggestion} from './aiTakeoffQueue.mjs';
 import {findPotentialAiOverlaps,auditExistingBoqOverlap} from './aiSuggestionConflict.mjs';
+import {auditMeasurementQuality} from './aiMeasurementQuality.mjs';
 pdfjs.GlobalWorkerOptions.workerSrc=new URL('pdfjs-dist/build/pdf.worker.min.mjs',import.meta.url).toString();
 const fresh={items:[],highlights:[],builder_id:'',takeoff_review_status:'Draft',takeoff_reviewer:'',takeoff_reviewed_at:'',measurement_standard:'NRM2',drawing_stages:{},supplier_price_date:'',supplier_price_source:'',global_adjustment:0,overheads:15,profit:10,vat:20,pc_sums:[],provisional_sums:[],dayworks:[],contingency_mode:'percent',contingency_value:0,quote_intro:'We are pleased to provide our quotation for the works described below.',quote_scope:'',quote_validity:'30 days',quote_payment_terms:'Payment schedule to be agreed before commencement.',quote_exclusions:'Items not expressly included are excluded.',quote_terms:'Subject to agreed contract terms.',quote_ref:'',quote_revisions:[]};
 const initialItem={ref_no:'',work_section:'Measured Works',description:'',trade:'General',drawing:'',quantity:0,unit:'m²',material_rate:0,plant_rate:0,labour_hours:0,labour_rate:0,supplier:'',price_url:'',status:'Needs verification'};
@@ -375,7 +376,7 @@ export default function Estimates({db,project,docs=[]}){
          description,work_section:entry.work_section,unit,quantity:entry.quantity,
          trade:'AI-detected '+entry.mark.stage.toLowerCase()+' work',
          drawing:entry.filename+' p'+entry.page,ai_auto_key:entry.key,
-         status:'AI auto-measured outline — provisional; QS check required',
+         status:entry.quality_flags?.length?'AI measured — quality warning; QS verification required':'AI auto-measured outline — provisional; QS check required',
          takeoff_evidence:{source:'Cloudflare Workers AI',automatic:true,confidence:'unverified',draft:true,
            highlight_id:highlightId,drawing_id:entry.document_id,page:entry.page,
            calibration_m_per_px:entry.metresPerPixel,kind:entry.mark.kind,
@@ -385,6 +386,7 @@ export default function Estimates({db,project,docs=[]}){
            openings_count:entry.openings_count||0,
            measurement_kind:entry.mark.measurement_kind||entry.mark.kind,
            dimension_evidence:entry.dimension_evidence||null,
+           quality_flags:entry.quality_flags||[],
            calculation:entry.calculation||null,
            measurement_basis:entry.evidence,
            method:entry.method,quantity_status:'Provisional - QS verify'},
@@ -393,7 +395,7 @@ export default function Estimates({db,project,docs=[]}){
      const stage=stageAiTakeoff(estimate,added,autoAdded,newHighlights);
      const next={...estimate,items:stage.items,highlights:stage.highlights,
        ai_pending_takeoff:stage.ai_pending_takeoff,ai_review_mode:stage.ai_review_mode,
-       ai_auto_measurement_review:{accepted:stage.ai_review_mode==='initial'?autoAdded.length:0,
+       ai_auto_measurement_review:{accepted:stage.ai_review_mode==='initial'?autoAdded.length-stage.staged_count:0,
          suggested_for_review:stage.staged_count,rejected:autoRejections.slice(0,100),
          checked_pages:count,analysed_at:new Date().toISOString()},
        ai_page_coverage:summariseAiCoverage(pageCoverage),
@@ -409,8 +411,9 @@ export default function Estimates({db,project,docs=[]}){
        ?'AI reviewed '+count+' page(s). Existing BOQ and marked areas were LEFT UNCHANGED. '
          +stage.staged_count+' new observation(s) queued for QS approval; '
          +autoRejections.length+' outline(s) held as duplicates, conflicts or invalid. Inspect the Review new AI suggestions section.'
-       :'AI reviewed '+count+' page(s): '+autoAdded.length+' provisional AI measured outline(s) and '
-         +added.length+' other scope item(s) needing measurement. All require QS checks before quotation.');
+       :'AI reviewed '+count+' page(s): '+(autoAdded.length-stage.staged_count)+' provisional measured outline(s) added, '
+         +stage.staged_count+' suspect outline(s) held for individual QS selection, and '
+         +added.length+' scope item(s) needing measurement. All require QS checks before quotation.');
    }catch(e){
      setAiProgress(p=>({...p,stage:'Stopped — review error'}));
      setNotice('AI plan reader stopped: '+(e.message||String(e))+' No partial BOQ was saved. Fix the reported issue before restarting.');
@@ -656,6 +659,7 @@ export default function Estimates({db,project,docs=[]}){
  const currentHighlights=(estimate.highlights||[]).filter(x=>x.drawing_id===drawing&&x.page===page); const linkedBoq=h=>(estimate.items||[]).filter(i=>i.takeoff_evidence?.highlight_id===h.id); const pricedBoq=h=>linkedBoq(h).filter(i=>perLine(i)>0);
  const coverage=rateLibraryCoverage(rateLibrary);
  const existingOverlaps=auditExistingBoqOverlap(estimate.items||[]);
+ const qualityAudit=auditMeasurementQuality(estimate.items||[]);
  const sum=estimate.items.reduce((a,i)=>({materials:a.materials+num(i.quantity)*num(i.material_rate),plant:a.plant+num(i.quantity)*num(i.plant_rate),labour:a.labour+num(i.quantity)*num(i.labour_hours)*num(i.labour_rate)}),{materials:0,plant:0,labour:0});
  const pricingIssues=(estimate.items||[]).flatMap(row=>{const problems=[];if(!Number.isFinite(Number(row.quantity))||Number(row.quantity)<=0)problems.push('quantity is missing or invalid');if([row.material_rate,row.plant_rate,row.labour_hours,row.labour_rate].some(x=>!Number.isFinite(Number(x))||Number(x)<0))problems.push('invalid rate');if(num(row.material_rate)+num(row.plant_rate)+num(row.labour_hours)*num(row.labour_rate)<=0)problems.push('no priced materials, labour or plant');return problems.map(problem=>({ref:row.ref_no||row.description||'Unnumbered item',problem,id:row.id}));});
  const direct=sum.materials+sum.plant+sum.labour,oh=direct*num(estimate.overheads)/100,profit=(direct+oh)*num(estimate.profit)/100,pcTotal=(estimate.pc_sums||[]).reduce((n,p)=>n+num(p.amount)*(1+num(p.attendance_percent)/100),0),provisionalTotal=(estimate.provisional_sums||[]).filter(x=>x.include!==false).reduce((n,p)=>n+num(p.amount),0),dayworksTotal=(estimate.dayworks||[]).reduce((n,d)=>n+(num(d.labour)+num(d.materials)+num(d.plant))*(1+num(d.markup)/100),0),contingencyBase=direct+oh+profit+pcTotal+provisionalTotal+dayworksTotal,contingency=estimate.contingency_mode==='lump'?num(estimate.contingency_value):contingencyBase*num(estimate.contingency_value)/100,unadjustedSubtotal=contingencyBase+contingency,globalAdjustment=unadjustedSubtotal*num(estimate.global_adjustment)/100,subtotal=unadjustedSubtotal+globalAdjustment,total=subtotal*(1+num(estimate.vat)/100);
@@ -842,6 +846,7 @@ export default function Estimates({db,project,docs=[]}){
      <div><strong>{p.kind==='measured'?'Measured suggestion':'Scope needing measurement'}:</strong>
        {' '+p.item.description+' — '+p.item.quantity+' '+p.item.unit+' · '+(p.item.drawing||'Drawing reference required')}
        <small> · QS must verify location, quantity and rate</small>
+       {(p.item.takeoff_evidence?.quality_flags||[]).map((flag,i)=><p key={'quality-'+i} role="note"><strong>Measurement quality warning:</strong> {flag}</p>)}
        {findPotentialAiOverlaps(p.item,estimate.items||[]).map((m,i)=>
          <p key={i} role="note"><strong>Possible overlap with BOQ {m.ref_no}:</strong>
          {' '+m.description+' — '+m.quantity+' '+m.unit+'. '+m.reason+
@@ -897,6 +902,16 @@ export default function Estimates({db,project,docs=[]}){
   <p className="muted">Import skips existing rates, holds ambiguous or incomplete prices for QS review, and treats Priceajob unit prices as labour hours × hourly labour rate (excluding VAT). Rates are provisional until verified. Staff access is checked by the database.</p>
   <div className="estimateToolbar"><button type="button" onClick={matchSavedRates} disabled={!estimate.items.length||!rateLibrary.length}>Match missing rates from library</button><span>{rateLibrary.length} imported entries: {coverage.materials} with material rates, {coverage.plant} with plant rates and {coverage.labour} with labour rates. Only one valid description/unit match is applied; ambiguous matches are held for QS review and existing prices stay unchanged.</span></div><div className="notice"><b>Measurement verification:</b> {estimate.items.filter(i=>i.takeoff_evidence?.confidence==='unverified').length} take-off item(s) (manual and AI) remain unverified. Individual evidence must be checked before final quotation revisions. <button type="button" className="outline" onClick={()=>{const checked=window.confirm('Confirm that you personally checked all recorded drawing quantities, scale and measurements?');if(checked)patch('items',estimate.items.map(i=>i.takeoff_evidence?.confidence==='unverified'?{...i,takeoff_evidence:{...i.takeoff_evidence,confidence:'manually verified',verified_at:new Date().toISOString(),verified_by:estimate.takeoff_reviewer||'Reviewer'},status:'Manually verified take-off — confirm pricing'}:i))}}>Mark checked take-offs as verified</button></div><p className="muted">All manually measured items retain drawing/page/region and scale evidence where available. AI-detected quantities, element recognition and existing-versus-proposed subtraction are still under development; do not assume a highlighted rectangle is an automatic take-off.</p><div className="estimateForm">{[['ref_no','BoQ reference (auto if blank)'],['work_section','Work section'],['description','Work item / description'],['trade','Trade'],['drawing','Drawing reference'],['quantity','Verified quantity'],['material_rate','Material £/unit'],['plant_rate','Plant £/unit'],['labour_hours','Labour hours / unit'],['labour_rate','Labour £/hour'],['supplier','Supplier'],['price_url','Price source URL']].map(([k,l])=><label key={k}>{l}<input type={['quantity','material_rate','plant_rate','labour_hours','labour_rate'].includes(k)?'number':'text'} step="any" value={item[k]} onChange={e=>setItem(x=>({...x,[k]:e.target.value}))}/></label>)}<label>Unit<select value={item.unit} onChange={e=>setItem(x=>({...x,unit:e.target.value}))}>{['nr','m','m²','m³','kg','tonne','day','item'].map(x=><option key={x}>{x}</option>)}</select></label><button onClick={addItem}>Add BOQ item</button></div>
  <div className="estimateForm"><label>Imported price list / supplier reference<input value={estimate.supplier_price_source||''} placeholder="e.g. Huws Gray trade price list" onChange={e=>patch('supplier_price_source',e.target.value)}/></label><label>Date rates last verified<input type="date" value={estimate.supplier_price_date||''} onChange={e=>patch('supplier_price_date',e.target.value)}/></label></div><p className="muted">Use agreed supplier price lists until merchant API access has been authorised. Record the price source/date, and confirm availability, delivery and VAT before issuing. No live supplier API connection is claimed.</p><p className="muted">Rates are applied from the saved library only on a unique, valid description and unit match. {coverage.materials} entries contain material costs, {coverage.plant} contain plant costs, {coverage.labour} contain labour costs and {coverage.invalid} have incomplete or unpriced components. The library can contain labour-only rates: missing materials or plant are <strong>not</strong> invented. Confirm source dates, delivery and VAT. No live merchant price connection is claimed.</p>
+ {qualityAudit.length>0&&<div className="notice" role="region" aria-label="AI measurement quality audit">
+  <strong>AI quantity quality review — {qualityAudit.length} flagged existing BOQ line(s)</strong>
+  <p>These are geometry plausibility and measurement-basis checks, <strong>not absolute size limits</strong>. Larger buildings may be correct. Compare the actual drawing outline, scale and dimensions before pricing.</p>
+  <details><summary>Show questionable saved AI quantities</summary>
+   <ul>{qualityAudit.map((entry,i)=><li key={entry.id||i}>
+    <strong>BOQ {entry.ref_no} — {entry.description} ({entry.quantity} {entry.unit})</strong>
+    <ul>{entry.issues.map((issue,j)=><li key={j}>{issue}</li>)}</ul>
+   </li>)}</ul>
+  </details>
+ </div>}
  {existingOverlaps.length>0&&<div className="notice" role="region" aria-label="Existing BOQ possible duplicate audit">
    <strong>Existing BOQ quantity overlap review — {existingOverlaps.length} possible pair(s)</strong>
    <p>Two lines may measure the same work on the same drawing. These are warnings only: the program has <strong>not</strong> deleted, combined or repriced any item. Some are legitimate different work layers — verify drawing boundaries and intended work before changing the BOQ.</p>
