@@ -9,13 +9,31 @@ export function isAiReanalysis(estimate){
 const candidateKey=p=>p?.item?.ai_auto_key||p?.item?.ai_draft_key||p?.id||'';
 export function stageAiTakeoff(estimate,scopeItems=[],measuredItems=[],newHighlights=[]){
  const originalItems=estimate?.items||[],originalHighlights=estimate?.highlights||[];
- if(!isAiReanalysis(estimate))return {
-  items:[...originalItems,...scopeItems,...measuredItems],
-  highlights:[...originalHighlights,...newHighlights],
-  ai_pending_takeoff:estimate?.ai_pending_takeoff||[],
-  ai_review_mode:'initial',
-  staged_count:0
- };
+ if(!isAiReanalysis(estimate)){
+  const flagged=measuredItems.filter(i=>(i?.takeoff_evidence?.quality_flags||[]).length>0);
+  const safe=measuredItems.filter(i=>!(i?.takeoff_evidence?.quality_flags||[]).length);
+  const flaggedIds=new Set(flagged.map(i=>i.takeoff_evidence?.highlight_id));
+  const markups=new Map(newHighlights.map(h=>[h.id,h]));
+  const prior=estimate?.ai_pending_takeoff||[];
+  const existingKeys=new Set(prior.map(candidateKey));
+  const pending=[...prior];
+  let staged=0;
+  for(const item of flagged){
+    if(pending.length>=150)break;
+    const proposal={id:item.id,kind:'measured',item,
+       highlight:markups.get(item.takeoff_evidence.highlight_id)||null};
+    const key=candidateKey(proposal);
+    if(existingKeys.has(key))continue;
+    pending.push(proposal);existingKeys.add(key);staged++;
+  }
+  return {
+   items:[...originalItems,...scopeItems,...safe],
+   highlights:[...originalHighlights,...newHighlights.filter(h=>!flaggedIds.has(h.id))],
+   ai_pending_takeoff:pending,
+   ai_review_mode:'initial',
+   staged_count:staged
+  };
+ }
  const marks=new Map(newHighlights.map(h=>[h.id,h]));
  const newProposals=[
   ...measuredItems.map(item=>({id:item.id,kind:'measured',item,

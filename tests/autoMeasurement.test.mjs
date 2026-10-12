@@ -44,3 +44,16 @@ test('invalid source scale and image dimensions are never replaced with a guesse
  assert.ok(measureAutoCandidate(area,{...ctx,metresPerPixel:0}).error);
  assert.ok(measureAutoCandidate(area,{...ctx,dimensions:[]}).error);
 });
+
+test('large elevation candidate carries QS quality flags without claiming verified geometry',()=>{
+ const result=measureAutoCandidate({...area,
+   description:'Proposed right elevation',quantity:1000,kind:'area',
+   x:.05,y:.05,w:.8,h:.8}, {...ctx,metresPerPixel:.03});
+ assert.equal(result.error,undefined);
+ assert.ok(result.quality_flags.some(flag=>flag.includes('wall height')));
+ assert.ok(result.quality_flags.some(flag=>flag.includes('not itself a construction work item')));
+});
+test('ordinary slab area has no elevated warning flags',()=>{
+ const result=measureAutoCandidate(area,ctx);
+ assert.deepEqual(result.quality_flags,[]);
+});
