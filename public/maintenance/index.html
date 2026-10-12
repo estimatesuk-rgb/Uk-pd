@@ -189,6 +189,37 @@ header .brand-logo{display:block;width:clamp(190px,26vw,300px);height:auto;max-w
 .review-brand-logo{display:block;width:145px;height:auto;object-fit:contain;background:white;border-radius:5px;padding:5px;flex:none}
 .boq-preview-tools .boq-toolbar-logo{width:125px;height:auto;object-fit:contain;background:white;border-radius:5px;padding:5px;flex:none}
 @media(max-width:760px){header .brand-logo{width:clamp(165px,49vw,235px)}header .kind{font-size:10px}.review-brand-logo{width:100px}.boq-preview-tools .boq-toolbar-logo{width:100px}}
+
+/* Job Planning & SMV — rate-derived labour, qualified by source reliability */
+.smv-plan{margin-top:20px;border-top:4px solid var(--navy)}
+.smv-plan h2{font-size:22px}
+.smv-summary{display:grid;grid-template-columns:repeat(4,minmax(135px,1fr));gap:10px;margin:14px 0}
+.smv-stat{background:#f4f6fb;border:1px solid #dce3ed;border-radius:9px;padding:12px}
+.smv-stat span{display:block;font-size:11px;color:#5a687e;font-weight:700;letter-spacing:.3px}
+.smv-stat strong{display:block;font-size:21px;color:#172c49}
+.smv-plan .planner-controls{display:grid;grid-template-columns:repeat(2,minmax(175px,1fr));gap:12px;max-width:650px;margin:12px 0}
+.smv-plan .planner-controls label{font-size:12px;font-weight:700;color:#233553}
+.smv-plan .planner-controls input{margin-top:5px}
+.smv-plan .plan-table{overflow:auto;max-height:480px;border:1px solid var(--line);border-radius:9px}
+.smv-plan .plan-table table{min-width:930px}
+.smv-plan .plan-table th{position:sticky;top:0;z-index:3}
+.smv-plan td input,.smv-plan td select{padding:6px;font-size:12px;min-width:65px}
+.smv-plan .plan-crew{width:75px}.smv-plan .plan-order{width:65px}.smv-plan .plan-start-rule{width:152px}.smv-plan .plan-smv-override{width:108px}
+.smv-flag{font-size:11px;display:inline-block;font-weight:800;border-radius:5px;padding:2px 6px;background:#e8f7ee;color:#176b42}
+.smv-flag.warn{color:#7a510f;background:#fff1cf}
+.smv-flag.missing{color:#b02235;background:#fff0f0}
+.smv-plan .plan-warning{padding:11px 13px;margin:11px 0;border:1px solid #dfbc77;background:#fff9eb;color:#69501c;border-radius:8px;font-size:12px}
+.smv-plan .plan-success{border:1px solid #aad6c3;background:#f0fcf6;color:#166b49;padding:10px;border-radius:8px;font-size:12px}
+.smv-plan .smv-gantt-scroll{max-width:100%;overflow:auto;border:1px solid var(--line);background:#fff;border-radius:9px;padding:13px}
+.smv-plan .smv-gantt-header{height:28px;position:relative;border-bottom:2px solid #c8d2df;background:repeating-linear-gradient(90deg,#edf1f7 0px,#edf1f7 1px,transparent 1px,transparent 26px)}
+.smv-plan .smv-gantt-scale{position:absolute;top:2px;font-size:11px;font-weight:700;color:#314563;white-space:nowrap}
+.smv-plan .smv-gantt-row{display:flex;align-items:center;gap:12px;margin:9px 0}
+.smv-plan .smv-gantt-label{width:168px;min-width:168px;max-width:168px;font-size:12px;color:#34465b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.smv-plan .smv-gantt-track{position:relative;height:25px;background:repeating-linear-gradient(90deg,#edf1f7 0px,#edf1f7 1px,transparent 1px,transparent 26px)}
+.smv-plan .smv-gantt-bar{position:absolute;top:4px;bottom:4px;background:#0900ec;border-radius:4px;min-width:7px}
+.smv-plan .smv-gantt-bar.uncertain{background:#d0871b}
+.smv-plan .smv-footnote{font-size:12px;color:#6d7582}
+@media(max-width:800px){.smv-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.smv-plan .planner-controls{grid-template-columns:1fr}}
 </style>
 </head>
 <body><header><div class="brand-identity"><img class="brand-logo" src="/maintenance/uk-estimates-logo.png" alt="UK Estimates — Fast Accurate Building Costings" width="350" height="95"></div><div class="kind">HOUSING MAINTENANCE &amp; VOIDS<br><b>Standalone SOR V8 estimating app</b></div></header>
@@ -223,6 +254,29 @@ header .brand-logo{display:block;width:clamp(190px,26vw,300px);height:auto;max-w
 <div class="card boq-card"><h2>Bill of Quantities</h2><p>Every item is split into materials and labour. Change quantities or remove items as needed.</p><div class="tablewrap"><table><thead><tr><th>SOR / description</th><th class="num">Qty</th><th>UOM</th><th class="num">V8 rate</th><th class="num">Labour</th><th class="num">Materials</th><th class="num">Total</th><th></th></tr></thead><tbody id="boq-rows"><tr><td colspan="8" class="empty">No work items added yet.</td></tr></tbody></table></div></div>
 <div class="card"><h2>Labour time &amp; material plan</h2><div class="tablewrap"><table><thead><tr><th>Work item</th><th class="num">Hours</th><th class="num">Material value</th></tr></thead><tbody id="plan-rows"><tr><td colspan="3" class="empty">Add SOR items to generate this schedule.</td></tr></tbody></table></div><p class="notice">The material figures are cost allowances split from V8—not product quantities. A true purchasing list requires approved material recipes and pack sizes. Estimated SMVs are labelled as provisional.</p></div>
 <div class="card"><h2>How the pricing works</h2><p><b>V8 is the agreed selling rate.</b> At 0%, the total is exactly quantity × V8 rate. Adjustment ±% is applied to V8, and its labour/material portions, only once. SMV minutes × quantity / 60 gives labour hours.</p><p><span class="safe">✓</span> Separate app and private on-device data. <b>Note:</b> this pilot does not yet provide cloud project sharing, multi-user logins, genuine AI interpretation or automatic material product recipes.</p></div></section></div>
+
+<div class="card smv-plan" id="smv-planner" aria-label="Job Planning and Standard Minute Values">
+  <div class="row" style="justify-content:space-between;align-items:start">
+    <div><h2>Job Planning &amp; SMV Programme</h2>
+      <p>Turn approved BoQ rates into a draft trade-by-trade labour programme. Set operatives and working hours; review missing or estimated SMVs before issuing.</p></div>
+    <div class="row"><button type="button" id="planner-generate">Generate / Refresh Programme</button><button type="button" class="secondary" id="planner-export">Download Programme (Excel)</button></div>
+  </div>
+  <div class="planner-controls">
+    <label>Programme start date <input type="date" id="planner-start" aria-label="Programme start date"></label>
+    <label>Productive hours per operative per day <input type="number" id="planner-hours" min="1" max="16" step="0.5" value="7" aria-label="Productive hours per operative per day"></label>
+  </div>
+  <p class="hint">Working days are Monday–Friday. Order the trades and choose whether each follows the previous sequential trade or starts alongside it. Dates are indicative: bank holidays, access, deliveries, curing/drying and inter-trade dependencies require planner approval.</p>
+  <div id="planner-summary" class="smv-summary"></div>
+  <div id="planner-warning" role="status" aria-live="polite"></div>
+  <h3 style="font-size:16px;margin:18px 0 7px">Trades, crews &amp; work programme</h3>
+  <div id="planner-trades" class="plan-table"></div>
+  <h3 style="font-size:16px;margin:19px 0 8px">Indicative Gantt programme</h3>
+  <div id="planner-gantt" class="smv-gantt-scroll"><div class="empty">Add BoQ items to build the programme.</div></div>
+  <h3 style="font-size:16px;margin:19px 0 8px">SMV detail, checks &amp; planning allowances</h3>
+  <p class="smv-footnote">Verified values remain from your uploaded ratebook. If an SMV is missing or provisional, you may enter a <b>planning-only</b> minute allowance below. Manual values remain flagged and never overwrite the V8 ratebook.</p>
+  <div id="planner-detail" class="plan-table"></div>
+  <div class="status" id="planner-status" role="status" aria-live="polite" style="margin-top:12px">No programme calculated yet.</div>
+</div>
 </main>
 <div id="review-layer" class="review-layer" hidden role="dialog" aria-modal="true" aria-label="Review specification beside schedule of rates">
   <div class="review-top">
@@ -282,6 +336,7 @@ const $=id=>document.getElementById(id), money=n=>'£'+Number(n||0).toLocaleStri
 const clean=s=>String(s==null?'':s).trim(), num=v=>Number(String(v==null?'':v).replace(/[£,]/g,''))||0;
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let rates=[],codes=new Map(),job=[],db=null;
+let planner={startDate:'',dailyHours:7,trades:{},overrides:{}};
 
 const RATE_KEY='uk-estimates-v8-rates-v1', JOB_KEY='uk-estimates-voids-job-v1', SOURCE_KEY='uk-estimates-source-document-v1';
 function status(id,msg,type){$(id).textContent=msg;$(id).className='status'+(type?' '+type:'');}
@@ -321,6 +376,7 @@ function jobSnapshot(){
     address:$('address').value,client:$('client').value,reference:$('reference').value,
     surveyor:$('surveyor').value,adjustment:$('adjustment').value,
     specification:$('specification').value,
+    planner:JSON.parse(JSON.stringify(planner)),
     matches:typeof selectedMatches==='undefined'?[]:[...selectedMatches],
     sourceName:sourceFile?sourceFile.name:'',updatedAt:new Date().toISOString()};
 }
@@ -366,7 +422,7 @@ function save(){
 }
 function restore(){
   try{const d=JSON.parse(localStorage.getItem(JOB_KEY)||'{}');
-    job=Array.isArray(d.job)?d.job:[];
+    job=Array.isArray(d.job)?d.job:[];planner=normalisePlanner(d.planner);
     for(const k of ['address','client','reference','surveyor','adjustment','specification'])if(d[k]!=null)$(k).value=d[k];
   }catch(e){job=[];}
 }
@@ -374,6 +430,7 @@ function installJobSnapshot(snapshot){
   jobsLoadInProgress=true;
   try{
     job=Array.isArray(snapshot.job)?snapshot.job:[];
+    planner=normalisePlanner(snapshot.planner);
     for(const k of ['address','client','reference','surveyor','adjustment','specification'])$(k).value=snapshot[k]??(k==='adjustment'?'0':'');
     selectedMatches=new Map((snapshot.matches||[]).map(([i,v])=>[Number(i),v]));
     activeReviewLine=null;reviewPage=0;
@@ -465,6 +522,7 @@ function calculate(){const f=1+adjustment()/100;let lt=0,mt=0,gt=0,ht=0,lines=[]
 $('boq-rows').innerHTML=lines.join('')||'<tr><td colspan="8" class="empty">No work items added yet.</td></tr>';$('plan-rows').innerHTML=plans.join('')||'<tr><td colspan="3" class="empty">Add SOR items to generate this schedule.</td></tr>';
 $('labour-total').textContent=money(lt);$('materials-total').textContent=money(mt);$('hours-total').textContent=ht.toFixed(1);$('grand-total').textContent=money(gt);
 const gap=Math.abs(gt-lt-mt);$('checks').textContent='Selling-rate adjustment: '+(adjustment()>0?'+':'')+adjustment()+'% • '+(gap<0.03?'Labour + materials reconciled':'Check split: '+money(gap)+' difference caused by unallocated V8 elements.');
+renderJobPlanning();
 document.querySelectorAll('[data-qty]').forEach(el=>el.onchange=()=>{let i=Number(el.dataset.qty);job[i].qty=Math.max(0,num(el.value));save();calculate();});document.querySelectorAll('[data-del]').forEach(el=>el.onclick=()=>{job.splice(Number(el.dataset.del),1);save();calculate();});updateReviewTotals();}
 function add(code,qty){
   const r=codes.get(String(code)),q=Number(qty);
