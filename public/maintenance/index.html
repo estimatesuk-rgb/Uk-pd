@@ -806,6 +806,7 @@ function importRows(sheet){
 $('ratesfile').onchange=async function(){const file=this.files[0];if(!file)return;status('rates-status','Reading '+file.name+'…');try{if(!window.XLSX)throw Error('Excel reader did not load. Please reconnect to the internet and refresh.');const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:false});let name=wb.SheetNames.find(n=>n.toLowerCase()==='v8_rates')||wb.SheetNames[0];const rows=XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,defval:'',raw:true});const parsed=importRows(rows);await put(RATE_KEY,parsed);setupRates(parsed);calculate();if(navigator.storage&&navigator.storage.persist){navigator.storage.persist().catch(()=>{});}}catch(e){status('rates-status','Could not import file: '+e.message,'bad');}this.value='';};
 $('clear-rates').onclick=async()=>{if(!confirm('Remove locally saved ratebook on this device?'))return;await drop(RATE_KEY);rates=[];codes.clear();status('rates-status','No rates are saved on this device. Import the enriched V8 schedule once.','bad');$('v8-library-state').textContent='V8 not loaded on this device';$('v8-import').open=true;search();renderReviewRates();};
 for(const id of ['address','client','reference','surveyor'])$(id).oninput=save;
+$('client').addEventListener('change',()=>{updateMatchLearningStatus();REVIEW_RANK_CACHE.clear();if(!$('review-layer').hidden)renderReviewSuggestions();});
 $('specification').oninput=()=>{clearReviewSelections();sourceLineMap=[];save();};
 $('adjustment').oninput=()=>{save();calculate();if(!$('boq-preview-layer').hidden)renderBoqPaper();};$('plus').onclick=()=>setPercent(adjustment()+1);$('minus').onclick=()=>setPercent(adjustment()-1);$('search').oninput=search;
 
@@ -1100,15 +1101,19 @@ function renderReviewSuggestions(){
   if(!rates.length){target.innerHTML='<div class="empty">Load the checked V8 ratebook to see suggested rates.</div>';return;}
   const lines=reviewSourceLines();
   const selected=lines.filter((_,i)=>selectedMatches.has(i)).length;
+  const needsMeasurement=lines.filter((line,i)=>!selectedMatches.has(i)&&!findQty(line).explicit).length;
   const pages=Math.max(1,Math.ceil(lines.length/REVIEW_PAGE_SIZE));
   reviewPage=Math.max(0,Math.min(reviewPage,pages-1));
   const start=reviewPage*REVIEW_PAGE_SIZE,end=Math.min(lines.length,start+REVIEW_PAGE_SIZE);
   const navigation='<div class="row" style="justify-content:space-between;margin:8px 0"><button type="button" class="secondary tiny" data-review-prev '+(reviewPage===0?'disabled':'')+'>◀ Previous</button><span class="review-hint">Items '+(start+1)+'–'+end+' of '+lines.length+' · Page '+(reviewPage+1)+'/'+pages+'</span><button type="button" class="secondary tiny" data-review-next '+(reviewPage>=pages-1?'disabled':'')+'>Next ▶</button></div>';
-  target.innerHTML='<div class="review-match-counter">'+selected+' of '+lines.length+' work lines approved · All items retained, shown '+REVIEW_PAGE_SIZE+' per page. Selected lines remain red.</div>'+navigation+
+  target.innerHTML='<div class="review-match-counter"><b>'+selected+' / '+lines.length+' priced</b> · '+(lines.length-selected)+' for review · '+needsMeasurement+' need quantities · '+REVIEW_PAGE_SIZE+' items per page. The original row references are retained.</div>'+navigation+
     lines.slice(start,end).map((line,local)=>{const i=start+local;
-      const ranked=topMatch(line),measure=findQty(line),chosen=selectedMatches.get(i),quantity=chosen?chosen.qty:(measure.explicit?measure.qty:'');
+      const verified=verifiedRateForLine(line),proposals=topMatch(line);
+      const ranked=verified.rate?[{r:verified.rate,score:1000,kind:verified.kind},...proposals.filter(x=>x.r.code!==verified.rate.code)].slice(0,6):proposals;
+      const measure=findQty(line),chosen=selectedMatches.get(i),quantity=chosen?chosen.qty:(measure.explicit?measure.qty:'');
       return '<article class="spec'+(chosen?' is-picked':'')+'" data-review-line="'+i+'">'+
         '<div class="source"><span class="tag">'+(sourceMapLocation(i)?esc(sourceMapLocation(i).sheet)+' · Excel row '+(sourceMapLocation(i).row+1):'Line '+(i+1))+'</span> '+esc(line.slice(0,350))+'</div>'+
+        (verified.kind==='conflict'?'<div class="notice">Conflicting approved SOR codes for this work description. Automatic pricing is blocked: review and select the correct SOR manually.</div>':'')+
         '<div class="suggest-controls"><label>Quantity <input data-suggest-qty="'+i+'" type="number" min="0" step="any" value="'+quantity+'"></label>'+
         (measure.unit?'<span>Spec unit: '+esc(measure.unit)+'</span>':'<span>Confirm unit and measured quantity</span>')+
         '<button type="button" class="secondary tiny" data-source-search="'+i+'">Search alternatives</button></div>'+
@@ -1116,10 +1121,11 @@ function renderReviewSuggestions(){
           const active=chosen&&chosen.code===r.code;
           return '<div class="suggest'+(active?' chosen-rate':'')+'" data-rate-choice="'+esc(r.code)+'">'+
             '<div class="suggest-detail"><strong>'+esc(r.code)+'</strong> — '+esc(r.description)+
-            '<small>'+esc(r.unit)+' · '+money(r.rate)+'/unit · Labour '+money(r.labour)+' · Materials '+money(r.materials)+'</small></div>'+
+            '<small>'+esc(r.unit)+' · '+money(r.rate)+'/unit · Labour '+money(r.labour)+' · Materials '+money(r.materials)+'</small>'+
+            '<small style="font-weight:700">'+esc(suggestionKind(line,r,score))+'</small></div>'+
             '<button type="button" class="tiny'+(active?' chosen-button':'')+'" data-source-add="'+esc(r.code)+'" data-source-line="'+i+'">'+(active?'✓ Selected':'Choose this')+'</button></div>';
         }).join(''):'<div class="review-hint">No confident match. Search by keyword or SOR code; do not guess.</div>')+
-        (chosen?'<div class="review-chosen-label">✓ '+(chosen.auto?'Auto-filled from identical work · ':'Selected ')+'SOR '+esc(chosen.code)+' (quantity '+esc(chosen.qty)+')'+
+        (chosen?'<div class="review-chosen-label">✓ '+(chosen.learned?'Reused prior approved rate · ':chosen.exact?'Exact V8 rate · ':chosen.auto?'Duplicate work automatically filled · ':'Estimator approved · ')+'SOR '+esc(chosen.code)+' (quantity '+esc(chosen.qty)+')'+
           '<button class="tiny secondary" type="button" data-undo-line="'+i+'">Undo</button></div>':'')+'</article>';
     }).join('')+navigation;
   target.querySelectorAll('[data-review-prev]').forEach(b=>b.onclick=()=>{reviewPage=Math.max(0,reviewPage-1);renderReviewSuggestions();target.scrollTop=0;});
@@ -2113,7 +2119,7 @@ async function exportProfessionalBoq(){
         const sel=selectedMatches.get(i),loc=sourceMapLocation(i),measurement=findQty(work);
         const match=sel?(codes.get(sel.code)||job.find(item=>item.code===sel.code)?.snapshot):null;
         const basket=sel&&String(sel.code).startsWith('MANUAL-');
-        const state=!sel?'NEEDS REVIEW':!match?'RATE UNAVAILABLE':basket?'MANUAL BASKET':sel.exact?'EXACT CODE/DESCRIPTION':sel.auto?'AUTO-FILLED DUPLICATE':'ESTIMATOR SELECTED';
+        const state=!sel?'NEEDS REVIEW':!match?'RATE UNAVAILABLE':basket?'MANUAL BASKET':sel.learned?'REUSED APPROVED MATCH':sel.exact?'EXACT CODE/DESCRIPTION':sel.auto?'AUTO-FILLED DUPLICATE':'ESTIMATOR SELECTED';
         const quantity=sel?sel.qty:measurement.explicit?measurement.qty:null;
         const rowNum=i+5;
         audit.addRow([i+1,loc?.sheet||'',loc?.row==null?'':loc.row+1,work,quantity??'',measurement.unit||match?.unit||'',sel?.code||'',match?.description||'',match?.rate??'',match&&sel?Math.max(0,Number(sel.qty)||0)*match.rate*factor:'',state]);
