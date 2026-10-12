@@ -1041,6 +1041,10 @@ function repeatWorkKey(line){
 function fillIdenticalWorkLines(index,code){
   const lines=reviewSourceLines(),key=repeatWorkKey(lines[index]);
   if(!key||key.length<5)return 0;
+  const originalMeasure=findQty(lines[index]);
+  if(!originalMeasure.explicit||!originalMeasure.unit)return 0;
+  const originalUnits=matchUnits(originalMeasure.unit);
+  if(!originalUnits)return 0;
   const rate=codes.get(code);if(!rate||String(code).startsWith('MANUAL-'))return 0;
   let count=0;
   lines.forEach((line,i)=>{
@@ -1050,9 +1054,8 @@ function fillIdenticalWorkLines(index,code){
     // Never infer one unit for an unmeasured duplicate: require a recorded quantity.
     if(!measurement.explicit)return;
     // Do not copy between explicitly conflicting measurement units.
-    const firstUnit=findQty(lines[index]).unit;
-    if(firstUnit&&measurement.unit&&firstUnit!==measurement.unit)return;
     const allowed=matchUnits(measurement.unit);
+    if(!allowed||!allowed.some(u=>originalUnits.includes(u)))return;
     if(!allowed||!allowed.includes(String(rate.unit||'').toUpperCase()))return;
     if(!Number.isFinite(qty)||qty<=0)return;
     const entry=job.find(j=>j.code===code);
@@ -1073,6 +1076,17 @@ function switchReviewRate(index,code,qty){
   if(!Number.isFinite(qty)||qty<=0){reviewAction('Enter a measured quantity greater than zero. Nothing added.',true);return false;}
   const rate=codes.get(code);
   if(!rate){reviewAction('SOR '+code+' is unavailable. Reload the ratebook or enter a manual price.',true);return false;}
+  if(!String(code).startsWith('MANUAL-')){
+    const work=reviewSourceLines()[index],expected=matchUnits(findQty(work).unit);
+    if(expected&&!expected.includes(String(rate.unit||'').toUpperCase())){
+      reviewAction('SOR '+code+' is priced in '+rate.unit+' but this work item is measured in '+findQty(work).unit+'. Choose a matching unit or use a clearly labelled manual basket rate.',true);
+      return false;
+    }
+    if(scopeConflict(work,rate)){
+      reviewAction('SOR '+code+' conflicts with the source description (e.g. thickness, fire rating, material or repair/renewal). Nothing added. Search the correct activity.',true);
+      return false;
+    }
+  }
   const prior=selectedMatches.get(index);
   if(prior&&prior.code===code&&prior.qty===qty){
     if(prior.auto&&!prior.confirmed){prior.confirmed=true;rememberHumanApproval(index,code);persistReviewSelections();save();}
@@ -1113,7 +1127,8 @@ function renderReviewSuggestions(){
       const measure=findQty(line),chosen=selectedMatches.get(i),quantity=chosen?chosen.qty:(measure.explicit?measure.qty:'');
       return '<article class="spec'+(chosen?' is-picked':'')+'" data-review-line="'+i+'">'+
         '<div class="source"><span class="tag">'+(sourceMapLocation(i)?esc(sourceMapLocation(i).sheet)+' · Excel row '+(sourceMapLocation(i).row+1):'Line '+(i+1))+'</span> '+esc(line.slice(0,350))+'</div>'+
-        (verified.kind==='conflict'?'<div class="notice">Conflicting approved SOR codes for this work description. Automatic pricing is blocked: review and select the correct SOR manually.</div>':'')+
+        (verified.kind==='conflict'?'<div class="notice">Conflicting or reversed SOR approvals. Automatic pricing is blocked until an estimator chooses and explicitly confirms the correct rate.</div>'+
+          (chosen&&!String(chosen.code).startsWith('MANUAL-')?'<button type="button" class="tiny secondary" data-resolve-conflict="'+i+'">Confirm selected SOR '+esc(chosen.code)+' for future identical work</button>':''):'')+
         '<div class="suggest-controls"><label>Quantity <input data-suggest-qty="'+i+'" type="number" min="0" step="any" value="'+quantity+'"></label>'+
         (measure.unit?'<span>Spec unit: '+esc(measure.unit)+'</span>':'<span>Confirm unit and measured quantity</span>')+
         '<button type="button" class="secondary tiny" data-source-search="'+i+'">Search alternatives</button></div>'+
@@ -1149,6 +1164,7 @@ function renderReviewSuggestions(){
     const card=b.closest('.spec'),i=Number(b.dataset.sourceLine);
     switchReviewRate(i,b.dataset.sourceAdd,Number(card.querySelector('[data-suggest-qty]').value));
   });
+  target.querySelectorAll('[data-resolve-conflict]').forEach(b=>b.onclick=()=>resolveMatchingConflict(Number(b.dataset.resolveConflict)));
   target.querySelectorAll('[data-undo-line]').forEach(b=>b.onclick=()=>{
     const i=Number(b.dataset.undoLine),prior=selectedMatches.get(i);if(!prior)return;
     const entry=job.find(j=>j.code===prior.code);
@@ -1630,7 +1646,10 @@ function matchRatebookSignature(rows){
   return rows.length+'-'+hash.toString(36);
 }
 function matchingCustomerKey(){
-  return clean($('client').value).toLowerCase().replace(/\s+/g,' ')||'__local_unassigned__';
+  const client=clean($('client').value).toLowerCase().replace(/\s+/g,' ');
+  // When no council/client is entered, confine remembered mappings to this
+  // specific job rather than silently sharing them across unrelated clients.
+  return client||'__unassigned_job__'+(typeof activeJobId==='string'&&activeJobId?activeJobId:'draft');
 }
 function approvalScope(line){
   const q=findQty(line);
@@ -1649,7 +1668,7 @@ function updateMatchLearningStatus(){
   const prefix=matchingCustomerKey()+'|';
   let accepted=0,ambiguous=0;
   for(const [key,v] of approvedMatchMemory)if(key.startsWith(prefix)){if(v.conflict)ambiguous++;else accepted++;}
-  el.textContent='Approved patterns for this client: '+accepted+' · disputed: '+ambiguous+' (saved privately on this device).';
+  el.textContent=(clean($('client').value)?'Approved patterns for this client: ':'No client entered — learning remains within this job. Saved patterns: ')+accepted+' · disputed: '+ambiguous+' (saved privately on this device).';
 }
 async function loadMatchingMemory(){
   const sig=activeLibrarySignature;if(!sig)return;
@@ -1687,6 +1706,24 @@ function rememberHumanApproval(index,code){
   else approvedMatchMemory.set(key,{code:rate.code,conflict:false,confirmations:Math.min(9999,(earlier?.confirmations||0)+1),updatedAt:new Date().toISOString()});
   if(approvedMatchMemory.size>12000)approvedMatchMemory.delete(approvedMatchMemory.keys().next().value);
   updateMatchLearningStatus();queueLearningSave();REVIEW_RANK_CACHE.clear();
+  return true;
+}
+
+function resolveMatchingConflict(index){
+  const line=reviewSourceLines()[index]||'',selection=selectedMatches.get(index);
+  const key=approvalKey(line),prior=key?approvedMatchMemory.get(key):null;
+  if(!selection||!prior?.conflict){reviewAction('Select the correct SOR for this disputed activity first.',true);return false;}
+  const rate=codes.get(selection.code),units=matchUnits(findQty(line).unit);
+  if(!rate||String(rate.code).startsWith('MANUAL-')||!units||!units.includes(String(rate.unit||'').toUpperCase())||scopeConflict(line,rate)){
+    reviewAction('The selected rate is not a compatible V8 item. The dispute remains blocked.',true);return false;
+  }
+  if(!confirm('Confirm that SOR '+rate.code+' is correct for this activity, and reuse it for identical work on future jobs for this client? This clears the earlier conflicting mapping.'))return false;
+  approvedMatchMemory.set(key,{code:rate.code,conflict:false,confirmations:1,
+    updatedAt:new Date().toISOString(),resolvedConflict:true,priorCodes:prior.priorCodes||[]});
+  selection.confirmed=true;
+  updateMatchLearningStatus();queueLearningSave();REVIEW_RANK_CACHE.clear();
+  persistReviewSelections();save();renderReviewSuggestions();
+  reviewAction('Confirmed SOR '+rate.code+' for identical work for this client. Earlier conflicting mappings have been superseded.');
   return true;
 }
 
