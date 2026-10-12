@@ -162,6 +162,19 @@
  .boq-summary{break-inside:avoid}
 }
 
+/* Original document: persistent red approved rows, stronger focus on current choice. */
+.review-document tr.source-approved>td,
+.review-document .source-line.source-approved{background:#ffe0e4!important;color:#911523!important}
+.review-document tr.source-approved>td:first-child{border-left:5px solid #c8102e!important}
+.review-document .source-line.source-approved{border-left:5px solid #c8102e!important;padding-left:10px}
+.review-document tr.source-focused>td{background:#ffc6ce!important;box-shadow:inset 0 -2px #c8102e!important}
+.review-document .source-line.source-focused{background:#ffc6ce!important;outline:2px solid #c8102e;outline-offset:-2px}
+.review-document .source-approved-label{font-weight:800;color:#a51228;font-size:11px;white-space:nowrap}
+.review-document .source-inline-mark{display:inline-block;color:#a51228;background:#fff;padding:2px 6px;border-radius:4px;margin-right:7px;font-size:11px;font-weight:800}
+.review-document .source-highlight-note{position:sticky;top:0;z-index:3;background:#fff1f2;border:2px solid #bc1630;color:#8d1c2a;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:13px;max-width:850px;box-shadow:0 3px 12px #a1252420}
+.review-document .source-highlight-note strong{display:block;color:#83152c}
+.review-document .source-highlight-note small{display:block;margin-top:4px;color:#604d56}
+
 </style>
 </head>
 <body><header><div><div class="brand">UK<span>▰</span>Estimates</div><small>FAST ACCURATE BUILDING COSTINGS</small></div><div class="kind">HOUSING MAINTENANCE &amp; VOIDS<br><b>Standalone SOR V8 estimating app</b></div></header>
@@ -348,6 +361,92 @@ async function activateSource(file,extracted,remember=true,locations=[]){
   if(remember){try{await put(SOURCE_KEY,{name:file.name,type:file.type,blob:file,lastModified:file.lastModified||0,sourceMap:sourceLineMap});}catch(e){status('spec-status','File loaded, but the browser could not save a copy for next time: '+e.message,'bad');}}
   showReview(true);
 }
+function sourceMapLocation(index){
+  const loc=sourceLineMap[index];
+  if(!loc||typeof loc.sheet!=='string'||!Number.isInteger(loc.row)||loc.row<0)return null;
+  return loc;
+}
+function sourceVisibleRowIndex(index){
+  const actual=sourceMapLocation(index);
+  if(actual&&sourceWorkbook&&sourceWorkbook.SheetNames[sourceSheet]===actual.sheet)return actual.row;
+  return null;
+}
+function originalTextRowIndex(index){
+  const extracted=String(sourceText||$('specification').value);
+  const raw=extracted.split(/[\r\n]+/);
+  const usable=raw.map((s,i)=>({s:s.trim(),i})).filter(x=>x.s.length>=3);
+  if(raw.join('\n').trim()===String($('specification').value||'').split(/[\r\n]+/).join('\n').trim())
+    return usable[index]?.i??null;
+  const wanted=reviewSourceLines()[index]?.trim().toLowerCase();
+  if(!wanted)return null;
+  const found=usable.filter(x=>x.s.toLowerCase()===wanted);
+  return found.length===1?found[0].i:null;
+}
+function markOriginalHighlights(focusIndex=null,scroll=false){
+  const container=$('review-document');if(!container)return;
+  container.querySelectorAll('.source-approved').forEach(el=>el.classList.remove('source-approved'));
+  container.querySelectorAll('.source-focused').forEach(el=>el.classList.remove('source-focused'));
+  container.querySelectorAll('.source-approved-label').forEach(el=>el.remove());
+  let focused=null;
+  if(sourceFile&&sheetExtensions.has(sourceExt())&&sourceWorkbook){
+    for(const [i,selection] of selectedMatches){
+      const n=sourceVisibleRowIndex(i);
+      if(n===null)continue;
+      const row=container.querySelector('[data-source-row="'+n+'"]');
+      if(row){row.classList.add('source-approved');
+        const label=document.createElement('span');label.className='source-approved-label';label.textContent='✓ SOR '+selection.code;
+        row.querySelector('td')?.appendChild(label);}
+    }
+    const n=Number.isInteger(focusIndex)?sourceVisibleRowIndex(focusIndex):null;
+    if(n!==null){focused=container.querySelector('[data-source-row="'+n+'"]');if(focused)focused.classList.add('source-focused');}
+  }else{
+    for(const [i,selection] of selectedMatches){
+      const n=originalTextRowIndex(i);
+      if(n===null)continue;
+      const row=container.querySelector('[data-view-line="'+n+'"]');
+      if(row){row.classList.add('source-approved');
+        const label=document.createElement('span');label.className='source-inline-mark';label.textContent='✓ '+selection.code;
+        const small=row.querySelector('small');if(small)small.after(label);else row.prepend(label);}
+    }
+    const n=Number.isInteger(focusIndex)?originalTextRowIndex(focusIndex):null;
+    if(n!==null){focused=container.querySelector('[data-view-line="'+n+'"]');if(focused)focused.classList.add('source-focused');}
+  }
+  if(scroll&&focused)focused.scrollIntoView({block:'center',inline:'nearest',behavior:'smooth'});
+}
+function showSourceSelectionNotice(index){
+  const container=$('review-document');if(!container)return;
+  container.querySelectorAll('.source-highlight-note').forEach(el=>el.remove());
+  const choice=selectedMatches.get(index);
+  if(!choice)return;
+  const note=document.createElement('div');note.className='source-highlight-note';
+  const strong=document.createElement('strong');strong.textContent='✓ Original work line '+(index+1)+' selected — SOR '+choice.code;
+  const detail=document.createElement('div');detail.textContent=reviewSourceLines()[index]||'';
+  const context=document.createElement('small');context.textContent='Selected text extracted from the original. For scanned images or PDF pages, check its exact position visually.';
+  note.append(strong,detail,context);container.prepend(note);
+}
+async function focusOriginalForSelection(index){
+  activeReviewLine=index;
+  if($('review-layer').hidden)return;
+  const loc=sourceMapLocation(index);
+  if(sourceFile&&sheetExtensions.has(sourceExt())&&loc){
+    if(!sourceWorkbook&&window.XLSX)sourceWorkbook=XLSX.read(await sourceFile.arrayBuffer(),{type:'array'});
+    if(sourceWorkbook){
+      const sheetIndex=sourceWorkbook.SheetNames.indexOf(loc.sheet);
+      if(sheetIndex>=0){
+        const range=XLSX.utils.decode_range(sourceWorkbook.Sheets[loc.sheet]['!ref']||'A1');
+        const page=Math.max(0,Math.floor((loc.row-range.s.r)/60));
+        if(sourceSheet!==sheetIndex||sourceRowPage!==page){sourceSheet=sheetIndex;sourceRowPage=page;await renderSource();}
+        markOriginalHighlights(index,true);
+        return;
+      }
+    }
+  }
+  markOriginalHighlights(index,true);
+  // PDF/image pixels have no line-aware HTML; keep the original visible and
+  // show the exact selected extracted passage without claiming a pixel-level highlight.
+  if(sourceFile&&(['pdf','png','jpg','jpeg','webp','bmp','gif','tif','tiff','heic','heif'].includes(sourceExt())))
+    showSourceSelectionNotice(index);
+}
 function sourceSelect(text){
   const line=String(text||'').replace(/\s+/g,' ').trim().slice(0,220);
   if(!line)return;
@@ -418,7 +517,7 @@ function switchReviewRate(index,code,qty){
   const rate=codes.get(code);
   if(!rate){alert('This rate is unavailable in the active V8 ratebook.');return;}
   const prior=selectedMatches.get(index);
-  if(prior&&prior.code===code&&prior.qty===qty)return;
+  if(prior&&prior.code===code&&prior.qty===qty){focusOriginalForSelection(index).catch(console.warn);return;}
   if(prior){
     const existing=job.find(j=>j.code===prior.code);
     if(existing){existing.qty=Math.max(0,Math.round((existing.qty-prior.qty)*1000000)/1000000);if(existing.qty<=0)job=job.filter(j=>j!==existing);}
@@ -427,6 +526,7 @@ function switchReviewRate(index,code,qty){
   if(entry)entry.qty=Math.round((entry.qty+qty)*1000000)/1000000;
   else job.push({code,qty,snapshot:rate});
   selectedMatches.set(index,{code,qty});
+  focusOriginalForSelection(index).catch(e=>console.warn('Original source highlight unavailable',e));
   persistReviewSelections();save();calculate();
   renderReviewSuggestions();
   const card=$('review-suggest').querySelector('[data-review-line="'+index+'"]');
@@ -461,7 +561,7 @@ function renderReviewSuggestions(){
   target.querySelectorAll('[data-source-search]').forEach(b=>b.onclick=()=>{
     const i=Number(b.dataset.sourceSearch),card=b.closest('.spec'),best=topMatch(lines[i])[0];
     target.querySelectorAll('.is-focused').forEach(e=>e.classList.remove('is-focused'));
-    card.classList.add('is-focused');activeReviewLine=i;$('review-search').value=best?best.r.code:matchWords(lines[i]).slice(0,3).join(' ');
+    card.classList.add('is-focused');activeReviewLine=i;focusOriginalForSelection(i).catch(console.warn);$('review-search').value=best?best.r.code:matchWords(lines[i]).slice(0,3).join(' ');
     $('review-qty').value=card.querySelector('[data-suggest-qty]').value||1;
     $('review-manual').open=true;renderReviewRates();
   });
@@ -474,6 +574,7 @@ function renderReviewSuggestions(){
     const entry=job.find(j=>j.code===prior.code);
     if(entry){entry.qty=Math.max(0,Math.round((entry.qty-prior.qty)*1000000)/1000000);if(entry.qty<=0)job=job.filter(j=>j!==entry);}
     selectedMatches.delete(i);persistReviewSelections();save();calculate();renderReviewSuggestions();
+    markOriginalHighlights();$('review-document').querySelectorAll('.source-highlight-note').forEach(el=>el.remove());
   });
 }
 $('review-refresh').onclick=renderReviewSuggestions;
@@ -488,6 +589,7 @@ function previewFallback(text){
     $('review-document').querySelectorAll('.source-selected').forEach(el=>el.classList.remove('source-selected'));
     e.classList.add('source-selected');sourceSelect(lines[Number(e.dataset.viewLine)]);
   });
+  markOriginalHighlights(activeReviewLine,false);
 }
 function pageBtns(current,max,label){
   return '<button class="secondary tiny" id="review-prev" '+(current<=1?'disabled':'')+'>◀</button><span class="review-hint">'+esc(label||'Page')+' '+current+' / '+max+'</span><button class="secondary tiny" id="review-next" '+(current>=max?'disabled':'')+'>▶</button><button class="secondary tiny" id="review-zoomout">−</button><span class="review-hint">'+Math.round(sourceZoom*100)+'%</span><button class="secondary tiny" id="review-zoomin">+</button>';
@@ -515,6 +617,7 @@ async function renderSource(){
     const ctx=canvas.getContext('2d');
     container.replaceChildren(canvas);
     await pg.render({canvasContext:ctx,viewport:vp}).promise;
+    if(Number.isInteger(activeReviewLine)&&selectedMatches.has(activeReviewLine))showSourceSelectionNotice(activeReviewLine);
     return;
   }
   if(['png','jpg','jpeg','webp','bmp','gif','tif','tiff','heic','heif'].includes(ext)){
@@ -523,6 +626,7 @@ async function renderSource(){
     $('review-zoomout').onclick=()=>{sourceZoom=Math.max(.25,sourceZoom-.25);renderSource();};
     $('review-zoomin').onclick=()=>{sourceZoom=Math.min(4,sourceZoom+.25);renderSource();};
     container.innerHTML='<div class="source-paper" style="width:max-content;min-width:100%"><img id="review-image" alt="Original uploaded source document" src="'+esc(sourceBlobUrl)+'" style="width:'+(Math.round(sourceZoom*800))+'px"></div>';
+    if(Number.isInteger(activeReviewLine)&&selectedMatches.has(activeReviewLine))showSourceSelectionNotice(activeReviewLine);
     return;
   }
   if(sheetExtensions.has(ext)){
@@ -561,6 +665,7 @@ async function renderSource(){
       if(qty)$('review-qty').value=num(qty)||1;
       sourceSelect(words[0]||values.join(' '));
     });
+    markOriginalHighlights(activeReviewLine,false);
     return;
   }
   previewFallback(sourceText);
