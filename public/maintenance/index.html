@@ -861,6 +861,30 @@ function smvClass(rate,override){
   const provisional=/estimated|provisional|unavailable|assumed|approx|not specified|unverified|indicative/i.test(method);
   return {minutes:recorded,status:provisional?'Provisional SMV':'Ratebook SMV',level:provisional?'warning':'provided',source:method||'Ratebook'};
 }
+// Default construction sequence for void/refurbishment work. The surveyor can override
+// any trade order and parallel start rule on the master programme.
+function constructionTradeStage(trade,details){
+  const t=String(trade||'').toLowerCase();
+  const d=(details||[]).map(x=>String(x.description||'').toLowerCase()).join(' ');
+  const all=t+' '+d;
+  const stages=[
+    [10,/survey|asbestos|investigat|inspect|test before|prelim|site set.?up|protection/],
+    [20,/strip.?out|demolition|clearance|rubbish|remove existing|disconnect|soft strip/],
+    [30,/groundwork|excavat|foundation|drainage below|concrete sub.?floor|structural|steelwork|brickwork|blockwork|roof structure/],
+    [40,/roof|gutter|fascia|soffit|external door|window|weathertight/],
+    [50,/first fix|first.?fix|chasing|rough.?in|cabling|pipework|plumbing|rewir|heating install|electrical install/],
+    [60,/plasterboard|dry.?lin|render|plaster|screed|skim|ceiling repair|wall repair/],
+    [70,/joinery|carpentry|internal door|skirting|architrave|kitchen install|kitchen fitting|bathroom fitting|tiling|tile/],
+    [80,/second fix|second.?fix|sanitary|socket|switch|light fitting|tap|radiator|boiler commission/],
+    [90,/paint|decorat|wallpaper|floor finish|carpet|vinyl|laminate|floor covering/],
+    [100,/clean|sparkle|snag|commission|certif|handover|final inspection/]
+  ];
+  // A mixed trade receives the earliest applicable stage; trade name outranks
+  // incidental terms appearing inside long SOR descriptions.
+  for(const [stage,pattern] of stages){if(pattern.test(t))return stage;}
+  for(const [stage,pattern] of stages){if(pattern.test(all))return stage;}
+  return 75;
+}
 function buildJobProgramme(){
   const groups=new Map(),details=[];
   const dayHours=Number(planner.dailyHours)>0?Number(planner.dailyHours):7;
@@ -884,8 +908,8 @@ function buildJobProgramme(){
   }
   const ordered=[...groups.values()].map(g=>{
     const config=planner.trades[g.trade]||{};
-    return {...g,crew:Math.max(1,Math.min(99,Number(config.crew)||1)),order:Number(config.order)||g.firstOrder,rule:config.rule==='parallel'?'parallel':'sequence'};
-  }).sort((a,b)=>a.order-b.order||a.firstOrder-b.firstOrder||a.trade.localeCompare(b.trade));
+    return {...g,crew:Math.max(1,Math.min(99,Number(config.crew)||1)),order:Number(config.order)||constructionTradeStage(g.trade,g.details),rule:config.rule==='parallel'?'parallel':'sequence'};
+  }).sort((a,b)=>a.order-b.order||constructionTradeStage(a.trade,a.details)-constructionTradeStage(b.trade,b.details)||a.firstOrder-b.firstOrder||a.trade.localeCompare(b.trade));
   let sequentialCursor=start,latestFinish=null,latestIndex=-1;
   for(const trade of ordered){
     const days=trade.hours>0?Math.ceil(trade.hours/(trade.crew*dayHours)-1e-10):0;
@@ -1157,7 +1181,7 @@ function renderSubcontractTimesheet(){
     data.rateGroups.map(({rate,terms})=>'<tr><td><b>'+esc(rate.code)+'</b><div class="hint">'+esc(rate.description)+'</div></td>'+
       '<td>'+esc(rate.trade)+'</td><td>'+ (Number(rate.labour)>0?money(rate.labour)+' / '+esc(rate.unit):'Not available')+'<div class="hint">Reference only</div></td>'+
       '<td><select data-sub-basis="'+esc(rate.code)+'" aria-label="Payment basis for '+esc(rate.code)+'"><option value="unit" '+(terms.basis==='unit'?'selected':'')+'>£ per '+esc(rate.unit)+'</option><option value="hour" '+(terms.basis==='hour'?'selected':'')+'>£ per hour</option></select></td>'+
-      '<td><input type="number" data-sub-rate="'+esc(rate.code)+'" aria-label="Labour rate '+esc(rate.code)+'" value="'+esc(terms.value)+'" min="0" max="1000000" step="0.01"></td>'+
+      '<td><div class="row" style="gap:4px;flex-wrap:nowrap"><button type="button" class="secondary tiny" data-sub-step="'+esc(rate.code)+'" data-sub-delta="-1" aria-label="Reduce subcontract rate by one pound">−</button><input type="number" data-sub-rate="'+esc(rate.code)+'" aria-label="Labour rate '+esc(rate.code)+'" value="'+esc(terms.value)+'" min="0" max="1000000" step="0.01" style="min-width:82px;width:95px"><button type="button" class="secondary tiny" data-sub-step="'+esc(rate.code)+'" data-sub-delta="1" aria-label="Increase subcontract rate by one pound">+</button></div></td>'+
       '<td><label><input type="checkbox" data-sub-confirm="'+esc(rate.code)+'" style="width:auto" '+(terms.confirmed?'checked':'')+' aria-label="Agreed subcontract rate for '+esc(rate.code)+'"> '+
       (terms.confirmed?'<span class="sub-reviewed">Agreed</span>':'<span class="sub-pending">To review</span>')+'</label></td></tr>').join('')+'</tbody></table>':
     '<div class="empty">The labour-only rate list will appear when you add BoQ work.</div>';
@@ -1197,6 +1221,19 @@ for(const [id,field] of [['sub-company','company'],['sub-operative','operative']
     save();
   });
 }
+$('sub-rates').addEventListener('click',event=>{
+  const button=event.target.closest('button[data-sub-step]');
+  if(!button)return;
+  const code=button.dataset.subStep,delta=Number(button.dataset.subDelta);
+  const rate=codes.get(code)||job.find(j=>j.code===code)?.snapshot;
+  if(!rate||!Number.isFinite(delta))return;
+  const old=subcontractTimesheet.rates[code]||subRateInfo(rate);
+  const current=Number(old.value);
+  const next=Math.max(0,Math.min(1000000,Math.round(((Number.isFinite(current)?current:0)+delta)*100)/100));
+  subcontractTimesheet.rates[code]={basis:old.basis==='hour'?'hour':'unit',value:next.toFixed(2),confirmed:false};
+  save();renderSubcontractTimesheet();
+  status('sub-status','Subcontract payment rate '+code+' changed to '+money(next)+'; re-approve before issue.','ok');
+});
 $('sub-rates').addEventListener('change',event=>{
   const t=event.target,code=t.dataset.subRate||t.dataset.subBasis||t.dataset.subConfirm;
   if(!code)return;
