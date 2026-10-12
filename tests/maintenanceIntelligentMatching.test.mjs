@@ -125,6 +125,13 @@ test('description survives room-first and quantity-first layouts',()=>{
                e.repeatWorkKey('[Bedroom 2] — 4 item Renew internal door'));
 });
 
+test('unnamed customer cannot teach a cross-job mapping',()=>{
+  const {engine:e,state}=makeEngine(['1 item [Bedroom 1] — Renew internal door']);
+  state.client='';
+  assert.equal(e.rememberHumanApproval(0,'100001'),false);
+  assert.equal(e.verifiedRateForLine('2 item [Bedroom 2] — Replace internal door').rate,null);
+});
+
 test('conflicting approvals disable automatic reuse',()=>{
   const {engine:e}=makeEngine(['1 item [Bedroom 1] — Renew internal door']);
   assert.equal(e.rememberHumanApproval(0,'100001'),true);
