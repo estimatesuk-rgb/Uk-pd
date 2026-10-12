@@ -1680,11 +1680,11 @@ function approvalKey(line){
   const client=matchingCustomerKey();
   // An unnamed pilot job may mix different councils. Keep its in-job duplicate
   // propagation, but never teach cross-job codes without a named customer.
-  return s&&client!=='__local_unassigned__'?client+'|'+s.unit+'|'+s.desc:null;
+  return s?client+'|'+s.unit+'|'+s.desc:null;
 }
 function updateMatchLearningStatus(){
   const el=$('matching-learn-status');if(!el)return;
-  if(matchingCustomerKey()==='__local_unassigned__'){el.textContent='Enter the council/contractor name to save approved matching rules across jobs; within-job duplicates still work.';return;}
+  if(matchingCustomerKey().startsWith('__unassigned_job__')){el.textContent='Client not entered: approved choices are isolated to this job. Enter the council/contractor name to reuse them across future jobs.';return;}
   const prefix=matchingCustomerKey()+'|';
   let accepted=0,ambiguous=0;
   for(const [key,v] of approvedMatchMemory)if(key.startsWith(prefix)){if(v.conflict)ambiguous++;else accepted++;}
