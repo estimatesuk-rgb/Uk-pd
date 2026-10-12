@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {findPotentialAiOverlaps} from '../src/aiSuggestionConflict.mjs';
+import {findPotentialAiOverlaps,auditExistingBoqOverlap} from '../src/aiSuggestionConflict.mjs';
 const item=(description,quantity,unit='m²',drawing='BR01.pdf p1')=>({description,quantity,unit,drawing,takeoff_evidence:{}});
 const rows=[
  {...item('new kitchen extension',107.13),ref_no:'001'},
@@ -40,4 +40,23 @@ test('drawing id and page provide authoritative matching when both available',()
  const c={...b,takeoff_evidence:{drawing_id:'doc1',page:2}};
  assert.equal(findPotentialAiOverlaps(a,[b]).length,1);
  assert.equal(findPotentialAiOverlaps(a,[c]).length,0);
+});
+
+test('existing BOQ audit identifies repeated kitchen and wall but leaves values untouched',()=>{
+ const data=[rows[0],rows[1],rows[2],rows[3],rows[4],
+ {...item('new kitchen area',107.13),ref_no:'006'},
+ {...item('new wall length',12.49,'m'),ref_no:'008'},
+ {...item('new external wall',23.92,'m²','BR03.pdf p1'),ref_no:'009'}];
+ const before=JSON.stringify(data);
+ const audit=auditExistingBoqOverlap(data);
+ assert.ok(audit.some(p=>p.first==='001'&&p.second==='006'));
+ assert.ok(audit.some(p=>p.first==='002'&&p.second==='008'));
+ assert.ok(audit.some(p=>p.first==='003'&&p.second==='009'));
+ assert.equal(audit.some(p=>p.first==='010'&&p.second==='011'),false);
+ assert.equal(JSON.stringify(data),before);
+});
+test('zero quantity scope rows are excluded from quantity-duplicate register',()=>{
+ const data=[{...item('New windows',0,'nr'),ref_no:'004'},
+ {...item('New windows',0,'nr'),ref_no:'005'}];
+ assert.equal(auditExistingBoqOverlap(data).length,0);
 });
