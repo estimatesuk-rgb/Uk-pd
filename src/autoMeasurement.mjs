@@ -1,6 +1,7 @@
 import {measuredQuantity} from './takeoffMeasurement.mjs';
 import {validateTrace,validatedPolygonWithOpenings,polygonBounds} from './shapeGeometry.mjs';
 import {measureDimensionedCandidate} from './dimensionedMeasurements.mjs';
+import {measurementQualityFlags} from './aiMeasurementQuality.mjs';
 
 // AI suggests outlines; all quantities are calculated deterministically against
 // a revision-matched scale. Never infer a scale from the picture or from a label.
@@ -60,7 +61,9 @@ export function measureAutoCandidate(c,context){
     :region.kind==='count'?[region.x,region.y]:[region.x,region.y,region.w,region.h];
   const key=[context.document_id,context.page,c.kind,description.toLowerCase(),
     ...coords.map(round)].join('|');
-  return {key,mark:{...region,name:description,stage:c.stage,source:'AI proposed markup',
+  const quality_flags=measurementQualityFlags({description,unit:measured.unit,
+    quantity:measured.quantity,kind:c.kind,dimension_evidence:measured.dimension_evidence});
+  return {quality_flags,key,mark:{...region,name:description,stage:c.stage,source:'AI proposed markup',
     evidence,measurement_kind:c.kind},quantity:measured.quantity,unit:measured.unit,method:measured.method,
     gross_area_m2:measured.gross_area_m2??null,deductions_area_m2:measured.deductions_area_m2??null,
     openings_count:measured.openings_count||0,
