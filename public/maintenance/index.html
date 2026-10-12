@@ -586,30 +586,46 @@ function sheetContent(book){
     if(ignore.test(name.trim()))continue;
     const rows=XLSX.utils.sheet_to_json(book.Sheets[name],{header:1,defval:'',raw:false,blankrows:false,sheetRows:10000});
     if(!rows.length)continue;
-    let heading=-1,d=-1,q=-1,u=-1,code=-1;
-    for(let i=0;i<Math.min(20,rows.length);i++){
+    let heading=-1,d=-1,q=-1,u=-1,code=-1,location=-1,notes=-1;
+    for(let i=0;i<Math.min(45,rows.length);i++){
       const h=(rows[i]||[]).map(v=>clean(v).toLowerCase().replace(/\s+/g,' '));
-      const desc=h.findIndex(s=>/^(description|work description|works description|item description|specification|work item|scope of works|task|item details|short description)$/.test(s));
+      const desc=h.findIndex(s=>/^(description|description of work(?:s)?|work(?:s)? description|work(?:s)? required|required work(?:s)?|repair(?:s)?(?: details| description| required)?|item description|job description|job detail(?:s)?|defect(?:s)?|maintenance item|work order|instructions?|specification|work item|scope of works|task(?: description)?|item details|short description|activity|action required|schedule of work(?:s)?)$/.test(s));
       if(desc>=0){heading=i;d=desc;
-      q=h.findIndex(s=>/^(qty|quantity|measured quantity|take.?off|volume|area|length|number)$/.test(s));
-      u=h.findIndex(s=>/^(unit|uom|unit of measure|measurement unit)$/.test(s));
+      q=h.findIndex(s=>/^(qty|quantity|measured quantity|take.?off|measure|measurement|volume|area|length|number|no\.?|nr|count)$/.test(s));
+      u=h.findIndex(s=>/^(unit|units|uom|unit of measure|measurement unit|measure type)$/.test(s));
+      location=h.findIndex(s=>/^(room|room name|location|block|element|work location|floor|area of work)$/.test(s));
+      notes=h.findIndex(s=>/^(notes|comments|additional description|additional works|work notes|specification notes)$/.test(s));
       code=h.findIndex(s=>/^(sor code|nhf code|item code|rate code|code)$/.test(s));break;}
     }
     if(heading<0){
-      if(rows.length<=300&&rows.every(r=>(r||[]).filter(v=>clean(v)).length<=2)){
-        for(const row of rows){const value=(row||[]).map(clean).filter(Boolean).join(' ');
-          if(value.length>=8&&!/^(total|subtotal|vat|page\s+\d+)\b/i.test(value))lines.push(value);}
+      // Headerless survey sheets: locate the most descriptive text cell in each row.
+      // Never mistake whole cost tables for work descriptions.
+      const sample=rows.slice(0,50);
+      const textRows=sample.filter(row=>(row||[]).some(v=>clean(v).length>=11&&/[a-z]{3,}/i.test(clean(v)))).length;
+      if(rows.length<=1500&&textRows>=2&&textRows>=sample.length*.3){
+        for(const row of rows){
+          const cells=(row||[]).map(clean).filter(Boolean);
+          const phrases=cells.filter(v=>v.length>=11&&/[a-z]{3,}/i.test(v)&&!/^(total|subtotal|vat|page\s+\d+)\b/i.test(v));
+          if(!phrases.length)continue;
+          const best=phrases.sort((a,b)=>b.length-a.length)[0];
+          const qv=cells.map(quantity).find(v=>v!==null&&v>0&&v<100000);
+          const unit=cells.find(v=>/^(m²|m2|sm|sqm|lm|m3|m³|cm|nr|no|it|item|ea|pr|hr|day|wk)$/i.test(v));
+          lines.push((qv===undefined?'':qv+' ')+(unit?unit+' ':'')+best);
+          if(lines.length>5000)throw Error('More than 5,000 work descriptions. Split by property.');
+        }
       }
       continue;
     }
     for(const row of rows.slice(heading+1)){
-      const desc=clean(row[d]);if(desc.length<6||/^(total|subtotal|carried forward|brought forward|page|section total|grand total)\b/i.test(desc))continue;
+      const desc=clean(row[d]);if(desc.length<3||/^(total|subtotal|carried forward|brought forward|page|section total|grand total)\b/i.test(desc))continue;
       const v=q<0?null:quantity(row[q]);
-      if(q>=0&&v===null)continue;
+      // Missing quantity stays in the specification for surveyor review rather than dropping the work item.
       if(v!==null&&v<0)continue;
       const unit=u>=0?clean(row[u]):'',item=code>=0?clean(row[code]):'';
-      if(item&&!/^\d{3,8}$/.test(item))continue;
-      lines.push((v!==null?v+' ':'')+(unit?unit+' ':'')+desc+(item?' SOR '+item:''));
+      const site=location>=0?clean(row[location]):'';
+      const note=notes>=0?clean(row[notes]):'';
+      const detail=[site&&site!==desc?'['+site+']':'',desc,note&&note!==desc?note:''].filter(Boolean).join(' — ');
+      lines.push((v!==null?v+' ':'')+(unit?unit+' ':'')+detail+(/^\d{3,8}$/.test(item)?' SOR '+item:''));
       if(lines.length>5000)throw Error('More than 5,000 specification items: please split by property or job.');
     }
   }
