@@ -22,7 +22,7 @@ test('a valid line, count and polygon with opening can be shown',()=>{
   {...base,kind:'length',points:points.slice(0,2)},
   {...base,kind:'polyline',points},
   {...base,kind:'count',x:.2,y:.4},
-  {...base,kind:'polygon',points,openings}
+  {...base,kind:'polygon',points,openings:opening}
  ]){
   assert.ok(previewPendingMark({kind:'measured',highlight:shape},'doc1',2));
  }
