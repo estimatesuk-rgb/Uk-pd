@@ -1052,6 +1052,7 @@ function fillIdenticalWorkLines(index,code){
   const originalUnits=matchUnits(originalMeasure.unit);
   if(!originalUnits)return 0;
   const rate=codes.get(code);if(!rate||String(code).startsWith('MANUAL-'))return 0;
+  if(!originalUnits.includes(String(rate.unit||'').toUpperCase()))return 0;
   let count=0;
   lines.forEach((line,i)=>{
     if(i===index||selectedMatches.has(i)||repeatWorkKey(line)!==key)return;
@@ -1670,7 +1671,9 @@ function approvalScope(line){
   const desc=repeatWorkKey(line).replace(/\b(?:SOR|NHF|CODE)\s*[:#-]?\s*\d{3,8}\b/gi,'');
   const tokens=matchWords(desc);
   if(tokens.length<2||tokens.join('').length<9)return null;
-  return {unit:q.unit,desc:tokens.join(' ')};
+  const compatible=matchUnits(q.unit);
+  if(!compatible)return null;
+  return {unit:[...compatible].sort().join(','),desc:tokens.join(' ')};
 }
 function approvalKey(line){
   const s=approvalScope(line);
