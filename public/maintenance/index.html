@@ -237,7 +237,13 @@ function indexed(){return new Promise((ok,no)=>{if(!window.indexedDB){no(new Err
 async function put(key,val){db=db||await indexed();return new Promise((ok,no)=>{const t=db.transaction('settings','readwrite'),s=t.objectStore('settings');s.put(val,key);t.oncomplete=()=>ok();t.onerror=()=>no(t.error);});}
 async function get(key){db=db||await indexed();return new Promise((ok,no)=>{const t=db.transaction('settings'),r=t.objectStore('settings').get(key);r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error);});}
 async function drop(key){db=db||await indexed();return new Promise((ok,no)=>{const t=db.transaction('settings','readwrite');t.objectStore('settings').delete(key);t.oncomplete=()=>ok();t.onerror=()=>no(t.error);});}
-function setupRates(rows){rates=rows;codes=new Map(rows.map(r=>[r.code,r]));status('rates-status','✓ '+rates.length.toLocaleString('en-GB')+' V8 rates loaded automatically, with selling rates, labour, materials and SMV.','ok');$('v8-library-state').textContent='✓ V8 schedule ready — no repeat upload needed';$('v8-import').open=false;search();renderReviewRates();}
+function setupRates(rows){
+  rates=rows;codes=new Map(rows.map(r=>[r.code,r]));
+  const provisional=rows.filter(r=>r.qualityFlag&&r.qualityFlag!=='V7 split verified').length;
+  status('rates-status','✓ '+rates.length.toLocaleString('en-GB')+' V8 selling rates loaded. '+(provisional?'⚠ '+provisional+' labour/material splits need review.':'All supplied allocations loaded.') ,'ok');
+  $('v8-library-state').textContent='✓ V8 ratebook saved on this device';
+  $('v8-import').open=false;search();renderReviewRates();
+}
 function save(){try{localStorage.setItem(JOB_KEY,JSON.stringify({job:job,address:$('address').value,client:$('client').value,reference:$('reference').value,surveyor:$('surveyor').value,adjustment:$('adjustment').value,specification:$('specification').value}));}catch(e){console.warn('Project local storage failed',e);}}
 function restore(){try{let d=JSON.parse(localStorage.getItem(JOB_KEY)||'{}');job=d.job||[];['address','client','reference','surveyor','adjustment','specification'].forEach(k=>{if(d[k]!=null)$(k).value=d[k];});}catch(e){job=[];}}
 function adjustment(){let x=Number($('adjustment').value);return Number.isFinite(x)?Math.max(-100,Math.min(1000,x)):0;}
@@ -248,11 +254,42 @@ const gap=Math.abs(gt-lt-mt);$('checks').textContent='Selling-rate adjustment: '
 document.querySelectorAll('[data-qty]').forEach(el=>el.onchange=()=>{let i=Number(el.dataset.qty);job[i].qty=Math.max(0,num(el.value));save();calculate();});document.querySelectorAll('[data-del]').forEach(el=>el.onclick=()=>{job.splice(Number(el.dataset.del),1);save();calculate();});updateReviewTotals();}
 function add(code,qty){let r=codes.get(String(code));if(!r)return;let existing=job.find(j=>j.code===r.code);if(existing)existing.qty+=Math.max(0,num(qty||1));else job.push({code:r.code,qty:Math.max(0,num(qty||1)),snapshot:r});save();calculate();if(!$('review-layer').hidden){$('review-selected').textContent='Added '+r.code+' · '+money(r.rate);}}
 function search(){let term=clean($('search').value).toLowerCase();if(!rates.length){$('search-results').innerHTML='<div class="empty">Load the V8 workbook to browse rates.</div>';return;}let found=!term?rates.slice(0,12):rates.filter(r=>(r.code+' '+r.description+' '+r.trade).toLowerCase().includes(term)).slice(0,24);$('search-results').innerHTML=found.map(r=>'<div class="result"><div><strong>'+esc(r.code)+'</strong> · '+esc(r.description)+'<small>'+esc(r.trade)+' · '+esc(r.unit)+' · Labour '+money(r.labour)+' / Material '+money(r.materials)+'</small></div><div class="row" style="justify-content:flex-end"><b>'+money(r.rate)+'</b><button class="tiny" data-add="'+esc(r.code)+'">Add</button></div></div>').join('')||'<div class="empty">No matches found.</div>';document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>add(b.dataset.add,1));}
-function importRows(sheet){if(!sheet||sheet.length<2)throw Error('The workbook contains no rate items.');const h=sheet[0].map(x=>clean(x).toLowerCase());const ix=(p)=>h.findIndex(x=>p.some(s=>x.includes(s)));
-const c=ix(['sor code','item code','rate code']),d=ix(['short description','description']),u=ix(['uom','unit of meas']),v=ix(['v8 rate','selling rate','total rate']),l=ix(['labour £','labour cost']),m=ix(['materials £','material cost']),smv=ix(['smv minutes','standard minute']),trade=ix(['trade']),method=ix(['smv method']);
-if([c,d,u,v,l,m].some(x=>x<0))throw Error('Required V8 labour/material columns missing. Please upload the enriched UK Estimates V8 workbook, not the original unsplit SOR file.');
-let out=sheet.slice(1).filter(row=>clean(row[c])&&Number.isFinite(num(row[v]))).map(row=>{const rate=num(row[v]),labour=num(row[l]),materials=num(row[m]);return{code:clean(row[c]),description:clean(row[d]),unit:clean(row[u]),trade:trade<0?'Maintenance':clean(row[trade]),rate,labour,materials,smv:smv<0?0:num(row[smv]),smvMethod:method<0?'':clean(row[method])};});
-if(!out.length)throw Error('No valid V8 rate items found.');return out;}
+function importRows(sheet){
+  if(!sheet||sheet.length<2)throw Error('Workbook contains no V8 rate items.');
+  const h=sheet[0].map(x=>clean(x).toLowerCase());
+  const ix=patterns=>h.findIndex(x=>patterns.some(s=>x.includes(s)));
+  const c=ix(['sor code','item code','rate code']),d=ix(['short description','description']),
+    u=ix(['uom','unit of meas']),v=ix(['v8 rate','selling rate','total rate']),
+    l=ix(['labour £','labour cost']),m=ix(['materials £','material cost']),
+    smv=ix(['smv minutes','standard minute']),trade=ix(['trade']),
+    method=ix(['smv method']),split=ix(['split method']),flag=ix(['quality flag']);
+  if([c,d,u,v,l,m].some(x=>x<0))
+    throw Error('The workbook does not contain a verified V8 labour/material split. Use the checked V8 ratebook instead of the original raw SOR file.');
+  const parse=x=>{if(x===null||x===undefined||clean(x)==='')return null;let n=Number(String(x).replace(/[£,]/g,''));return Number.isFinite(n)?n:null;};
+  const out=[],seen=new Set(),errors=[];
+  for(let i=1;i<sheet.length;i++){
+    const row=sheet[i]||[],code=clean(row[c]),description=clean(row[d]),unit=clean(row[u]);
+    if(!code&&!description)continue;
+    const rate=parse(row[v]),labour=parse(row[l]),materials=parse(row[m]);
+    if(!/^\d{3,8}$/.test(code)||!description||!unit||rate===null||labour===null||materials===null){
+      errors.push('row '+(i+1));continue;
+    }
+    if(seen.has(code)){errors.push('duplicate '+code);continue;}
+    if(Math.abs(rate-labour-materials)>Math.max(.02,Math.abs(rate)*0.00001)){
+      errors.push('rate split mismatch '+code);continue;
+    }
+    seen.add(code);
+    out.push({code,description,unit,rate,labour,materials,
+      trade:trade<0?'Maintenance':clean(row[trade])||'Maintenance',
+      smv:smv<0?0:parse(row[smv])||0,
+      smvMethod:method<0?'Not specified':clean(row[method]),
+      splitMethod:split<0?'Not specified':clean(row[split]),
+      qualityFlag:flag<0?'Unreviewed':clean(row[flag])});
+  }
+  if(errors.length)throw Error('Ratebook rejected: '+errors.length+' invalid or mismatched items; examples: '+errors.slice(0,3).join(', ')+'. No partial import was made.');
+  if(!out.length)throw Error('There are no valid rate items in the selected sheet.');
+  return out;
+}
 $('ratesfile').onchange=async function(){const file=this.files[0];if(!file)return;status('rates-status','Reading '+file.name+'…');try{if(!window.XLSX)throw Error('Excel reader did not load. Please reconnect to the internet and refresh.');const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:false});let name=wb.SheetNames.find(n=>n.toLowerCase()==='v8_rates')||wb.SheetNames[0];const rows=XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,defval:'',raw:true});const parsed=importRows(rows);await put(RATE_KEY,parsed);setupRates(parsed);calculate();if(navigator.storage&&navigator.storage.persist){navigator.storage.persist().catch(()=>{});}}catch(e){status('rates-status','Could not import file: '+e.message,'bad');}this.value='';};
 $('clear-rates').onclick=async()=>{if(!confirm('Remove locally saved ratebook on this device?'))return;await drop(RATE_KEY);rates=[];codes.clear();status('rates-status','No rates are saved on this device. Import the enriched V8 schedule once.','bad');$('v8-library-state').textContent='V8 not loaded on this device';$('v8-import').open=true;search();renderReviewRates();};
 for(const id of ['address','client','reference','surveyor','specification'])$(id).oninput=save;
@@ -485,23 +522,27 @@ function sheetContent(book){
 }
 function isRateBook(book){
   for(const name of book.SheetNames){
-    const a=XLSX.utils.sheet_to_json(book.Sheets[name],{header:1,defval:'',sheetRows:5});
-    const row=a[0]||[];
-    const hs=row.map(v=>clean(v).toLowerCase());
-    if(hs.some(v=>v.includes('sor code'))&&hs.some(v=>v.includes('v8 rate'))&&hs.some(v=>v.includes('labour'))&&hs.some(v=>v.includes('material')))return name;
+    const sample=XLSX.utils.sheet_to_json(book.Sheets[name],{header:1,defval:'',sheetRows:14});
+    for(const row of sample.slice(0,12)){
+      const h=(row||[]).map(x=>clean(x).toLowerCase().replace(/\s+/g,' '));
+      const has=s=>h.some(v=>v.includes(s));
+      if(has('sor code')&&has('v8 rate')&&has('labour')&&has('material'))return{name,kind:'checked'};
+      if(has('document code')&&has('sor rate')&&has('short description'))return{name,kind:'raw-v8'};
+      if(has('nhf code')&&has('sor description')&&has('labour')&&has('smv'))return{name,kind:'raw-v7'};
+    }
   }
   return null;
 }
 async function readSpreadsheet(file){
-  if(!window.XLSX)throw Error('Excel import library failed to load. Please reconnect to the internet and reload.');
+  if(!window.XLSX)throw Error('Excel import library failed to load; check your connection and refresh.');
   const book=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:false});
-  const sheetName=isRateBook(book);
-  if(sheetName){
-    const rows=XLSX.utils.sheet_to_json(book.Sheets[sheetName],{header:1,defval:'',raw:true});
+  const source=isRateBook(book);
+  if(source){
+    if(source.kind!=='checked')throw Error('This is an original '+(source.kind==='raw-v7'?'V7':'V8')+' Schedule of Rates, not a job specification. The raw V8 workbook does not contain a verified labour/material split. Use the checked V8 workbook instead.');
+    const rows=XLSX.utils.sheet_to_json(book.Sheets[source.name],{header:1,defval:'',raw:true});
     const parsed=importRows(rows);
-    await put(RATE_KEY,parsed);
-    setupRates(parsed);calculate();
-    return{ratebook:true,detail:'Recognised and imported '+parsed.length.toLocaleString('en-GB')+' V8 rate items. Your ratebook is ready; now upload a work specification.'};
+    await put(RATE_KEY,parsed);setupRates(parsed);calculate();
+    return{ratebook:true,detail:parsed.length.toLocaleString('en-GB')+' verified V8 rates loaded and stored in this browser.'};
   }
   return{text:sheetContent(book)};
 }
