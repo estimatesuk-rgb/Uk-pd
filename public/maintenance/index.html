@@ -720,8 +720,9 @@ function sheetContent(book){
     for(let rowNo=0;rowNo<Math.min(100,matrix.length);rowNo++){
       const labels=(matrix[rowNo]||[]).map(normal),d=labels.findIndex(descHeader);
       if(d<0)continue;
-      const q=labels.findIndex(qtyHeader),u=labels.findIndex(unitHeader),
-        loc=labels.findIndex(placeHeader),note=labels.findIndex(noteHeader),ref=labels.findIndex(codeHeader);
+      const qDirect=labels.findIndex(label=>/^(qty|qty required|quantity|quantity required|no|no of|nr|number|measured quantity|measure|measurement|units required|count|take off)$/.test(label));
+      const q=qDirect>=0?qDirect:labels.findIndex(label=>/^(length|area|volume)$/.test(label));
+      const u=labels.findIndex(unitHeader),loc=labels.findIndex(label=>placeHeader(label)||label==='area'),note=labels.findIndex(noteHeader),ref=labels.findIndex(codeHeader);
       const samples=matrix.slice(rowNo+1,rowNo+Math.min(18,matrix.length-rowNo)).filter(row=>texty((row||[])[d])).length;
       const score=samples*4+(q>=0?3:0)+(u>=0?2:0)+(loc>=0?1:0);
       if(!best||score>best.score)best={rowNo,d,q,u,loc,note,ref,score};
