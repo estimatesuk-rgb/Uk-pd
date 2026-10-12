@@ -37,9 +37,11 @@
 .review-document table th{position:sticky;top:0;background:#e8eef8;border:1px solid #d3dbe8;z-index:2}
 .review-document table td{border:1px solid #d8dfe9;white-space:pre-wrap;max-width:350px;min-width:70px}
 .review-document table tbody tr{cursor:pointer}
-.review-document table tbody tr:hover,.review-document table tbody tr.source-selected{background:#e5f1ff}
+.review-document table tbody tr:hover{background:#e5f1ff}
+.review-document table tbody tr.source-selected{background:#ffe8e9!important;box-shadow:inset 4px 0 #c8192a}
 .review-document .source-line{display:block;padding:5px 4px;border-bottom:1px solid #e8edf5;cursor:pointer}
-.review-document .source-line:hover,.review-document .source-line.source-selected{background:#e7edff}
+.review-document .source-line:hover{background:#e7edff}
+.review-document .source-line.source-selected{background:#ffe8e9!important;border-left:4px solid #c8192a}
 .review-document .source-line small{display:block;color:#8190a2}
 .review-document .source-paper{background:white;max-width:930px;margin:auto;padding:18px;min-height:90%;box-shadow:0 3px 15px #152b4818;overflow-wrap:anywhere}
 .review-control{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -249,6 +251,7 @@ async function get(key){db=db||await indexed();return new Promise((ok,no)=>{cons
 async function drop(key){db=db||await indexed();return new Promise((ok,no)=>{const t=db.transaction('settings','readwrite');t.objectStore('settings').delete(key);t.oncomplete=()=>ok();t.onerror=()=>no(t.error);});}
 function setupRates(rows){
   rates=rows;codes=new Map(rows.map(r=>[r.code,r]));
+  for(const r of rows){r._shortTokens=new Set(matchWords(r.description));r._extraTokens=new Set(matchWords([r.medium,r.long,r.trade,r.section,r.subsection].join(' ')));}
   const provisional=rows.filter(r=>r.qualityFlag&&r.qualityFlag!=='V7 split verified').length;
   status('rates-status','✓ '+rates.length.toLocaleString('en-GB')+' V8 selling rates loaded. '+(provisional?'⚠ '+provisional+' labour/material splits need review.':'All supplied allocations loaded.') ,'ok');
   $('v8-library-state').textContent='✓ V8 ratebook saved on this device';
@@ -282,7 +285,7 @@ function importRows(sheet){
     u=ix(['uom','unit of meas']),v=ix(['v8 rate','selling rate','total rate']),
     l=ix(['labour £','labour cost']),m=ix(['materials £','material cost']),
     smv=ix(['smv minutes','standard minute']),trade=ix(['trade']),
-    method=ix(['smv method']),split=ix(['split method']),flag=ix(['quality flag']);
+    method=ix(['smv method']),split=ix(['split method']),flag=ix(['quality flag']),medium=ix(['medium description']),long=ix(['long description']),section=ix(['section']),subsection=ix(['subsection']);
   if([c,d,u,v,l,m].some(x=>x<0))
     throw Error('The workbook does not contain a verified V8 labour/material split. Use the checked V8 ratebook instead of the original raw SOR file.');
   const parse=x=>{if(x===null||x===undefined||clean(x)==='')return null;let n=Number(String(x).replace(/[£,]/g,''));return Number.isFinite(n)?n:null;};
@@ -304,7 +307,9 @@ function importRows(sheet){
       smv:smv<0?0:parse(row[smv])||0,
       smvMethod:method<0?'Not specified':clean(row[method]),
       splitMethod:split<0?'Not specified':clean(row[split]),
-      qualityFlag:flag<0?'Unreviewed':clean(row[flag])});
+      qualityFlag:flag<0?'Unreviewed':clean(row[flag]),
+      medium:medium<0?'':clean(row[medium]),long:long<0?'':clean(row[long]),
+      section:section<0?'':clean(row[section]),subsection:subsection<0?'':clean(row[subsection])});
   }
   if(errors.length)throw Error('Ratebook rejected: '+errors.length+' invalid or mismatched items; examples: '+errors.slice(0,3).join(', ')+'. No partial import was made.');
   if(!out.length)throw Error('There are no valid rate items in the selected sheet.');
@@ -828,9 +833,8 @@ function rankedRateMatches(query,limit=8,ignoreUnit=false){
   const matches=[];
   for(const r of rates){
     if(expected&&!expected.includes(String(r.unit||'').toUpperCase()))continue;
-    const short=matchWords(r.description);
-    const extra=matchWords([r.medium||'',r.long||'',r.trade||''].join(' '));
-    const sh=new Set(short),ex=new Set(extra);
+    const sh=r._shortTokens||new Set(matchWords(r.description));
+    const ex=r._extraTokens||new Set(matchWords([r.medium,r.long,r.trade,r.section,r.subsection].join(' ')));
     let shortHits=0,extraHits=0,score=0;
     for(const term of key){
       if(sh.has(term)){shortHits++;score+=ACTION_MATCH_WORDS.has(term)?7:10;}
