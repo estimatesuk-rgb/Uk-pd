@@ -90,8 +90,10 @@ export default {
           return fail("The rendered plan image was invalid or too large. Try a lower resolution.", 413);
         }
         const filename = String(check.doc.document_no || "drawing").slice(0,160);
+        const calibrationStatus = body?.calibration_status === "reference-only" ? "reference-only" : body?.calibration_status === "calibrated" ? "calibrated" : "needed";
         const prompt = pagesPrompt + "\nDocument: " + filename + ", revision: " +
-          String(check.doc.revision || "unspecified") + ", page: " + page + ".";
+          String(check.doc.revision || "unspecified") + ", page: " + page + ". Calibration: " + calibrationStatus + "." +
+          (calibrationStatus === "reference-only" ? " This is a construction notes / reference-only page. Read specifications but NEVER return a numeric quantity for this page." : "");
         const result = await callAI(env, [
           { role: "system", content: "Return only well-formed JSON. Do not invent measurements or compliance." },
           { role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: image } }] },
@@ -102,7 +104,8 @@ export default {
         return json({ ok: true, provider: "Cloudflare Workers AI", page: {
           filename, document_id: documentId, page_number: page, classification: result.classification,
           confidence: result.confidence || "low", reason: result.reason || "AI provisional",
-          takeoff_draft: result.takeoff_draft.slice(0,40), unresolved: result.unresolved.slice(0,20),
+          calibration_status: calibrationStatus,
+          takeoff_draft: result.takeoff_draft.slice(0,40).map(item => calibrationStatus === "reference-only" ? { ...item, quantity: null, quantity_status: "Notes only - no measurement", measurement_basis: "Reference-only page: no measurable scale" } : item), unresolved: result.unresolved.slice(0,20),
         } });
       }
       const check = await accessCheck(request, projectId);
@@ -112,13 +115,14 @@ export default {
       const summaries = pages.map(p => ({
         filename: String(p.filename || "").slice(0,160), page_number: Number(p.page_number),
         classification: String(p.classification || "").slice(0,50), reason: String(p.reason || "").slice(0,700),
+        calibration_status: p.calibration_status === "reference-only" ? "reference-only" : "calibrated",
         takeoff_draft: Array.isArray(p.takeoff_draft) ? p.takeoff_draft.slice(0,25) : [],
         unresolved: Array.isArray(p.unresolved) ? p.unresolved.slice(0,10) : [],
       }));
       const input = JSON.stringify(summaries);
       if (input.length > 85_000) return fail("Drawing summaries are too large; review smaller batches.", 413);
       const result = await callAI(env, [
-        { role: "system", content: synthesisPrompt },
+        { role: "system", content: synthesisPrompt + " Construction notes marked reference-only can specify materials and workmanship, but cannot establish measured quantities. Keep their quantities null. Every quantity is draft and requires QS verification." },
         { role: "user", content: "Compare and consolidate these reviewed sheets:\n" + input },
       ], 3300);
       if (!Array.isArray(result.changes) || !Array.isArray(result.takeoff_draft) || !Array.isArray(result.unresolved)) {
