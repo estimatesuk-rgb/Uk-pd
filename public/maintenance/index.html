@@ -2569,6 +2569,46 @@ function writeBoqInfo(ws,row,leftLabel,leftValue,rightLabel,rightValue){
   ws.getRow(row).height=29;
 }
 
+
+async function stampProtectedUKAttribution(wb,images,type){
+  const ids=reportCurrentId(type),logo=typeof images==='object'?images.uk:images;
+  const protectionPassword=Array.from(crypto.getRandomValues(new Uint8Array(16)),v=>v.toString(16).padStart(2,'0')).join('');
+  for(const ws of wb.worksheets){
+    const footerRow=(ws.lastRow?.number||12)+3;
+    ws.mergeCells('D'+footerRow+':L'+(footerRow+1));
+    cellReportText(ws,'D'+footerRow,'Produced using UK Estimates Ltd  |  www.ukestimates.com  |  Enquiries@ukestimates.com  |  01246 203196',
+      {size:11,bold:true,colour:UK_EST_PALETTE.navy,fill:'EDF2F9'});
+    ws.getRow(footerRow).height=28;ws.getRow(footerRow+1).height=16;
+    ws.mergeCells('D'+(footerRow+2)+':L'+(footerRow+2));
+    cellReportText(ws,'D'+(footerRow+2),
+      'UK Estimates attribution is integral to this report.  Report ID: '+(ids?.id||'DRAFT - NOT ISSUED')+
+      (ids?.hash?'  |  Issue fingerprint: '+ids.hash.slice(0,16):'')+
+      '  |  Contact the issuer for verification.',
+      {size:9,colour:UK_EST_PALETTE.muted,fill:'F7F9FD'});
+    ws.getRow(footerRow+2).height=26;
+    ws.addImage(logo,{tl:{col:0.15,row:footerRow-1+0.12},br:{col:2.85,row:footerRow+1.8},editAs:'oneCell'});
+    ws.headerFooter.oddFooter='&LUK Estimates Ltd  |  www.ukestimates.com&CEnquiries@ukestimates.com&R01246 203196  |  Page &P of &N';
+    ws.printArea='A1:L'+(footerRow+2);
+    // Preserve intentional spreadsheet inputs; protect the attribution and
+    // structural formulas from casual deletion in Excel.
+    if(ws.name==='Bill of Quantities'){
+      ws.getCell('F8').protection={locked:false};
+      const final=Number(ws.autoFilter?.to?.row)||12;
+      for(let row=13;row<=final;row++)ws.getCell('E'+row).protection={locked:false};
+    }
+    if(ws.name==='Signed Labour Timesheet'){
+      const final=Number(ws.autoFilter?.to?.row)||11;
+      for(let row=12;row<=final;row++){
+        for(const column of ['F','G','H','I','J','L'])ws.getCell(column+row).protection={locked:false};
+      }
+    }
+  }
+  await Promise.all(wb.worksheets.map(ws=>ws.protect(protectionPassword,{
+    selectLockedCells:true,selectUnlockedCells:true,autoFilter:true,sort:true,
+    formatCells:false,formatColumns:false,formatRows:false,insertRows:false,deleteRows:false,insertColumns:false,deleteColumns:false
+  })));
+}
+
 function appendJobProgrammeWorksheet(wb,logo){
   const p=buildJobProgramme();
   const ws=wb.addWorksheet('Job Programme',{views:[{state:'frozen',ySplit:11,showGridLines:false}]});
@@ -2643,6 +2683,7 @@ async function exportJobProgramme(){
     const wb=new ExcelJS.Workbook();wb.creator='UK Estimates Ltd';wb.title='SMV Job Programme';wb.created=new Date();
     const logo=await boqLogoImage(wb);
     const p=appendJobProgrammeWorksheet(wb,logo);
+    await stampProtectedUKAttribution(wb,logo,'programme');
     const data=await wb.xlsx.writeBuffer();
     download(new Blob([data],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),
       'UK_Estimates_SMV_Programme_'+(clean($('reference').value).replace(/[^a-z0-9_-]+/gi,'_')||activeJobId||'Job')+'.xlsx');
@@ -2723,6 +2764,7 @@ async function exportSubcontractorTimesheet(){
   const wb=new ExcelJS.Workbook();wb.creator='UK Estimates Ltd';wb.title='Labour-only subcontractor timesheet';wb.created=new Date();
   wb.calcProperties={fullCalcOnLoad:true};
   const logo=await boqLogoImage(wb),data=appendSubcontractorSheet(wb,logo);
+  await stampProtectedUKAttribution(wb,logo,'timesheet');
   const buffer=await wb.xlsx.writeBuffer(),trade=String(data.viewTrade==='__all__'?'All_Trades':data.viewTrade).replace(/[^a-z0-9_-]+/gi,'_');
   download(new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),
    'UK_Estimates_Labour_Timesheet_'+(clean($('reference').value).replace(/[^a-z0-9_-]+/gi,'_')||activeJobId||'Job')+'_'+trade+'.xlsx');
@@ -2870,6 +2912,7 @@ async function exportProfessionalBoq(){
       audit.printArea='A1:K'+(activities.length+4);
     }
     appendJobProgrammeWorksheet(wb,logo);
+    await stampProtectedUKAttribution(wb,logo,'boq');
     const output=await wb.xlsx.writeBuffer();
     download(new Blob([output],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),'UK_Estimates_BRANDED_BoQ_'+(clean($('reference').value).replace(/[^a-z0-9_-]+/gi,'_')||'Maintenance')+'_'+new Date().toISOString().slice(0,10)+'.xlsx');
     status('checks','Branded BoQ downloaded with logo, V8 percentage adjustment, line formulas and reconciled totals.','ok');
