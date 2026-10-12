@@ -632,8 +632,12 @@ function sourceSelect(text,knownIndex=null){
   const q=findQty(line);if(q.qty&&q.qty>0)$('review-qty').value=q.qty;
   const sourceLines=reviewSourceLines();
   const normalized=line.toLowerCase();
+  // Excel rows must map by (worksheet name, actual zero-based row).
+  // Never fall back to the first fuzzy description: repeated doors in several
+  // rooms would highlight and price the wrong original row.
+  const spreadsheet=sourceFile&&sheetExtensions.has(sourceExt());
   const index=Number.isInteger(knownIndex)&&knownIndex>=0&&knownIndex<sourceLines.length?knownIndex:
-    sourceLines.findIndex(s=>s.toLowerCase().includes(normalized)||normalized.includes(s.toLowerCase()));
+    spreadsheet?-1:sourceLines.findIndex(s=>s.toLowerCase()===normalized);
   const suggestions=$('review-suggest');
   suggestions.querySelectorAll('.is-focused').forEach(el=>el.classList.remove('is-focused'));
   if(index>=0){
@@ -641,8 +645,10 @@ function sourceSelect(text,knownIndex=null){
     const card=suggestions.querySelector('[data-review-line="'+index+'"]');
     if(card){card.classList.add('is-focused');card.scrollIntoView({block:'nearest',behavior:'smooth'});return;}
   }
-  $('review-search').value=topMatch(line)[0]?.r.code||line.slice(0,60);
+  activeReviewLine=null;
+  $('review-search').value=matchWords(line).slice(0,3).join(' ')||line.slice(0,60);
   $('review-manual').open=true;
+  if(spreadsheet)status('spec-status','This spreadsheet row was not extracted as a work item. Select its exact numbered line from the right-hand list before approving a SOR code.','bad');
   renderReviewRates();
 }
 let activeReviewLine=null;
@@ -695,10 +701,13 @@ function clearReviewSelections(){
 // Reuse an approved code only for the identical task wording. Location and
 // the measured leading quantity can differ; each line retains its own quantity.
 function repeatWorkKey(line){
-  return String(line||'').toLowerCase().trim()
-    .replace(/^\\d+(?:[.,]\\d+)?\\s*(?:m²|m2|sqm|sm|lm|m³|m3|cm|nr|no\\.?|each|ea|it|item|pr|kg|hr|hrs|day|wk)?\\s+/i,'')
-    .replace(/^\\[[^\\]]+\\]\\s*(?:[—–-]\\s*)?/,'')
-    .replace(/\\s+/g,' ').replace(/[.,;:]+$/,'').trim();
+  // Remove location prefixes and independently measured quantities, NOT the
+  // actual task (e.g. fire door and ordinary door must remain different).
+  let t=String(line||'').toLowerCase().trim();
+  t=t.replace(/^\\d+(?:[.,]\\d+)?\\s*(?:m²|m2|sqm|sm|lm|m³|m3|cm|nr|no\\.?|each|ea|it|item|pr|kg|hr|hrs|day|wk)?\\s+/i,'');
+  t=t.replace(/^(?:\\[[^\\]]+\\]|(?:bedroom|bathroom|kitchen|lounge|hall|landing|wc|utility|dining room|living room|ensuite|en-suite|office|store|room|ground floor|first floor|second floor|section|zone)\\s*(?:\\d+|[a-z])?)\\s*(?:[—–:-]\\s*)/i,'');
+  t=t.replace(/\\s+/g,' ').replace(/[.,;:]+$/,'').trim();
+  return t;
 }
 function fillIdenticalWorkLines(index,code){
   const lines=reviewSourceLines(),key=repeatWorkKey(lines[index]);
@@ -709,6 +718,9 @@ function fillIdenticalWorkLines(index,code){
     if(i===index||selectedMatches.has(i)||repeatWorkKey(line)!==key)return;
     const measurement=findQty(line);
     const qty=Number(measurement.qty);
+    // Do not copy between explicitly conflicting measurement units.
+    const firstUnit=findQty(lines[index]).unit;
+    if(firstUnit&&measurement.unit&&firstUnit!==measurement.unit)return;
     if(!Number.isFinite(qty)||qty<=0)return;
     const entry=job.find(j=>j.code===code);
     if(entry)entry.qty=Math.round((entry.qty+qty)*1000000)/1000000;
@@ -751,7 +763,7 @@ function renderReviewSuggestions(){
     lines.map((line,i)=>{
       const ranked=topMatch(line),measure=findQty(line),chosen=selectedMatches.get(i),quantity=chosen?chosen.qty:measure.qty;
       return '<article class="spec'+(chosen?' is-picked':'')+'" data-review-line="'+i+'">'+
-        '<div class="source"><span class="tag">Line '+(i+1)+'</span> '+esc(line.slice(0,350))+'</div>'+
+        '<div class="source"><span class="tag">'+(sourceMapLocation(i)?esc(sourceMapLocation(i).sheet)+' · Excel row '+(sourceMapLocation(i).row+1):'Line '+(i+1))+'</span> '+esc(line.slice(0,350))+'</div>'+
         '<div class="suggest-controls"><label>Quantity <input data-suggest-qty="'+i+'" type="number" min="0" step="any" value="'+quantity+'"></label>'+
         (measure.unit?'<span>Spec unit: '+esc(measure.unit)+'</span>':'<span>Confirm unit and measured quantity</span>')+
         '<button type="button" class="secondary tiny" data-source-search="'+i+'">Search alternatives</button></div>'+
