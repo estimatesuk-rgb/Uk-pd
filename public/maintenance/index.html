@@ -2766,6 +2766,8 @@ function writeBoqBrandHeader(ws,logo,title,subtitle){
     ws.mergeCells('D3:L3');
     cellReportText(ws,'D3',subtitle,{size:9,colour:UK_EST_PALETTE.muted});
     ws.addImage(images.uk,{tl:{col:0.2,row:0.15},br:{col:2.9,row:2.9},editAs:'oneCell'});
+    ws.mergeCells('A3:C3');
+    cellReportText(ws,'A3','RICS REGULATED',{size:9,bold:true,colour:UK_EST_PALETTE.navy});
     [1,2,3].forEach(n=>ws.getRow(n).height=24);
   }
   ws.getRow(4).height=7;
