@@ -278,15 +278,32 @@ export default function Estimates({db,project,docs=[]}){
      const previousAuto=new Set((estimate.items||[]).map(i=>i.ai_auto_key).filter(Boolean));
      const added=[],autoAdded=[],newHighlights=[];
      const uniqueAuto=autoCandidates.filter(m=>!previousAuto.has(m.key));
-     const measuredDescriptions=new Set([...autoCandidates.map(m=>norm(m.mark.name)+'|'+norm(m.unit)),
-       ...(estimate.items||[]).filter(i=>i.ai_auto_key).map(i=>norm(i.description)+'|'+norm(i.unit))]);
+     const measuredScopeFor=(description,unit,reference)=> {
+       // Identical tasks on separate floors or drawings must remain visible
+       // as outstanding scope until specifically tied to their source page.
+       if(!reference)return false;
+       const ref=norm(reference);
+       const existing=(estimate.items||[]).filter(i=>i.ai_auto_key).map(i=>{
+         const name=String(i.drawing||''),page=i.takeoff_evidence?.page;
+         const suffix=' p'+page;
+         return {mark:{name:i.description},unit:i.unit,
+           filename:name.endsWith(suffix)?name.slice(0,-suffix.length):name,page};
+       });
+       return [...autoCandidates,...existing].some(m=>{
+         if(norm(m.mark.name)!==norm(description)||norm(m.unit)!==norm(unit)||!m.filename)return false;
+         const page=''+m.page;
+         return ref.includes(norm(m.filename)) &&
+           (ref.endsWith(' p'+page)||ref.endsWith(' page '+page)||
+            ref.includes(' p'+page+' ')||ref.includes(' page '+page+' '));
+       });
+     };
      for(const draft of comparison.takeoff_draft){
        const description=String(draft.description||'').trim();
        if(!description)continue;
        const unit=normalizedUnit(draft.unit),reference=String(draft.drawing_reference||'').trim();
        // Keep the measured line rather than also issuing a zero-quantity AI scope
        // row for the same work type. Different descriptions remain separate.
-       if(measuredDescriptions.has(norm(description)+'|'+norm(unit)))continue;
+       if(measuredScopeFor(description,unit,reference))continue;
        const key=[norm(description),norm(unit),norm(reference)].join('|');
        if(seen.has(key))continue;seen.add(key);
        const priced=applySavedRate({...initialItem,description,unit},rateLibrary).item;
@@ -326,7 +343,11 @@ export default function Estimates({db,project,docs=[]}){
            region:{x:entry.mark.x,y:entry.mark.y,w:entry.mark.w,h:entry.mark.h},
            points:entry.mark.points||null,openings:entry.mark.openings||null,
            gross_area_m2:entry.gross_area_m2??null,deductions_area_m2:entry.deductions_area_m2??null,
-           openings_count:entry.openings_count||0,measurement_basis:entry.evidence,
+           openings_count:entry.openings_count||0,
+           measurement_kind:entry.mark.measurement_kind||entry.mark.kind,
+           dimension_evidence:entry.dimension_evidence||null,
+           calculation:entry.calculation||null,
+           measurement_basis:entry.evidence,
            method:entry.method,quantity_status:'Provisional - QS verify'},
        });
      }
@@ -737,7 +758,19 @@ export default function Estimates({db,project,docs=[]}){
    <b>AI automatic measurement preview:</b> {estimate.ai_auto_measurement_review.accepted||0} provisional measured outline(s)
    across {estimate.ai_auto_measurement_review.checked_pages||0} reviewed page(s).
    {(estimate.ai_auto_measurement_review.rejected||[]).length} attempted outline(s) require manual checking.
-   <p>These measurements are calculated from AI-suggested boundaries and your saved per-page scale, not from a verified geometric tracing. Open each marked drawing and check the coloured shapes, traced runs or count points. Irregular polygons and explicitly enclosed openings are calculated provisionally; deductions, net wall areas, heights and hidden works still require QS confirmation. AI traces are not a substitute for measured drawings. No automatic measurement is deemed verified.</p>
+   {(estimate.items||[]).filter(i=>i.takeoff_evidence?.source==='Cloudflare Workers AI' && !(Number(i.quantity)>0)).length} AI scope item(s) still need a checked quantity.
+   <p>AI-suggested visible outlines are calculated against the saved per-sheet scale. Wall heights, trench widths/depths and slab thicknesses are only used where the AI quotes a matching metric dimension; the quote and its applicability must still be checked against the actual drawing. No AI measurement is deemed verified.</p>
+   <details><summary>Show automatic quantity calculations and quoted dimensions</summary>
+    <ul>{(estimate.items||[]).filter(i=>i.takeoff_evidence?.automatic).slice(-60).map((i,n)=>{
+      const evidence=i.takeoff_evidence,calc=evidence.calculation||{};
+      const dims=evidence.dimension_evidence||{};
+      return <li key={i.id||n}><b>{i.description}: {i.quantity} {i.unit}</b> — {i.drawing}.
+        {Object.keys(calc).length>0&&<span> Calculation: {Object.entries(calc).map(([key,val])=>key.replaceAll('_',' ')+' = '+val).join('; ')}.</span>}
+        {Object.keys(dims).filter(k=>k.endsWith('_evidence')).map(k=><span key={k}> {k.replaceAll('_',' ')}: “{dims[k]}”.</span>)}
+        {Array.isArray(dims.openings)&&dims.openings.length>0&&<span> {dims.openings.length} opening(s): verify widths/heights and the location of each on elevations.</span>}
+      </li>;
+    })}</ul>
+   </details>
    {(estimate.ai_auto_measurement_review.rejected||[]).length>0&&<details><summary>See outlines held for review</summary><ul>{estimate.ai_auto_measurement_review.rejected.slice(0,30).map((m,i)=><li key={i}>{m.filename} page {m.page}: {m.description||'Unlabelled'} — {m.reason}</li>)}</ul></details>}
   </div>}
   <div className="estimateToolbar" aria-label="Import master pricing rates">
