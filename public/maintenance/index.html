@@ -1030,12 +1030,18 @@ function clearReviewSelections(){
 // Reuse an approved code only for the identical task wording. Location and
 // the measured leading quantity can differ; each line retains its own quantity.
 function repeatWorkKey(line){
-  // Compare the same work across rooms: ignore only leading quantities,
-  // measurement units and location labels. Keep construction details intact.
+  // Council workbooks vary the order of room, quantity and description.
+  // Strip only leading location/measurement metadata, retaining size, fire
+  // rating, material, action and construction scope in the matching key.
   let t=String(line||'').toLowerCase().trim();
-  t=t.replace(/^\d+(?:[.,]\d+)?\s*(?:m²|m2|sqm|sm|lm|m³|m3|cm|nr|no\.?|each|ea|it|item|pr|kg|hr|hrs|day|wk)?\s+/i,'');
-  t=t.replace(/^\[[^\]]+\]\s*(?:[—–:-]\s*)?/i,'');
-  t=t.replace(/^(?:bedroom|bathroom|kitchen|lounge|hall|landing|wc|utility|dining room|living room|ensuite|en-suite|office|store|room|ground floor|first floor|second floor|section|zone)\s*(?:\d+|[a-z])?\s*[—–:-]\s*/i,'');
+  for(let pass=0;pass<4;pass++){
+    const before=t;
+    t=t.replace(/^\d+(?:[.,]\d+)?\s*(?:m²|m2|sqm|sm|lm|m³|m3|cm|nr|no\.?|each|ea|it|item|pr|kg|hr|hrs|day|wk)?\s+/i,'');
+    t=t.replace(/^\[[^\]]+\]\s*(?:[—–:-]\s*)?/i,'');
+    t=t.replace(/^(?:bedroom|bathroom|kitchen|lounge|hall|landing|wc|utility|dining room|living room|ensuite|en-suite|office|store|room|ground floor|first floor|second floor|section|zone)\s*(?:\d+|[a-z])?\s*[—–:-]\s*/i,'');
+    t=t.trim();
+    if(t===before)break;
+  }
   return t.replace(/\s+/g,' ').replace(/[.,;:]+$/,'').trim();
 }
 function fillIdenticalWorkLines(index,code){
