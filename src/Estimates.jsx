@@ -279,17 +279,23 @@ export default function Estimates({db,project,docs=[]}){
      const added=[],autoAdded=[],newHighlights=[];
      const uniqueAuto=autoCandidates.filter(m=>!previousAuto.has(m.key));
      const measuredScopeFor=(description,unit,reference)=> {
-       // One similar task on another floor, elevation or sheet is NOT proof of
-       // its measured extent. Never hide it from the outstanding scope register.
+       // Identical tasks on separate floors or drawings must remain visible
+       // as outstanding scope until specifically tied to their source page.
        if(!reference)return false;
        const ref=norm(reference);
-       const all=[...autoCandidates,...(estimate.items||[]).filter(i=>i.ai_auto_key).map(i=>({
-         mark:{name:i.description},unit:i.unit,filename:i.drawing?.replace(/ p\\d+$/i,''),
-         page:i.takeoff_evidence?.page
-       }))];
-       return all.some(m=>norm(m.mark.name)===norm(description)&&norm(m.unit)===norm(unit)
-         &&m.filename&&ref.includes(norm(m.filename))
-         &&new RegExp('(?:page|p)\\\\s*'+String(m.page)+'(?:\\\\b|$)','i').test(ref));
+       const existing=(estimate.items||[]).filter(i=>i.ai_auto_key).map(i=>{
+         const name=String(i.drawing||''),page=i.takeoff_evidence?.page;
+         const suffix=' p'+page;
+         return {mark:{name:i.description},unit:i.unit,
+           filename:name.endsWith(suffix)?name.slice(0,-suffix.length):name,page};
+       });
+       return [...autoCandidates,...existing].some(m=>{
+         if(norm(m.mark.name)!==norm(description)||norm(m.unit)!==norm(unit)||!m.filename)return false;
+         const page=''+m.page;
+         return ref.includes(norm(m.filename)) &&
+           (ref.endsWith(' p'+page)||ref.endsWith(' page '+page)||
+            ref.includes(' p'+page+' ')||ref.includes(' page '+page+' '));
+       });
      };
      for(const draft of comparison.takeoff_draft){
        const description=String(draft.description||'').trim();
