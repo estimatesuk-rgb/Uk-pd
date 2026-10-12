@@ -324,7 +324,7 @@ $('adjustment').oninput=()=>{save();calculate();if(!$('boq-preview-layer').hidde
 
 
 /* Document-review workspace: the source file remains beside the item picker. */
-let sourceFile=null,sourceBlobUrl=null,sourcePdf=null,sourceWorkbook=null,sourceText='',sourcePage=1,sourceZoom=1,sourceSheet=0,sourceRowPage=0,sourceKind='text',sourceRenderId=0;
+let sourceFile=null,sourceBlobUrl=null,sourcePdf=null,sourceWorkbook=null,sourceText='',sourceLineMap=[],sourcePage=1,sourceZoom=1,sourceSheet=0,sourceRowPage=0,sourceKind='text',sourceRenderId=0;
 function sourceExt(){return sourceFile?sourceFile.name.toLowerCase().split('.').pop():'';}
 function showReview(isOpen){
   $('review-layer').hidden=!isOpen;
@@ -341,11 +341,11 @@ $('open-review').onclick=()=>showReview(true);
 $('review-file').onclick=()=>showReview(true);
 $('review-close').onclick=()=>showReview(false);
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('review-layer').hidden)showReview(false);});
-function releaseSource(){sourceRenderId++;sourcePdf=null;sourceWorkbook=null;sourceFile=null;sourceText='';sourcePage=1;sourceSheet=0;sourceRowPage=0;sourceZoom=1;if(sourceBlobUrl)URL.revokeObjectURL(sourceBlobUrl);sourceBlobUrl=null;}
-async function activateSource(file,extracted,remember=true){
-  releaseSource();clearReviewSelections();activeReviewLine=null;sourceFile=file;sourceText=extracted||'';sourceKind='text';
+function releaseSource(){sourceRenderId++;sourcePdf=null;sourceWorkbook=null;sourceFile=null;sourceText='';sourceLineMap=[];sourcePage=1;sourceSheet=0;sourceRowPage=0;sourceZoom=1;if(sourceBlobUrl)URL.revokeObjectURL(sourceBlobUrl);sourceBlobUrl=null;}
+async function activateSource(file,extracted,remember=true,locations=[]){
+  releaseSource();clearReviewSelections();activeReviewLine=null;sourceFile=file;sourceText=extracted||'';sourceLineMap=Array.isArray(locations)?locations:[];sourceKind='text';
   $('source-file-label').textContent='Original ready: '+file.name;
-  if(remember){try{await put(SOURCE_KEY,{name:file.name,type:file.type,blob:file,lastModified:file.lastModified||0});}catch(e){status('spec-status','File loaded, but the browser could not save a copy for next time: '+e.message,'bad');}}
+  if(remember){try{await put(SOURCE_KEY,{name:file.name,type:file.type,blob:file,lastModified:file.lastModified||0,sourceMap:sourceLineMap});}catch(e){status('spec-status','File loaded, but the browser could not save a copy for next time: '+e.message,'bad');}}
   showReview(true);
 }
 function sourceSelect(text){
@@ -396,7 +396,7 @@ function updateReviewTotals(){
 const REVIEW_SELECTION_KEY='UK_EST_V8_APPROVED_MATCHES_20261012';
 let selectedMatches=new Map();
 function reviewSourceLines(){
-  return String($('specification').value||'').split(/[\r\n]+/).map(s=>s.trim()).filter(s=>s.length>5).slice(0,160);
+  return String($('specification').value||'').split(/[\r\n]+/).map(s=>s.trim()).filter(s=>s.length>=3).slice(0,160);
 }
 function persistReviewSelections(){
   try{localStorage.setItem(REVIEW_SELECTION_KEY,JSON.stringify({reference:$('reference').value,source:$('specification').value.slice(0,1000),length:$('specification').value.length,matches:[...selectedMatches]}));}catch(e){console.warn(e);}
@@ -587,7 +587,7 @@ function decodeRtf(t){
 function sheetContent(book){
   // Council schedules vary: headings may be buried, split across columns, or absent.
   // Extract readable work, never infer a SOR match or silently price it.
-  const work=[],unclassified=[],sheetsReviewed=[],MAX=1200;
+  const work=[],unclassified=[],workLocations=[],unclassifiedLocations=[],sheetsReviewed=[],MAX=1200;
   const normal=x=>clean(x).toLowerCase().replace(/[\r\n_\-:]+/g,' ').replace(/[^\w\s²³]/g,' ').replace(/\s+/g,' ').trim();
   const descHeader=x=>/^(description(?: of (?:work|works|repair|repairs))?|work(?:s)? (?:required|description|details|item|to be done|to be carried out)|repair(?:s| required| description| details| item)|required (?:work|works|repairs)|job (?:details|description|instructions)|item (?:details|description|text)|details of (?:work|works|repairs)|scope of (?:work|works)|specification(?: of works)?|defect(?:s| description| details)?|fault(?:s| description)?|remedial (?:action|works)|action(?: required)?|task(?: description)?|activity|trade description|work order|instructions?|comments on repair|job sheet details|short description)$/.test(x)||/^(?:works?|repairs?|defects?)\s+(?:to\s+)?(?:be\s+)?(?:completed|undertaken|carried\s+out)$/.test(x);
   const qtyHeader=x=>/^(qty|qty required|quantity|quantity required|no|no of|nr|number|measured quantity|measure|measurement|units required|count|length|area|volume|take off)$/.test(x);
@@ -602,10 +602,11 @@ function sheetContent(book){
   const generalWork=/\b(?:renew|repair|replace|replac|install|fit|fix|paint|decorat|plaster|strip|clean|service|test|remove|rebed|seal|repoint|render|tile|tiling|board|making good|make good|damaged|broken|fault|leak|blockage|treat|prepare|loose|defective|adjust|reconfigure|maintain|inspect|door|window|skirting|architrave|wall|ceiling|floor|tap|basin|toilet|bath|kitchen|roof|gutter|pipe|radiator|socket|light|carpet|lock|hinge|fence|gate|drain|plinth|switch|cistern|shower|stair|brick|mortar|grout)\w*/i;
   const texty=x=>{const t=clean(x);return t.length>=3&&/[a-z]{3,}/i.test(t)&&!skipText(t)&&!/^[-\d£.,/:\s]+$/.test(t)};
   const skipSheet=/^(?:instructions?|read me|lookup|lookups|data quality|material recipes|deleted items.*|m3central service codes|v8 responsive data|nhf 7\.0)$/i;
-  const pushLine=(arr,line)=>{const v=clean(line).replace(/\s+/g,' ');if(v&&arr.length<MAX)arr.push(v);};
+  const pushLine=(arr,line,name,row)=>{const v=clean(line).replace(/\s+/g,' ');if(v&&arr.length<MAX){arr.push(v);(arr===work?workLocations:unclassifiedLocations).push({sheet:name,row});}};
   for(const name of book.SheetNames.slice(0,35)){
     if(skipSheet.test(name.trim()))continue;
-    const matrix=XLSX.utils.sheet_to_json(book.Sheets[name],{header:1,defval:'',raw:false,blankrows:false,sheetRows:6000});
+    const matrix=XLSX.utils.sheet_to_json(book.Sheets[name],{header:1,defval:'',raw:false,blankrows:true,sheetRows:6000});
+    const sheetStart=XLSX.utils.decode_range(book.Sheets[name]['!ref']||'A1').s.r;
     if(!matrix.length)continue;
     sheetsReviewed.push(name);
     let best=null;
@@ -628,7 +629,7 @@ function sheetContent(book){
           ref=best.ref<0?'':clean(row[best.ref]);
         if(qty!==null&&qty<0)continue;
         const description=[room&&room!==desc?'['+room+']':'',desc,notes&&notes!==desc&&!skipText(notes)?notes:''].filter(Boolean).join(' — ');
-        pushLine(work,(qty!==null?qty+' ':'')+(unit?unit+' ':'')+description+(/^\d{3,8}$/.test(ref)?' SOR '+ref:''));
+        pushLine(work,(qty!==null?qty+' ':'')+(unit?unit+' ':'')+description+(/^\d{3,8}$/.test(ref)?' SOR '+ref:''),name,sheetStart+i);
         kept++;
       }
       if(kept)continue;
@@ -650,17 +651,17 @@ function sheetContent(book){
       if(!chosen||chosen.likelihood<8) {
         // Keep source text available rather than refusing a perfectly readable but unfamiliar layout.
         if(chosen&&chosen.likelihood>=2&&i<300&&!/^\s*(?:client|reference|address|site|surveyor|property|date)\b/i.test(chosen.text))
-          pushLine(unclassified,chosen.text);
+          pushLine(unclassified,chosen.text,name,sheetStart+i);
         continue;
       }
       const other=row.map((v,j)=>({v:clean(v),j})).filter(x=>x.j!==chosen.j&&x.v);
       const unit=other.find(x=>isUnit(x.v));
       const amount=other.find(x=>{const n=isNumber(x.v);return n!==null&&n>0&&n<10000&&(unit?Math.abs(x.j-unit.j)<=3:false);});
-      pushLine(work,(amount?isNumber(amount.v)+' ':'')+(unit?unit.v+' ':'')+chosen.text);
+      pushLine(work,(amount?isNumber(amount.v)+' ':'')+(unit?unit.v+' ':'')+chosen.text,name,sheetStart+i);
     }
   }
-  if(work.length)return{text:specLimit(work.join('\n')),detail:'Found '+work.length+' work descriptions in '+sheetsReviewed.length+' sheet(s). Check any unmeasured quantities.',mode:'work'};
-  if(unclassified.length)return{text:specLimit(unclassified.slice(0,160).join('\n')),detail:'Excel layout not recognised; '+Math.min(unclassified.length,160)+' readable lines opened for manual review. No quantities or SOR matches have been approved.',mode:'review'};
+  if(work.length)return{text:specLimit(work.join('\n')),sourceMap:workLocations,detail:'Found '+work.length+' work descriptions in '+sheetsReviewed.length+' sheet(s). Check any unmeasured quantities.',mode:'work'};
+  if(unclassified.length)return{text:specLimit(unclassified.slice(0,160).join('\n')),sourceMap:unclassifiedLocations.slice(0,160),detail:'Excel layout not recognised; '+Math.min(unclassified.length,160)+' readable lines opened for manual review. No quantities or SOR matches have been approved.',mode:'review'};
   throw Error('No readable work descriptions found in '+(sheetsReviewed.join(', ')||'the selected workbook')+'. Check that the job sheet contains text cells rather than only images or formulas with no saved values.');
 }
 function isRateBook(book){
@@ -787,7 +788,7 @@ $('specfile').onchange=async function(){
     if(!t.trim())throw Error('No readable text found. Try a clearer scan, or another format.');
     $('specification').value=t;save();
     status('spec-status',(result.detail?result.detail+' ':'')+'Loaded '+f.name+'. Compare the original file beside the suggested rates before choosing any items.',result.mode==='review'?'bad':'ok');
-    await activateSource(f,t);
+    await activateSource(f,t,true,result.sourceMap||[]);
   }catch(e){status('spec-status','Upload failed: '+e.message,'bad');}
   finally{this.value='';}
 };
@@ -1116,6 +1117,6 @@ $('export-excel').onclick=exportProfessionalBoq;
 $('preview-download').onclick=exportProfessionalBoq;
 $('preview-boq').onclick=previewBoq;
 $('clear-job').onclick=()=>{if(!confirm('Delete this local project and all BoQ items?'))return;clearReviewSelections();activeReviewLine=null;job=[];['address','client','reference','surveyor','specification'].forEach(id=>$(id).value='');$('adjustment').value=0;localStorage.removeItem(JOB_KEY);calculate();};
-(async()=>{restore();restoreReviewSelections();calculate();try{const r=await get(RATE_KEY);if(r&&r.length){setupRates(r);calculate();}else{status('rates-status','No V8 ratebook saved yet on this device. Import the enriched V8 Excel file once to enable automatic loading.','bad');$('v8-library-state').textContent='First visit: import V8 just once';$('v8-import').open=true;}const stored=await get(SOURCE_KEY);if(stored&&stored.blob){sourceFile=new File([stored.blob],stored.name,{type:stored.type||'',lastModified:stored.lastModified||Date.now()});sourceText=$('specification').value;$('source-file-label').textContent='Original ready: '+sourceFile.name;}}catch(e){status('rates-status','Local storage is blocked or unavailable: '+e.message+'. Check private browsing or storage settings.','bad');$('v8-library-state').textContent='Saved V8 rates unavailable';$('v8-import').open=true;}})();
+(async()=>{restore();restoreReviewSelections();calculate();try{const r=await get(RATE_KEY);if(r&&r.length){setupRates(r);calculate();}else{status('rates-status','No V8 ratebook saved yet on this device. Import the enriched V8 Excel file once to enable automatic loading.','bad');$('v8-library-state').textContent='First visit: import V8 just once';$('v8-import').open=true;}const stored=await get(SOURCE_KEY);if(stored&&stored.blob){sourceFile=new File([stored.blob],stored.name,{type:stored.type||'',lastModified:stored.lastModified||Date.now()});sourceText=$('specification').value;sourceLineMap=Array.isArray(stored.sourceMap)?stored.sourceMap:[];$('source-file-label').textContent='Original ready: '+sourceFile.name;}}catch(e){status('rates-status','Local storage is blocked or unavailable: '+e.message+'. Check private browsing or storage settings.','bad');$('v8-library-state').textContent='Saved V8 rates unavailable';$('v8-import').open=true;}})();
 })();
 </script></body></html>
