@@ -454,7 +454,23 @@ export default function Estimates({db,project,docs=[]}){
  const calibration=(estimate.calibrations||{})[drawing+'#'+page];
  const metresPerPixel=selectedCalibrationStatus==='calibrated'?Number(calibration?.metresPerPixel)||0:0;
  const regionMeasures=h=>({area:h.w*dimensions[0]*h.h*dimensions[1]*metresPerPixel**2,perimeter:2*(h.w*dimensions[0]+h.h*dimensions[1])*metresPerPixel});
- function addMeasured(h){if(!metresPerPixel||!Number.isFinite(metresPerPixel)||dimensions[0]<=0||dimensions[1]<=0)return alert('Calibrate this page against a known dimension first');if((estimate.drawing_stages||{})[drawing]==='Unclassified'||!(estimate.drawing_stages||{})[drawing])return alert('Classify this drawing as Existing, Proposed, Demolition or Supporting before measuring.');const m=regionMeasures(h);setItem({...initialItem,description:h.name,trade:'Measured '+h.stage.toLowerCase()+' work',drawing:(fileDocs.find(x=>x.id===drawing)?.document_no||'')+' p'+page,quantity:Number(m.area.toFixed(2)),unit:'m²',status:'Manual rectangle take-off — QS review required',takeoff_evidence:{highlight_id:h.id,drawing_id:drawing,page,region:{x:h.x,y:h.y,w:h.w,h:h.h},calibration_m_per_px:metresPerPixel,method:'calibrated rectangle',drawing_stage:(estimate.drawing_stages||{})[drawing],work_stage:h.stage,confidence:'unverified'}});setNotice('Area '+m.area.toFixed(2)+' m² added to BOQ entry editor. Check before adding.')}
+ function addMeasured(h){
+ if(!metresPerPixel||!Number.isFinite(metresPerPixel)||dimensions[0]<=0||dimensions[1]<=0)return alert('Calibrate this page against a known dimension first');
+ if(!estimate.drawing_stages?.[drawing]||estimate.drawing_stages[drawing]==='Unclassified')return alert('Classify this drawing before measuring.');
+ if((estimate.items||[]).some(i=>i.takeoff_evidence?.highlight_id===h.id))return alert('This measured region already has a BOQ item. Edit the existing line to avoid double counting.');
+ const m=regionMeasures(h),quantity=Number(m.area.toFixed(2));
+ if(!(quantity>0))return alert('The area is too small to round to 0.01 m². Recheck the marked region.');
+ const description=String(h.name||'').trim(),unit='m²';
+ const norm=x=>String(x||'').trim().toLowerCase().replace(/\\s+/g,' ');
+ const matches=rateLibrary.filter(r=>norm(r.description)===norm(description)&&['m²','m2'].includes(norm(r.unit)));
+ const match=matches.length===1?matches[0]:null;
+ const rate=match?{material_rate:num(match.material_rate),plant_rate:num(match.plant_rate),labour_hours:num(match.labour_hours),labour_rate:num(match.labour_rate),supplier:match.supplier||'',price_url:match.price_url||'',rate_source:match.supplier||'Saved rate library',rate_checked_at:match.updated_at||null}:{};
+ const draft={...initialItem,...rate,id:crypto.randomUUID(),ref_no:String(estimate.items.length+1).padStart(3,'0'),description,trade:match?.trade||'Measured '+h.stage.toLowerCase()+' work',drawing:(fileDocs.find(x=>x.id===drawing)?.document_no||'')+' p'+page,quantity,unit,
+ status:match?'Matched library rate — quantity and pricing require QS verification':'Measured area — rate required and QS verification',
+ takeoff_evidence:{highlight_id:h.id,drawing_id:drawing,page,region:{x:h.x,y:h.y,w:h.w,h:h.h},calibration_m_per_px:metresPerPixel,method:'calibrated rectangle',drawing_stage:estimate.drawing_stages[drawing],work_stage:h.stage,confidence:'unverified'}};
+ patch('items',[...estimate.items,draft]);
+ setNotice('Added '+quantity.toFixed(2)+' m² to draft BOQ. '+(match?'One matching m² rate applied.':'No unique matching m² rate found; check rate library.')+' Review and Save estimate before leaving this page.');
+}
  const currentHighlights=(estimate.highlights||[]).filter(x=>x.drawing_id===drawing&&x.page===page); const linkedBoq=h=>(estimate.items||[]).filter(i=>i.takeoff_evidence?.highlight_id===h.id); const pricedBoq=h=>linkedBoq(h).filter(i=>perLine(i)>0);
  const sum=estimate.items.reduce((a,i)=>({materials:a.materials+num(i.quantity)*num(i.material_rate),plant:a.plant+num(i.quantity)*num(i.plant_rate),labour:a.labour+num(i.quantity)*num(i.labour_hours)*num(i.labour_rate)}),{materials:0,plant:0,labour:0});
  const pricingIssues=(estimate.items||[]).flatMap(row=>{const problems=[];if(!Number.isFinite(Number(row.quantity))||Number(row.quantity)<=0)problems.push('quantity is missing or invalid');if([row.material_rate,row.plant_rate,row.labour_hours,row.labour_rate].some(x=>!Number.isFinite(Number(x))||Number(x)<0))problems.push('invalid rate');if(num(row.material_rate)+num(row.plant_rate)+num(row.labour_hours)*num(row.labour_rate)<=0)problems.push('no priced materials, labour or plant');return problems.map(problem=>({ref:row.ref_no||row.description||'Unnumbered item',problem,id:row.id}));});
