@@ -34,6 +34,7 @@ function makeEngine(lines=[],client='Council A'){
     'const rates=rows,codes=new Map(rows.map(r=>[r.code,r]));',
     "const $=()=>({value:state.client,textContent:''});",
     'const reviewSourceLines=()=>state.lines;',
+    'const clean=x=>String(x==null?\'\':x).trim();',
     'const reviewAction=()=>{};',
     'const REVIEW_RANK_CACHE={clear:()=>{}};',
     'const setTimeout=fn=>{fn();return 1},clearTimeout=()=>{};',
