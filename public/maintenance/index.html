@@ -1155,6 +1155,24 @@ function subAmountText(n){return n===null||n===undefined?'—':money(n);}
 function subField(profileName){
   return String(subTradeProfile()[profileName]||'');
 }
+function subcontractMasterProfit(data){
+  const factor=1+adjustment()/100;
+  const entries=data.rateGroups.map(({rate,terms})=>{
+    const matching=data.rows.filter(r=>r.code===rate.code);
+    const qty=matching.reduce((sum,r)=>sum+r.quantity,0);
+    const labourSelling=qty*Math.max(0,Number(rate.labour)||0)*factor;
+    const actualHours=matching.every(r=>r.hours!==null&&Number.isFinite(r.hours))
+      ?matching.reduce((sum,r)=>sum+r.hours,0):null;
+    const cost=terms.amount===null?null:terms.basis==='hour'
+      ?actualHours===null?null:actualHours*terms.amount:qty*terms.amount;
+    const profit=cost===null?null:labourSelling-cost;
+    return {code:rate.code,qty,labourSelling,cost,profit,missing:cost===null};
+  });
+  const complete=entries.every(item=>!item.missing);
+  return {entries,complete,selling:entries.reduce((sum,item)=>sum+item.labourSelling,0),
+    cost:entries.reduce((sum,item)=>sum+(item.cost||0),0),
+    profit:entries.reduce((sum,item)=>sum+(item.profit||0),0)};
+}
 function renderSubcontractTimesheet(){
   if(!$('subcontract-sheet'))return;
   const data=buildSubcontractorSheet(),list=$('sub-trade');
@@ -1169,6 +1187,8 @@ function renderSubcontractTimesheet(){
     const id='sub-'+(key==='weekEnding'?'week-ending':key);
     const control=$(id);if(control&&document.activeElement!==control)control.value=profile[key]||'';
   }
+  const masterProfit=subcontractMasterProfit(data);
+  const profitByCode=new Map(masterProfit.entries.map(x=>[x.code,x]));
   const stats=[
     ['Work activities',data.rows.length],
     ['Recorded actual hours',data.actualHours.toFixed(1)],
@@ -1177,13 +1197,13 @@ function renderSubcontractTimesheet(){
   ];
   $('sub-summary').innerHTML=stats.map(([label,value])=>'<div class="sub-stat"><span>'+esc(label)+'</span><strong>'+esc(value)+'</strong></div>').join('');
   $('sub-rates').innerHTML=data.rateGroups.length?
-    '<table><thead><tr><th>SOR / activity</th><th>Trade</th><th>V8 labour reference</th><th>Payment basis</th><th>Agreed labour-only rate</th><th>Agreed?</th></tr></thead><tbody>'+
+    '<table><thead><tr><th>SOR / activity</th><th>Trade</th><th>V8 labour reference</th><th>Payment basis</th><th>Agreed labour-only rate</th><th>Agreed?</th><th>Labour selling total</th><th>Subcontract cost</th><th>Profit per item</th></tr></thead><tbody>'+
     data.rateGroups.map(({rate,terms})=>'<tr><td><b>'+esc(rate.code)+'</b><div class="hint">'+esc(rate.description)+'</div></td>'+
       '<td>'+esc(rate.trade)+'</td><td>'+ (Number(rate.labour)>0?money(rate.labour)+' / '+esc(rate.unit):'Not available')+'<div class="hint">Reference only</div></td>'+
       '<td><select data-sub-basis="'+esc(rate.code)+'" aria-label="Payment basis for '+esc(rate.code)+'"><option value="unit" '+(terms.basis==='unit'?'selected':'')+'>£ per '+esc(rate.unit)+'</option><option value="hour" '+(terms.basis==='hour'?'selected':'')+'>£ per hour</option></select></td>'+
       '<td><div class="row" style="gap:4px;flex-wrap:nowrap"><button type="button" class="secondary tiny" data-sub-step="'+esc(rate.code)+'" data-sub-delta="-1" aria-label="Reduce subcontract rate by one pound">−</button><input type="number" data-sub-rate="'+esc(rate.code)+'" aria-label="Labour rate '+esc(rate.code)+'" value="'+esc(terms.value)+'" min="0" max="1000000" step="0.01" style="min-width:82px;width:95px"><button type="button" class="secondary tiny" data-sub-step="'+esc(rate.code)+'" data-sub-delta="1" aria-label="Increase subcontract rate by one pound">+</button></div></td>'+
       '<td><label><input type="checkbox" data-sub-confirm="'+esc(rate.code)+'" style="width:auto" '+(terms.confirmed?'checked':'')+' aria-label="Agreed subcontract rate for '+esc(rate.code)+'"> '+
-      (terms.confirmed?'<span class="sub-reviewed">Agreed</span>':'<span class="sub-pending">To review</span>')+'</label></td></tr>').join('')+'</tbody></table>':
+      (terms.confirmed?'<span class="sub-reviewed">Agreed</span>':'<span class="sub-pending">To review</span>')+'</label></td>'+(()=>{const p=profitByCode.get(rate.code);return '<td class="num">'+money(p.labourSelling)+'</td><td class="num">'+(p.missing?'Pending':money(p.cost))+'</td><td class="num"><b>'+(p.missing?'Pending':money(p.profit))+'</b></td>';})()+'</tr>').join('')+'</tbody><tfoot><tr><th colspan="6">GRAND TOTAL — labour-only profit (ex VAT)</th><th class="num">'+money(masterProfit.selling)+'</th><th class="num">'+(masterProfit.complete?money(masterProfit.cost):'Incomplete')+'</th><th class="num"><b>'+(masterProfit.complete?money(masterProfit.profit):'Pending rates / hours')+'</b></th></tr></tfoot></table><p class="hint">Profit = adjusted V8 labour allocation less subcontract pay at the scheduled quantity (or recorded hours for hourly pay). Materials, overheads and VAT are excluded. Unagreed rates are provisional; missing rates or hours prevent a grand profit figure.</p>':
     '<div class="empty">The labour-only rate list will appear when you add BoQ work.</div>';
   const pages=Math.max(1,Math.ceil(data.rows.length/SUB_PER_PAGE));
   subcontractPage=Math.max(0,Math.min(subcontractPage,pages-1));
