@@ -240,7 +240,7 @@
           <div class="review-manual-inner">
             <div class="row" style="margin-bottom:9px"><input style="flex:1;min-width:170px" id="review-search" placeholder="Search code, trade or description" aria-label="Search V8 schedule rates">
               <label class="review-hint">Quantity <input id="review-qty" type="number" value="1" min="0" step="any" style="width:84px"></label></div>
-            <div class="search-results" id="review-results"><div class="empty">Load V8 rates to search.</div></div>
+            <div class="search-results" id="review-results"><div class="empty">Load V8 rates to search.</div></div><div style="border-top:1px solid #d5dce7;margin-top:10px;padding-top:10px"><strong>Manual / basket rate — when no suitable V8 item exists</strong><div class="review-hint">Select the original work line first. A manual rate is clearly labelled, never presented as an approved V8 SOR rate.</div><div class="row"><input id="review-manual-description" placeholder="Work / basket description (e.g. Bathroom allowance)" style="flex:2;min-width:170px"><input id="review-manual-price" type="number" min="0" step="0.01" placeholder="£ per unit" aria-label="Manual unit rate in pounds" style="flex:1;min-width:110px"><button id="review-manual-apply" type="button" class="tiny">Apply manual rate</button></div></div>
           </div>
         </details>
       </div>
@@ -671,6 +671,26 @@ function renderReviewRates(){
     renderReviewRates();
   });
 }
+$('review-manual-apply').onclick=()=>{
+  const lines=reviewSourceLines(),index=activeReviewLine;
+  if(index===null||!lines[index]){alert('First select the exact numbered work item using Search alternatives beside that line.');return;}
+  const price=Number($('review-manual-price').value),qty=Number($('review-qty').value);
+  if(!Number.isFinite(price)||price<=0){alert('Enter a manual unit rate greater than £0.');return;}
+  if(!Number.isFinite(qty)||qty<=0){alert('Enter a quantity greater than zero.');return;}
+  const description=clean($('review-manual-description').value)||lines[index];
+  const previous=selectedMatches.get(index);
+  const code=(previous&&String(previous.code).startsWith('MANUAL-')?previous.code:'MANUAL-'+(activeJobId||'JOB')+'-'+(index+1));
+  // Manual rate is an allowance: no invented labour / material breakdown.
+  const unit=(findQty(lines[index]).unit||'item');
+  const manual={code,description:'MANUAL BASKET — '+description,trade:'Manual allowance / provisional',unit,rate:price,labour:0,materials:price,smv:0,smvMethod:'Unavailable — manual basket rate',splitMethod:'Unallocated basket allowance',qualityFlag:'Manual, not verified V8'};
+  codes.set(code,manual);
+  switchReviewRate(index,code,qty);
+  // Each BoQ line retains its manual snapshot for saved job reloading.
+  job.filter(j=>j.code===code).forEach(j=>j.snapshot=manual);
+  save();
+  $('review-selected').textContent='Manual rate £'+price.toFixed(2)+'/'+unit+' applied to source line '+(index+1)+' (not a V8 SOR rate).';
+  renderReviewRates();
+};
 $('review-search').oninput=renderReviewRates;
 function updateReviewTotals(){
   const elt=$('review-total');if(!elt)return;
@@ -731,6 +751,8 @@ function fillIdenticalWorkLines(index,code){
   return count;
 }
 function switchReviewRate(index,code,qty){
+  // Rehydrate bespoke rates from saved jobs before matching or editing.
+  if(!codes.has(code)){const saved=job.find(j=>j.code===code&&j.snapshot);if(saved)codes.set(code,saved.snapshot);}
   if(!Number.isFinite(qty)||qty<=0){alert('Please enter a measured quantity greater than zero.');return;}
   const rate=codes.get(code);
   if(!rate){alert('This rate is unavailable in the active V8 ratebook.');return;}
