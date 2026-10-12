@@ -110,6 +110,21 @@ test('approved choices are isolated between customers',()=>{
   assert.equal(e.verifiedRateForLine('3 item [Bedroom 2] — Renew internal door').rate.code,'100001');
 });
 
+test('No / Item synonyms retain the approved rate and distinct measured quantities',()=>{
+  const {engine:e}=makeEngine(['1 no [Bedroom 1] — Renew internal door']);
+  assert.equal(e.rememberHumanApproval(0,'100001'),true);
+  const result=e.verifiedRateForLine('5 item [Bedroom 2] — Replace internal door');
+  assert.equal(result.rate?.code,'100001');
+  assert.equal(result.kind,'learned');
+  assert.equal(e.findQty('5 item [Bedroom 2] — Replace internal door').qty,5);
+});
+
+test('description survives room-first and quantity-first layouts',()=>{
+  const {engine:e}=makeEngine();
+  assert.equal(e.repeatWorkKey('2 item [Bedroom 1] — Renew internal door'),
+               e.repeatWorkKey('[Bedroom 2] — 4 item Renew internal door'));
+});
+
 test('conflicting approvals disable automatic reuse',()=>{
   const {engine:e}=makeEngine(['1 item [Bedroom 1] — Renew internal door']);
   assert.equal(e.rememberHumanApproval(0,'100001'),true);
