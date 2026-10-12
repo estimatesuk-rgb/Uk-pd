@@ -57,6 +57,8 @@ export function measureAutoCandidate(c,context){
     ...coords.map(round)].join('|');
   return {key,mark:{...region,name:description,stage:c.stage,source:'AI proposed markup',
     evidence},quantity:measured.quantity,unit:measured.unit,method:measured.method,
+    gross_area_m2:measured.gross_area_m2??null,deductions_area_m2:measured.deductions_area_m2??null,
+    openings_count:measured.openings_count||0,
     evidence,work_section:safeText(c.work_section)||'AI assisted take-off'};
 }
 export function measureAutoPage(candidates,context){
