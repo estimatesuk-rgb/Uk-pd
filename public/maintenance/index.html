@@ -585,58 +585,83 @@ function decodeRtf(t){
     .replace(/\\[a-z]+-?\d* ?/gi,'').replace(/\\[{}\\]/g,m=>m.slice(1)).replace(/[{}]/g,'').trim();
 }
 function sheetContent(book){
-  const lines=[];
-  const ignore=/^(instructions?|read\s*me|summary|data.?quality|material.?recipes|lookups?|references?|rates?|pricing|totals?|deleted items.*|m3central service codes|v8 responsive data)$/i;
-  const quantity=v=>{const s=clean(v).replace(/,/g,'');return s!==''&&Number.isFinite(Number(s))?Number(s):null;};
-  for(const name of book.SheetNames.slice(0,20)){
-    if(ignore.test(name.trim()))continue;
-    const rows=XLSX.utils.sheet_to_json(book.Sheets[name],{header:1,defval:'',raw:false,blankrows:false,sheetRows:10000});
-    if(!rows.length)continue;
-    let heading=-1,d=-1,q=-1,u=-1,code=-1,location=-1,notes=-1;
-    for(let i=0;i<Math.min(45,rows.length);i++){
-      const h=(rows[i]||[]).map(v=>clean(v).toLowerCase().replace(/\s+/g,' '));
-      const desc=h.findIndex(s=>/^(description|description of work(?:s)?|work(?:s)? description|work(?:s)? required|required work(?:s)?|repair(?:s)?(?: details| description| required)?|item description|job description|job detail(?:s)?|defect(?:s)?|maintenance item|work order|instructions?|specification|work item|scope of works|task(?: description)?|item details|short description|activity|action required|schedule of work(?:s)?)$/.test(s));
-      if(desc>=0){heading=i;d=desc;
-      q=h.findIndex(s=>/^(qty|quantity|measured quantity|take.?off|measure|measurement|volume|area|length|number|no\.?|nr|count)$/.test(s));
-      u=h.findIndex(s=>/^(unit|units|uom|unit of measure|measurement unit|measure type)$/.test(s));
-      location=h.findIndex(s=>/^(room|room name|location|block|element|work location|floor|area of work)$/.test(s));
-      notes=h.findIndex(s=>/^(notes|comments|additional description|additional works|work notes|specification notes)$/.test(s));
-      code=h.findIndex(s=>/^(sor code|nhf code|item code|rate code|code)$/.test(s));break;}
+  // Council schedules vary: headings may be buried, split across columns, or absent.
+  // Extract readable work, never infer a SOR match or silently price it.
+  const work=[],unclassified=[],sheetsReviewed=[],MAX=1200;
+  const normal=x=>clean(x).toLowerCase().replace(/[\r\n_\-:]+/g,' ').replace(/[^\w\s²³]/g,' ').replace(/\s+/g,' ').trim();
+  const descHeader=x=>/^(description(?: of (?:work|works|repair|repairs))?|work(?:s)? (?:required|description|details|item|to be done|to be carried out)|repair(?:s)?(?: required| description| details| item)?|required (?:work|works|repairs)|job (?:details|description|instructions)|item (?:details|description|text)|details of (?:work|works|repairs)|scope of (?:work|works)|specification(?: of works)?|defect(?:s| description| details)?|fault(?:s| description)?|remedial (?:action|works)|action(?: required)?|task(?: description)?|activity|trade description|work order|instructions?|comments on repair|job sheet details|short description)$/.test(x)||/^(?:works?|repairs?|defects?)\s+(?:to\s+)?(?:be\s+)?(?:completed|undertaken|carried\s+out)$/.test(x);
+  const qtyHeader=x=>/^(qty|qty required|quantity|quantity required|no|no of|nr|number|measured quantity|measure|measurement|units required|count|length|area|volume|take off)$/.test(x);
+  const unitHeader=x=>/^(unit|units|uom|unit of measure|measure unit|measurement unit|measure type)$/.test(x);
+  const placeHeader=x=>/^(room|room name|location|work location|site area|area of work|block|floor|element|property location)$/.test(x);
+  const noteHeader=x=>/^(notes|additional description|comments|additional work|additional works|work notes|work instructions|specification notes|detail)$/.test(x);
+  const codeHeader=x=>/^(sor|sor code|nhf code|rate code|schedule code)$/.test(x);
+  const skipText=x=>/^(?:total|sub total|subtotal|brought forward|carried forward|vat|grand total|page \d+|quantity|description|work required|job reference|property address|council|summary|sor code|labour|materials|price|rate|cost)\s*:?\s*$/i.test(x);
+  const isNumber=x=>{const z=clean(x).replace(/,/g,'').replace(/\s*x\s*$/i,'');return /^\d+(?:\.\d+)?$/.test(z)?Number(z):null;};
+  const units=['m2','m²','sm','sqm','lm','m','m3','m³','cm','no','nr','ea','each','it','item','pr','pair','kg','hr','hrs','day','days','wk'];
+  const isUnit=x=>units.includes(normal(x).replace(/\s/g,''));
+  const generalWork=/\b(?:renew|repair|replace|replac|install|fit|fix|paint|decorat|plaster|strip|clean|service|test|remove|rebed|seal|repoint|render|tile|tiling|board|making good|make good|damaged|broken|fault|leak|blockage|treat|prepare|loose|defective|adjust|reconfigure|maintain|inspect|door|window|skirting|architrave|wall|ceiling|floor|tap|basin|toilet|bath|kitchen|roof|gutter|pipe|radiator|socket|light|carpet|lock|hinge|fence|gate|drain|plinth|switch|cistern|shower|stair|brick|mortar|grout)\w*/i;
+  const texty=x=>{const t=clean(x);return t.length>=3&&/[a-z]{3,}/i.test(t)&&!skipText(t)&&!/^[-\d£.,/:\s]+$/.test(t)};
+  const skipSheet=/^(?:instructions?|read me|lookup|lookups|data quality|material recipes|deleted items.*|m3central service codes|v8 responsive data|nhf 7\.0)$/i;
+  const pushLine=(arr,line)=>{const v=clean(line).replace(/\s+/g,' ');if(v&&arr.length<MAX)arr.push(v);};
+  for(const name of book.SheetNames.slice(0,35)){
+    if(skipSheet.test(name.trim()))continue;
+    const matrix=XLSX.utils.sheet_to_json(book.Sheets[name],{header:1,defval:'',raw:false,blankrows:false,sheetRows:6000});
+    if(!matrix.length)continue;
+    sheetsReviewed.push(name);
+    let best=null;
+    for(let rowNo=0;rowNo<Math.min(100,matrix.length);rowNo++){
+      const labels=(matrix[rowNo]||[]).map(normal),d=labels.findIndex(descHeader);
+      if(d<0)continue;
+      const q=labels.findIndex(qtyHeader),u=labels.findIndex(unitHeader),
+        loc=labels.findIndex(placeHeader),note=labels.findIndex(noteHeader),ref=labels.findIndex(codeHeader);
+      const samples=matrix.slice(rowNo+1,rowNo+Math.min(18,matrix.length-rowNo)).filter(row=>texty((row||[])[d])).length;
+      const score=samples*4+(q>=0?3:0)+(u>=0?2:0)+(loc>=0?1:0);
+      if(!best||score>best.score)best={rowNo,d,q,u,loc,note,ref,score};
     }
-    if(heading<0){
-      // Headerless survey sheets: locate the most descriptive text cell in each row.
-      // Never mistake whole cost tables for work descriptions.
-      const sample=rows.slice(0,50);
-      const textRows=sample.filter(row=>(row||[]).some(v=>clean(v).length>=11&&/[a-z]{3,}/i.test(clean(v)))).length;
-      if(rows.length<=1500&&textRows>=2&&textRows>=sample.length*.3){
-        for(const row of rows){
-          const cells=(row||[]).map(clean).filter(Boolean);
-          const phrases=cells.filter(v=>v.length>=11&&/[a-z]{3,}/i.test(v)&&!/^(total|subtotal|vat|page\s+\d+)\b/i.test(v));
-          if(!phrases.length)continue;
-          const best=phrases.sort((a,b)=>b.length-a.length)[0];
-          const qv=cells.map(quantity).find(v=>v!==null&&v>0&&v<100000);
-          const unit=cells.find(v=>/^(m²|m2|sm|sqm|lm|m3|m³|cm|nr|no|it|item|ea|pr|hr|day|wk)$/i.test(v));
-          lines.push((qv===undefined?'':qv+' ')+(unit?unit+' ':'')+best);
-          if(lines.length>5000)throw Error('More than 5,000 work descriptions. Split by property.');
-        }
+    if(best){
+      let kept=0;
+      for(let i=best.rowNo+1;i<matrix.length&&work.length<MAX;i++){
+        const row=matrix[i]||[],desc=clean(row[best.d]);
+        if(!texty(desc)||descHeader(normal(desc))||/^(?:total|sub total|subtotal|carried forward|brought forward|grand total)\b/i.test(desc))continue;
+        const qty=best.q<0?null:isNumber(row[best.q]),unit=best.u<0?'':clean(row[best.u]),
+          room=best.loc<0?'':clean(row[best.loc]),notes=best.note<0?'':clean(row[best.note]),
+          ref=best.ref<0?'':clean(row[best.ref]);
+        if(qty!==null&&qty<0)continue;
+        const description=[room&&room!==desc?'['+room+']':'',desc,notes&&notes!==desc&&!skipText(notes)?notes:''].filter(Boolean).join(' — ');
+        pushLine(work,(qty!==null?qty+' ':'')+(unit?unit+' ':'')+description+(/^\d{3,8}$/.test(ref)?' SOR '+ref:''));
+        kept++;
       }
-      continue;
+      if(kept)continue;
     }
-    for(const row of rows.slice(heading+1)){
-      const desc=clean(row[d]);if(desc.length<3||/^(total|subtotal|carried forward|brought forward|page|section total|grand total)\b/i.test(desc))continue;
-      const v=q<0?null:quantity(row[q]);
-      // Missing quantity stays in the specification for surveyor review rather than dropping the work item.
-      if(v!==null&&v<0)continue;
-      const unit=u>=0?clean(row[u]):'',item=code>=0?clean(row[code]):'';
-      const site=location>=0?clean(row[location]):'';
-      const note=notes>=0?clean(row[notes]):'';
-      const detail=[site&&site!==desc?'['+site+']':'',desc,note&&note!==desc?note:''].filter(Boolean).join(' — ');
-      lines.push((v!==null?v+' ':'')+(unit?unit+' ':'')+detail+(/^\d{3,8}$/.test(item)?' SOR '+item:''));
-      if(lines.length>5000)throw Error('More than 5,000 specification items: please split by property or job.');
+    // Headerless or irregular tables: score cell contents, not only whole-sheet shape.
+    // Short repair descriptions such as "Door" remain usable for manual review.
+    for(let i=0;i<matrix.length&&work.length<MAX;i++){
+      const row=matrix[i]||[];
+      const textCells=row.map((v,j)=>({text:clean(v),j})).filter(v=>texty(v.text)&&!descHeader(normal(v.text)));
+      if(!textCells.length)continue;
+      const scored=textCells.map(v=>{
+        const words=normal(v.text).split(' ').filter(Boolean);
+        const likelihood=(generalWork.test(v.text)?8:0)+(words.length>=2?2:0)+(words.length>=4?2:0)
+          +(/[.;,]/.test(v.text)?1:0)-(v.text.length>400?4:0)
+          -(/\b(?:postcode|property id|invoice|contact number|survey date|supplier|account|contract value|quotation)\b/i.test(v.text)?9:0);
+        return {...v,likelihood};
+      }).sort((x,y)=>y.likelihood-x.likelihood||y.text.length-x.text.length);
+      const chosen=scored[0];
+      if(!chosen||chosen.likelihood<8) {
+        // Keep source text available rather than refusing a perfectly readable but unfamiliar layout.
+        if(chosen&&chosen.likelihood>=2&&i<300&&!/^\s*(?:client|reference|address|site|surveyor|property|date)\b/i.test(chosen.text))
+          pushLine(unclassified,chosen.text);
+        continue;
+      }
+      const other=row.map((v,j)=>({v:clean(v),j})).filter(x=>x.j!==chosen.j&&x.v);
+      const unit=other.find(x=>isUnit(x.v));
+      const amount=other.find(x=>{const n=isNumber(x.v);return n!==null&&n>0&&n<10000&&(unit?Math.abs(x.j-unit.j)<=3:false);});
+      pushLine(work,(amount?isNumber(amount.v)+' ':'')+(unit?unit.v+' ':'')+chosen.text);
     }
   }
-  if(!lines.length)throw Error('No work items identified. Excel specifications need a Description column, optionally Quantity and UOM. Pricing and summary sheets are ignored.');
-  return specLimit(lines.join('\n'));
+  if(work.length)return{text:specLimit(work.join('\n')),detail:'Found '+work.length+' work descriptions in '+sheetsReviewed.length+' sheet(s). Check any unmeasured quantities.',mode:'work'};
+  if(unclassified.length)return{text:specLimit(unclassified.slice(0,160).join('\n')),detail:'Excel layout not recognised; '+Math.min(unclassified.length,160)+' readable lines opened for manual review. No quantities or SOR matches have been approved.',mode:'review'};
+  throw Error('No readable work descriptions found in '+(sheetsReviewed.join(', ')||'the selected workbook')+'. Check that the job sheet contains text cells rather than only images or formulas with no saved values.');
 }
 function isRateBook(book){
   for(const name of book.SheetNames){
@@ -662,7 +687,7 @@ async function readSpreadsheet(file){
     await put(RATE_KEY,parsed);setupRates(parsed);calculate();
     return{ratebook:true,detail:parsed.length.toLocaleString('en-GB')+' verified V8 rates loaded and stored in this browser.'};
   }
-  return{text:sheetContent(book)};
+  return sheetContent(book);
 }
 async function ocrImage(input,label){
   if(!window.Tesseract)throw Error('Image OCR library unavailable. Please check your connection or upload a typed PDF instead.');
@@ -761,7 +786,7 @@ $('specfile').onchange=async function(){
     const t=result.text||'';
     if(!t.trim())throw Error('No readable text found. Try a clearer scan, or another format.');
     $('specification').value=t;save();
-    status('spec-status','Loaded '+f.name+' ('+t.length.toLocaleString('en-GB')+' characters). Compare the original beside the SOR list before adding items.','ok');
+    status('spec-status',(result.detail?result.detail+' ':'')+'Loaded '+f.name+'. Compare the original file beside the suggested rates before choosing any items.',result.mode==='review'?'bad':'ok');
     await activateSource(f,t);
   }catch(e){status('spec-status','Upload failed: '+e.message,'bad');}
   finally{this.value='';}
