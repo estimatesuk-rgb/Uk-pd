@@ -2582,7 +2582,16 @@ $('sub-preview').onclick=()=>{
 $('sub-close').onclick=()=>{
   $('sub-preview-layer').hidden=true;document.body.style.overflow='';
 };
-$('sub-print').onclick=()=>{renderSubcontractPaper();window.print();};
+$('sub-print').onclick=async()=>{
+  const btn=$('sub-print');btn.disabled=true;
+  try{
+    await prepareReportIssue('timesheet');
+    await retainIssuedReport('timesheet');
+    renderSubcontractPaper();
+    window.print();
+  }catch(e){status('sub-status','Cannot issue an unverified timesheet: '+(e.message||e),'bad');}
+  finally{btn.disabled=false;}
+};
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('sub-preview-layer').hidden)$('sub-close').click();});
 
 function previewBoq(){
@@ -2596,7 +2605,16 @@ function closeBoqPreview(){
   document.body.style.overflow='';
 }
 $('preview-close').onclick=closeBoqPreview;
-$('preview-print').onclick=()=>{renderBoqPaper();window.print();};
+$('preview-print').onclick=async()=>{
+  const btn=$('preview-print');btn.disabled=true;
+  try{
+    await prepareReportIssue('boq');
+    await retainIssuedReport('boq');
+    renderBoqPaper();
+    window.print();
+  }catch(e){alert('Cannot issue this report without saving its verification record: '+(e.message||e));}
+  finally{btn.disabled=false;}
+};
 $('preview-plus').onclick=()=>setPercent(adjustment()+1);
 $('preview-minus').onclick=()=>setPercent(adjustment()-1);
 $('preview-adjustment').oninput=e=>{if(e.target.value==='')return;setPercent(e.target.value);};
@@ -2774,11 +2792,13 @@ async function exportJobProgramme(){
   if(!window.ExcelJS){status('planner-status','Excel exporter is unavailable; reconnect and refresh to download the programme.','bad');return;}
   const btn=$('planner-export'),original=btn.textContent;btn.disabled=true;btn.textContent='Preparing programme…';
   try{
+    await prepareReportIssue('programme');
     const wb=new ExcelJS.Workbook();wb.creator='UK Estimates Ltd';wb.title='SMV Job Programme';wb.created=new Date();
     const logo=await boqLogoImage(wb);
     const p=appendJobProgrammeWorksheet(wb,logo);
     await stampProtectedUKAttribution(wb,logo,'programme');
     const data=await wb.xlsx.writeBuffer();
+    await retainIssuedReport('programme',data);
     download(new Blob([data],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),
       'UK_Estimates_SMV_Programme_'+(clean($('reference').value).replace(/[^a-z0-9_-]+/gi,'_')||activeJobId||'Job')+'.xlsx');
     status('planner-status','Downloaded trade programme with '+p.details.length+' BoQ activities, '+p.missing+' missing SMV flags and '+p.provisional+' provisional allowances.','ok');
@@ -2855,11 +2875,13 @@ async function exportSubcontractorTimesheet(){
  if(!window.ExcelJS){status('sub-status','Excel library did not load; reconnect and refresh.','bad');return;}
  const buttons=[$('sub-export'),$('sub-preview-excel')];buttons.forEach(b=>b.disabled=true);
  try{
+  await prepareReportIssue('timesheet');
   const wb=new ExcelJS.Workbook();wb.creator='UK Estimates Ltd';wb.title='Labour-only subcontractor timesheet';wb.created=new Date();
   wb.calcProperties={fullCalcOnLoad:true};
   const logo=await boqLogoImage(wb),data=appendSubcontractorSheet(wb,logo);
   await stampProtectedUKAttribution(wb,logo,'timesheet');
   const buffer=await wb.xlsx.writeBuffer(),trade=String(data.viewTrade==='__all__'?'All_Trades':data.viewTrade).replace(/[^a-z0-9_-]+/gi,'_');
+  await retainIssuedReport('timesheet',buffer);
   download(new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),
    'UK_Estimates_Labour_Timesheet_'+(clean($('reference').value).replace(/[^a-z0-9_-]+/gi,'_')||activeJobId||'Job')+'_'+trade+'.xlsx');
   status('sub-status','Downloaded labour-only workbook for '+(data.viewTrade==='__all__'?'all trades':data.viewTrade)+'. Complete and sign the site timesheet before authorising payment.','ok');
@@ -2875,6 +2897,7 @@ async function exportProfessionalBoq(){
   if(!window.ExcelJS){alert('The professional Excel exporter did not load. Check your internet connection and refresh the page. No plain replacement has been downloaded.');return;}
   const oldText=button.textContent;button.disabled=true;previewButton.disabled=true;button.textContent='Preparing NEW branded BoQ...';
   try{
+    await prepareReportIssue('boq');
     const lines=reportLines(),totals=reportTotals(lines),factor=1+adjustment()/100;
     const wb=new ExcelJS.Workbook();wb.creator='UK Estimates Ltd';wb.subject='Housing maintenance and void property Bill of Quantities';wb.title='UK Estimates | Bill of Quantities';wb.created=new Date();
     wb.calcProperties={fullCalcOnLoad:true};
@@ -3008,6 +3031,7 @@ async function exportProfessionalBoq(){
     appendJobProgrammeWorksheet(wb,logo);
     await stampProtectedUKAttribution(wb,logo,'boq');
     const output=await wb.xlsx.writeBuffer();
+    await retainIssuedReport('boq',output);
     download(new Blob([output],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),'UK_Estimates_BRANDED_BoQ_'+(clean($('reference').value).replace(/[^a-z0-9_-]+/gi,'_')||'Maintenance')+'_'+new Date().toISOString().slice(0,10)+'.xlsx');
     status('checks','Branded BoQ downloaded with logo, V8 percentage adjustment, line formulas and reconciled totals.','ok');
   }catch(e){
