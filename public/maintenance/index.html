@@ -267,7 +267,17 @@ header .brand-logo{display:block;width:clamp(190px,26vw,300px);height:auto;max-w
 .report-powered-footer strong{font-weight:900;font-size:11px}
 .report-powered-footer .powered-details{font-size:10px;line-height:1.5}
 .report-powered-footer .powered-details a{color:#233a68}
-@media print{.report-powered-footer{background:white!important;print-color-adjust:exact;-webkit-print-color-adjust:exact}.report-powered-footer img{max-height:37px}.report-client-letterhead{max-height:112px;min-height:60px}}
+@media print{
+  @page{size:A4 landscape;margin:11mm 11mm 29mm}
+  .report-powered-footer{
+    position:fixed!important;left:0;right:0;bottom:-22mm!important;width:100%;height:18mm;
+    margin:0!important;padding:1.5mm 2mm!important;background:white!important;
+    print-color-adjust:exact;-webkit-print-color-adjust:exact;z-index:100
+  }
+  .report-powered-footer img{max-height:12mm}
+  .report-client-letterhead{max-height:112px;min-height:60px}
+  .boq-paper{padding-bottom:18mm!important}
+}
 </style>
 </head>
 <body><header><div class="brand-identity"><img class="brand-logo" src="/maintenance/uk-estimates-logo.png" alt="UK Estimates — Fast Accurate Building Costings" width="350" height="95"></div><div class="kind">HOUSING MAINTENANCE &amp; VOIDS<br><b>Standalone SOR V8 estimating app</b></div></header>
@@ -558,6 +568,7 @@ async function readCustomerLetterhead(file){
   const canvas=document.createElement('canvas');
   if(ext==='pdf'){
     if(!window.pdfjsLib)throw Error('PDF image reader is unavailable. Refresh or upload a PNG or JPG.');
+    pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
     const original=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
     if(original.numPages<1)throw Error('PDF letterhead is empty.');
     const page=await original.getPage(1);
@@ -2658,7 +2669,11 @@ function writeBoqBrandHeader(ws,logo,title,subtitle){
     // UK Estimates remains mandatory in the protected footers.
     ws.mergeCells('A3:L3');
     cellReportText(ws,'A3',title+' · '+subtitle,{size:11,bold:true,colour:UK_EST_PALETTE.navy});
-    ws.addImage(images.customer,{tl:{col:0.15,row:0.10},br:{col:11.7,row:1.95},editAs:'oneCell'});
+    // Retain the artwork aspect ratio, including letterheads with contact details.
+    const source=images.customerDetails||{width:1500,height:250};
+    const ratio=Math.max(0.2,(Number(source.width)||1500)/Math.max(1,Number(source.height)||250));
+    const imageWidth=Math.min(1010,145*ratio),imageHeight=Math.min(145,1010/ratio);
+    ws.addImage(images.customer,{tl:{col:0.15,row:0.10},ext:{width:imageWidth,height:imageHeight},editAs:'oneCell'});
     ws.getRow(1).height=53;ws.getRow(2).height=53;ws.getRow(3).height=29;
   }else{
     ws.mergeCells('D1:L2');
