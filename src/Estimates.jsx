@@ -241,6 +241,7 @@ export default function Estimates({db,project,docs=[]}){
          const image=await renderAiPage(source,pageNumber);
          const result=await postCloudflareTakeoff('/api/estimate-plan-review',{
            project_id:project.id,document_id:source.d.id,page_number:pageNumber,image,
+           calibration_status:calibrationStatus(checkedPages.find(p=>p.document_id===source.d.id&&p.page===pageNumber)),
          },session.access_token);
          if(!result?.page||!Array.isArray(result.page.takeoff_draft))throw Error('Cloudflare AI did not return a usable page review.');
          reviewed.push(result.page);complete++;
@@ -259,8 +260,9 @@ export default function Estimates({db,project,docs=[]}){
        const unit=normalizedUnit(draft.unit),reference=String(draft.drawing_reference||'').trim();
        const key=[norm(description),norm(unit),norm(reference)].join('|');
        if(seen.has(key))continue;seen.add(key);
-       const measured=typeof draft.quantity==='number'&&Number.isFinite(draft.quantity)&&draft.quantity>0&&
+       const measured=false && typeof draft.quantity==='number'&&Number.isFinite(draft.quantity)&&draft.quantity>0&&
          typeof draft.measurement_basis==='string'&&draft.measurement_basis.trim().length>8;
+       // AI interpretation alone is not a verified measurement: keep scope, request checked quantities.
        const quantity=measured?draft.quantity:0;
        const match=rateLibrary.find(r=>norm(r.description)===norm(description)&&norm(r.unit)===norm(unit));
        added.push({...initialItem,id:crypto.randomUUID(),ref_no:String((estimate.items||[]).length+added.length+1).padStart(3,'0'),
