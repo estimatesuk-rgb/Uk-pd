@@ -294,8 +294,8 @@ header .brand-logo{display:block;width:clamp(190px,26vw,300px);height:auto;max-w
     <section class="review-rates" aria-label="Rate matching">
       <div class="review-pane-head"><b>V8 schedule of rates</b><span class="review-hint">Check description · unit · rate</span></div>
       <div class="review-workarea review-match-workspace">
-        <div class="review-suggestion-title"><b>Suggested V8 rates — select the correct item</b><div class="row"><button id="review-exact" class="secondary tiny" type="button">✓ Auto-fill exact matches</button><button id="review-refresh" class="secondary tiny" type="button">Refresh suggestions</button></div></div>
-        <p class="review-hint" style="margin:0">Keep the original specification in view on the left. Compare each suggestion with the work description, unit and quantity before selecting it.</p>
+        <div class="review-suggestion-title"><b>Suggested V8 rates — select the correct item</b><div class="row"><button id="review-exact" class="secondary tiny" type="button">✓ Auto-fill verified matches</button><button id="review-next-unpriced" class="secondary tiny" type="button">Next unpriced →</button><button id="review-refresh" class="secondary tiny" type="button">Refresh suggestions</button></div></div>
+        <p class="review-hint" style="margin:0">Compare original work description, unit and quantity. Learning uses estimator-approved selections only. <span id="matching-learn-status">Checking previous approvals…</span></p>
         <div class="review-suggest" id="review-suggest" aria-label="Suggested V8 rates beside source document"><div class="empty">Upload or paste a specification for suggestions.</div></div>
         <details id="review-manual" class="review-manual">
           <summary>Search the full V8 rate library if a suggested item is wrong</summary>
@@ -346,11 +346,13 @@ async function get(key){db=db||await indexed();return new Promise((ok,no)=>{cons
 async function drop(key){db=db||await indexed();return new Promise((ok,no)=>{const t=db.transaction('settings','readwrite');t.objectStore('settings').delete(key);t.oncomplete=()=>ok();t.onerror=()=>no(t.error);});}
 function setupRates(rows){
   rates=rows;codes=new Map(rows.map(r=>[r.code,r]));REVIEW_RANK_CACHE.clear();rebuildExactRateIndex();
+  activeLibrarySignature=matchRatebookSignature(rows);approvedMatchMemory.clear();updateMatchLearningStatus();
   for(const r of rows){r._shortTokens=new Set(matchWords(r.description));r._extraTokens=new Set(matchWords([r.medium,r.long,r.trade,r.section,r.subsection].join(' ')));}
   const provisional=rows.filter(r=>r.qualityFlag&&r.qualityFlag!=='V7 split verified').length;
   status('rates-status','✓ '+rates.length.toLocaleString('en-GB')+' V8 selling rates loaded. '+(provisional?'⚠ '+provisional+' labour/material splits need review.':'All supplied allocations loaded.') ,'ok');
   $('v8-library-state').textContent='✓ V8 ratebook saved on this device';
   $('v8-import').open=false;search();renderReviewRates();
+  loadMatchingMemory().catch(e=>console.warn('Approved matching memory unavailable',e));
 }
 const JOBS_INDEX_KEY='uk-estimates-maintenance-jobs-index-v2';
 const JOBS_ACTIVE_KEY='uk-estimates-maintenance-active-job-v2';
@@ -1575,6 +1577,98 @@ function rankedRateMatches(query,limit=8,ignoreUnit=false){
   matches.sort((a,b)=>b.score-a.score||String(a.r.code).localeCompare(String(b.r.code)));
   return matches.slice(0,limit);
 }
+
+/* Approved-choice learning is local/private, scoped to the customer's ratebook.
+   Proposed and machine-filled matches must never create training entries. */
+const APPROVED_MATCH_STORE='uk-estimates-approved-v8-matches-v1';
+let approvedMatchMemory=new Map(),activeLibrarySignature='',learnSaveTimer=null;
+function matchRatebookSignature(rows){
+  let hash=2166136261>>>0;
+  for(const r of rows){
+    const item=[r.code,r.description,r.medium||'',r.unit].join('|')+';';
+    for(let i=0;i<item.length;i++)hash=Math.imul(hash^item.charCodeAt(i),16777619)>>>0;
+  }
+  return rows.length+'-'+hash.toString(36);
+}
+function matchingCustomerKey(){
+  return clean($('client').value).toLowerCase().replace(/\s+/g,' ')||'__local_unassigned__';
+}
+function approvalScope(line){
+  const q=findQty(line);
+  if(!q.explicit||!Number.isFinite(q.qty)||q.qty<=0||!q.unit)return null;
+  const desc=repeatWorkKey(line).replace(/\b(?:SOR|NHF|CODE)\s*[:#-]?\s*\d{3,8}\b/gi,'');
+  const tokens=matchWords(desc);
+  if(tokens.length<2||tokens.join('').length<9)return null;
+  return {unit:q.unit,desc:tokens.join(' ')};
+}
+function approvalKey(line){
+  const s=approvalScope(line);
+  return s?matchingCustomerKey()+'|'+s.unit+'|'+s.desc:null;
+}
+function updateMatchLearningStatus(){
+  const el=$('matching-learn-status');if(!el)return;
+  const prefix=matchingCustomerKey()+'|';
+  let accepted=0,ambiguous=0;
+  for(const [key,v] of approvedMatchMemory)if(key.startsWith(prefix)){if(v.conflict)ambiguous++;else accepted++;}
+  el.textContent='Approved patterns for this client: '+accepted+' · disputed: '+ambiguous+' (saved privately on this device).';
+}
+async function loadMatchingMemory(){
+  const sig=activeLibrarySignature;if(!sig)return;
+  const prior=await get(APPROVED_MATCH_STORE+'_'+sig);
+  if(activeLibrarySignature!==sig)return;
+  approvedMatchMemory=new Map(Array.isArray(prior)?prior.filter(row=>Array.isArray(row)&&typeof row[0]==='string'&&row[1]&&typeof row[1]==='object').slice(-12000):[]);
+  updateMatchLearningStatus();
+  if(!$('review-layer').hidden)renderReviewSuggestions();
+}
+function queueLearningSave(){
+  clearTimeout(learnSaveTimer);
+  const sig=activeLibrarySignature;
+  learnSaveTimer=setTimeout(()=>{
+    if(sig!==activeLibrarySignature)return;
+    put(APPROVED_MATCH_STORE+'_'+sig,[...approvedMatchMemory]).catch(e=>reviewAction('Could not store matching memory: '+(e.message||e),true));
+  },400);
+}
+function approvedRateForLine(line){
+  const key=approvalKey(line),mapping=key?approvedMatchMemory.get(key):null;
+  if(!mapping||mapping.conflict)return null;
+  const rate=codes.get(mapping.code),q=findQty(line);
+  const units=matchUnits(q.unit);
+  return rate&&units&&units.includes(String(rate.unit||'').toUpperCase())&&!String(rate.code).startsWith('MANUAL-')?rate:null;
+}
+function rememberHumanApproval(index,code){
+  const rate=codes.get(String(code));
+  if(!rate||String(code).startsWith('MANUAL-')||!activeLibrarySignature)return false;
+  const key=approvalKey(reviewSourceLines()[index]||'');
+  const units=matchUnits(findQty(reviewSourceLines()[index]||'').unit);
+  if(!key||!units||!units.includes(String(rate.unit||'').toUpperCase()))return false;
+  const earlier=approvedMatchMemory.get(key);
+  if(earlier?.conflict)return false;
+  if(earlier&&earlier.code!==rate.code)
+    approvedMatchMemory.set(key,{code:null,conflict:true,priorCodes:[earlier.code,rate.code],updatedAt:new Date().toISOString()});
+  else approvedMatchMemory.set(key,{code:rate.code,conflict:false,confirmations:Math.min(9999,(earlier?.confirmations||0)+1),updatedAt:new Date().toISOString()});
+  if(approvedMatchMemory.size>12000)approvedMatchMemory.delete(approvedMatchMemory.keys().next().value);
+  updateMatchLearningStatus();queueLearningSave();REVIEW_RANK_CACHE.clear();
+  return true;
+}
+function verifiedRateForLine(line){
+  const key=approvalKey(line),history=key?approvedMatchMemory.get(key):null;
+  if(history?.conflict)return {rate:null,kind:'conflict'};
+  const exact=safeExactMatch(line),prior=approvedRateForLine(line);
+  if(exact&&prior&&exact.code!==prior.code)return {rate:null,kind:'conflict'};
+  if(exact)return {rate:exact,kind:'exact'};
+  if(prior)return {rate:prior,kind:'learned'};
+  return {rate:null,kind:'unmatched'};
+}
+function suggestionKind(line,rate,score){
+  const verified=verifiedRateForLine(line);
+  if(verified.rate?.code===rate.code)return verified.kind==='learned'?'Previously approved for this client':'Exact ratebook match';
+  const source=matchWords(repeatWorkKey(line)),words=new Set(matchWords(rate.description));
+  const hits=source.filter(w=>words.has(w)).length;
+  if(score>=35&&hits>=2)return 'Strong suggestion — check description & unit';
+  if(score>=18&&hits>=1)return 'Possible suggestion — review required';
+  return 'Related wording — verify carefully';
+}
+
 const EXACT_RATE_INDEX=new Map();
 function exactKey(text){
   const cleaned=repeatWorkKey(text).replace(/\b(?:sor|nhf|code)\s*[:#-]?\s*\d{3,8}\b/gi,'');
