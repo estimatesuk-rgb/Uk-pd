@@ -2445,6 +2445,87 @@ async function exportJobProgramme(){
 }
 $('planner-export').onclick=exportJobProgramme;
 
+
+function appendSubcontractorSheet(wb,logo){
+ const data=buildSubcontractorSheet(),sheet=wb.addWorksheet('Signed Labour Timesheet',{views:[{state:'frozen',ySplit:11,showGridLines:false}]});
+ [28,18,70,14,16,18,16,18,21,16,22,45].forEach((width,i)=>sheet.getColumn(i+1).width=width);
+ sheet.pageSetup={paperSize:8,orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0,printTitlesRow:'10:11'};
+ sheet.headerFooter.oddFooter='UK Estimates - Subcontractor labour-only sign-off sheet - Page &P of &N';
+ writeBoqBrandHeader(sheet,logo,'LABOUR-ONLY TIMESHEET','SUBCONTRACTOR SITE RECORD - HANDWRITTEN SIGNATURES');
+ writeBoqInfo(sheet,5,'Site',$('address').value,'Job',$('reference').value||activeJobId);
+ writeBoqInfo(sheet,6,'Subcontractor',data.profile.company,'Trade',data.viewTrade==='__all__'?'Combined overview - select trade to sign':data.viewTrade);
+ writeBoqInfo(sheet,7,'Operatives',data.profile.operative,'Week ending',subPrintDate(data.profile.weekEnding));
+ sheet.mergeCells('A8:L9');
+ cellReportText(sheet,'A8','V8 labour prices are reference allocations, not agreed subcontract rates. Review each rate and select YES only when agreed. Enter actual quantities and hours; line totals calculate only with agreed rates and actual work. Do not add client V8 adjustments, OH&P, VAT or CIS deductions.',{size:10,colour:'765321',fill:'FFF4DB'});
+ sheet.getRow(8).height=36;sheet.getRow(9).height=25;
+ sheet.mergeCells('A10:L10');
+ cellReportText(sheet,'A10','MEASURED WORKS, ACTUAL LABOUR AND PAYMENT RECORD',{size:12,bold:true,colour:UK_EST_PALETTE.white,fill:UK_EST_PALETTE.navy});
+ sheet.getRow(10).height=30;
+ const cols=['Original source','SOR code','Description / work location','UOM','BoQ quantity','Actual quantity','Actual hours','Pay basis','Labour-only rate','Approved?','Labour amount','Site notes / variations'];
+ cols.forEach((v,i)=>{const c=cellReportText(sheet,sheet.getCell(11,i+1).address,v,{size:9,bold:true,fill:UK_EST_PALETTE.soft});c.alignment={vertical:'middle',wrapText:true};});
+ sheet.getRow(11).height=37;
+ for(const [i,r] of data.rows.entries()){
+  const n=12+i,row=sheet.getRow(n);
+  const vals=[r.source,r.code,r.description,r.rate.unit,r.quantity,r.completed,r.hours,
+    r.terms.basis==='hour'?'Hourly':'Unit',r.terms.amount,r.terms.confirmed?'YES':'NO',null,r.entry.note||''];
+  vals.forEach((v,k)=>{
+    const c=row.getCell(k+1);c.value=v;
+    c.font=boqFont(10,[6,7,8,9,10,12].includes(k+1)?UK_EST_PALETTE.blue:UK_EST_PALETTE.ink,k===1);
+    c.fill=boqFill([6,7,8,9,10,12].includes(k+1)?'EEF2FF':r.overrun?'FFF0F0':i%2?UK_EST_PALETTE.light:UK_EST_PALETTE.white);
+    c.alignment={vertical:'middle',wrapText:true};
+  });
+  row.height=Math.max(30,Math.min(75,30+Math.floor(r.description.length/68)*12));
+  row.getCell(5).numFmt=UK_EST_NUMBER;row.getCell(6).numFmt=UK_EST_NUMBER;row.getCell(7).numFmt=UK_EST_NUMBER;
+  row.getCell(9).numFmt=UK_EST_CURRENCY;
+  row.getCell(11).value={formula:'IF(AND(J'+n+'="YES",IF(H'+n+'="Hourly",ISNUMBER(G'+n+'),ISNUMBER(F'+n+'))),IF(H'+n+'="Hourly",G'+n+',F'+n+')*I'+n+',"")',
+    result:r.amount===null?'':r.amount};
+  row.getCell(11).numFmt=UK_EST_CURRENCY;
+  row.getCell(8).dataValidation={type:'list',allowBlank:false,formulae:['"Unit,Hourly"']};
+  row.getCell(10).dataValidation={type:'list',allowBlank:false,formulae:['"YES,NO"']};
+ }
+ const subtotal=13+data.rows.length;
+ sheet.mergeCells('A'+subtotal+':J'+subtotal);
+ cellReportText(sheet,'A'+subtotal,'RECORDED LABOUR-ONLY VALUE - SUBJECT TO COMPLETION VERIFICATION AND SIGNATURES',
+   {size:11,bold:true,colour:UK_EST_PALETTE.white,fill:UK_EST_PALETTE.navy});
+ cellReportText(sheet,'K'+subtotal,{formula:'SUM(K12:K'+Math.max(12,11+data.rows.length)+')',result:data.certifiableValue},
+   {size:12,bold:true,colour:UK_EST_PALETTE.white,fill:UK_EST_PALETTE.navy,numFmt:UK_EST_CURRENCY,align:'right'});
+ sheet.getRow(subtotal).height=36;
+ const notes=subtotal+2;
+ sheet.mergeCells('A'+notes+':L'+(notes+1));
+ cellReportText(sheet,'A'+notes,'Notes: '+(data.profile.notes||'No site comments entered')+
+   '. Unapproved rates and unrecorded actual quantities/hours are excluded. SMVs are planning allowances rather than actual timesheet hours. Confirm variations separately. Signing is not automatic payment approval.',{size:10,colour:'765321',fill:'FFF4DB'});
+ sheet.getRow(notes).height=34;sheet.getRow(notes+1).height=24;
+ const sign=notes+3;
+ sheet.mergeCells('A'+sign+':F'+sign);sheet.mergeCells('G'+sign+':L'+sign);
+ cellReportText(sheet,'A'+sign,'Subcontractor / operative signature: __________________________________',{size:11,bold:true});
+ cellReportText(sheet,'G'+sign,'Site supervisor signature: ____________________________________________',{size:11,bold:true});
+ sheet.getRow(sign).height=38;
+ sheet.mergeCells('A'+(sign+1)+':F'+(sign+1));sheet.mergeCells('G'+(sign+1)+':L'+(sign+1));
+ cellReportText(sheet,'A'+(sign+1),'Printed name: _________________________    Date: ______________',{size:10});
+ cellReportText(sheet,'G'+(sign+1),'Printed name: '+(data.profile.supervisor||'__________________')+'   Date: _____________',{size:10});
+ sheet.getRow(sign+1).height=36;
+ if(data.rows.length)sheet.autoFilter={from:{row:11,column:1},to:{row:11+data.rows.length,column:12}};
+ sheet.printArea='A1:L'+(sign+1);
+ return data;
+}
+async function exportSubcontractorTimesheet(){
+ if(!job.length){status('sub-status','Add BoQ work before exporting a subcontractor timesheet.','bad');return;}
+ if(!window.ExcelJS){status('sub-status','Excel library did not load; reconnect and refresh.','bad');return;}
+ const buttons=[$('sub-export'),$('sub-preview-excel')];buttons.forEach(b=>b.disabled=true);
+ try{
+  const wb=new ExcelJS.Workbook();wb.creator='UK Estimates Ltd';wb.title='Labour-only subcontractor timesheet';wb.created=new Date();
+  wb.calcProperties={fullCalcOnLoad:true};
+  const logo=await boqLogoImage(wb),data=appendSubcontractorSheet(wb,logo);
+  const buffer=await wb.xlsx.writeBuffer(),trade=String(data.viewTrade==='__all__'?'All_Trades':data.viewTrade).replace(/[^a-z0-9_-]+/gi,'_');
+  download(new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),
+   'UK_Estimates_Labour_Timesheet_'+(clean($('reference').value).replace(/[^a-z0-9_-]+/gi,'_')||activeJobId||'Job')+'_'+trade+'.xlsx');
+  status('sub-status','Downloaded labour-only workbook for '+(data.viewTrade==='__all__'?'all trades':data.viewTrade)+'. Complete and sign the site timesheet before authorising payment.','ok');
+ }catch(e){console.error('Subcontractor timesheet Excel failed:',e);status('sub-status','Excel timesheet failed: '+(e.message||e),'bad');}
+ finally{buttons.forEach(b=>b.disabled=false);}
+}
+$('sub-export').onclick=exportSubcontractorTimesheet;
+$('sub-preview-excel').onclick=exportSubcontractorTimesheet;
+
 async function exportProfessionalBoq(){
   if(!job.length){alert('Add at least one SOR item before downloading the Bill of Quantities.');return;}
   const button=$('export-excel'),previewButton=$('preview-download');
