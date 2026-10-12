@@ -2,7 +2,7 @@
 <html lang="en-GB">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#ed1017"><meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#ed1017"><link rel="icon" type="image/png" href="/maintenance/uk-estimates-logo.png"><meta name="robots" content="noindex,nofollow">
 <title>UK Estimates | Housing Maintenance & Voids</title>
 <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
@@ -181,9 +181,17 @@
 .job-management .hint{font-size:12px;color:#68788f}
 @media(max-width:700px){.job-management .row{flex-wrap:wrap}.job-management #saved-jobs{min-width:190px}}
 
+
+/* Official UK Estimates brand, reused across app and the review workspace. */
+header .brand-identity{display:flex;align-items:center;min-width:0}
+header .brand-logo{display:block;width:clamp(190px,26vw,300px);height:auto;max-width:100%;object-fit:contain}
+.review-brand{display:flex;align-items:center;gap:16px;min-width:0}
+.review-brand-logo{display:block;width:145px;height:auto;object-fit:contain;background:white;border-radius:5px;padding:5px;flex:none}
+.boq-preview-tools .boq-toolbar-logo{width:125px;height:auto;object-fit:contain;background:white;border-radius:5px;padding:5px;flex:none}
+@media(max-width:760px){header .brand-logo{width:clamp(165px,49vw,235px)}header .kind{font-size:10px}.review-brand-logo{width:100px}.boq-preview-tools .boq-toolbar-logo{width:100px}}
 </style>
 </head>
-<body><header><div><div class="brand">UK<span>▰</span>Estimates</div><small>FAST ACCURATE BUILDING COSTINGS</small></div><div class="kind">HOUSING MAINTENANCE &amp; VOIDS<br><b>Standalone SOR V8 estimating app</b></div></header>
+<body><header><div class="brand-identity"><img class="brand-logo" src="/maintenance/uk-estimates-logo.png" alt="UK Estimates — Fast Accurate Building Costings" width="350" height="95"></div><div class="kind">HOUSING MAINTENANCE &amp; VOIDS<br><b>Standalone SOR V8 estimating app</b></div></header>
 <main>
 <div class="hero"><div><h1>Housing Maintenance &amp; Voids</h1><p>Upload your rates. Measure the works. Build a transparent, fully costed Bill of Quantities.</p></div><div><div class="pill">V8 selling rates • Labour • Materials • SMV</div><div id="v8-library-state" style="font-size:12px;text-align:right;margin-top:7px;opacity:.85">Checking saved V8 library…</div></div></div>
 <div class="card job-management" id="job-management">
@@ -218,7 +226,7 @@
 </main>
 <div id="review-layer" class="review-layer" hidden role="dialog" aria-modal="true" aria-label="Review specification beside schedule of rates">
   <div class="review-top">
-    <div><div class="filename" id="review-filename">Uploaded specification</div><small>Source document on left · Verified SOR rates on right</small></div>
+    <div class="review-brand"><img class="review-brand-logo" src="/maintenance/uk-estimates-logo.png" alt="UK Estimates logo" width="350" height="95"><div><div class="filename" id="review-filename">Uploaded specification</div><small>Source document on left · Verified SOR rates on right</small></div></div>
     <button id="review-close" type="button" aria-label="Close side-by-side review">✕ Close review</button>
   </div>
   <div class="review-main">
@@ -250,6 +258,7 @@
 </div>
 <div id="boq-preview-layer" class="boq-preview-layer" hidden role="dialog" aria-modal="true" aria-label="Preview and approve Bill of Quantities">
   <div class="boq-preview-tools">
+    <img class="boq-toolbar-logo" src="/maintenance/uk-estimates-logo.png" alt="UK Estimates logo" width="350" height="95">
     <div class="boq-preview-heading"><b>UK Estimates | Bill of Quantities review</b><small>Check the pricing and report before producing it.</small></div>
     <div class="boq-percent-tools" aria-label="Selling-rate percentage adjustment">
       <label for="preview-adjustment">V8 rate adjustment</label>
