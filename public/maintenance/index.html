@@ -487,7 +487,7 @@ async function connectCloudRatebook(){
     const book=books[0],all=[];let offset=0;
     while(true){const page=await request('uk_sor_rates?select=code,description,unit,selling_rate,labour_rate,material_rate,smv_minutes,details&ratebook_id=eq.'+encodeURIComponent(book.id)+'&order=code&limit=1000&offset='+offset);all.push(...page);if(page.length<1000)break;offset+=page.length;if(offset>100000)throw Error('Ratebook exceeds the safe loading limit.');}
     if(!all.length){state.textContent='Connected. The central ratebook has no items yet.';return;}
-    const rows=all.map(x=>({...x.details,code:x.code,description:x.description,unit:x.unit,rate:Number(x.selling_rate),labour:Number(x.labour_rate||0),materials:Number(x.material_rate||0),smv:Number(x.smv_minutes||0)}));
+    const rows=all.map(x=>({...x.details,code:x.code,description:x.description,unit:x.unit,rate:Number(x.selling_rate),labour:Number(x.labour_rate||0),materials:Number(x.material_rate||0),smv:Number(x.smv_minutes||0),trade:x.details?.trade||'Maintenance',qualityFlag:x.details?.qualityFlag||'Unreviewed'}));
     setupRates(rows);calculate();state.textContent='Secure cloud library connected: '+book.name+' ('+rows.length+' rates).';
     $('v8-library-state').textContent='Cloud ratebook: '+book.name;
   }catch(e){state.textContent='Cloud library: '+e.message;}
@@ -3084,6 +3084,6 @@ $('export-excel').onclick=exportProfessionalBoq;
 $('preview-download').onclick=exportProfessionalBoq;
 $('preview-boq').onclick=previewBoq;
 $('clear-job').onclick=()=>{if(!confirm('Clear the current Bill of Quantities and selected matches for '+activeJobId+'? The job itself will stay saved.'))return;job=[];clearReviewSelections();save();calculate();renderReviewSuggestions();};
-(async()=>{restore();restoreReviewSelections();calculate();try{await initialiseJobs();const r=await get(RATE_KEY);if(r&&r.length){setupRates(r);calculate();}connectCloudRatebook().catch(console.warn);if(!r||!r.length){status('rates-status','No V8 ratebook saved yet on this device. Import the enriched V8 Excel file once to enable automatic loading.','bad');$('v8-library-state').textContent='First visit: import V8 just once';$('v8-import').open=true;}/* Saved source is restored by initialiseJobs for the selected job. */}catch(e){status('rates-status','Local storage is blocked or unavailable: '+e.message+'. Check private browsing or storage settings.','bad');$('v8-library-state').textContent='Saved V8 rates unavailable';$('v8-import').open=true;}})();
+(async()=>{restore();restoreReviewSelections();calculate();try{await initialiseJobs();const r=await get(RATE_KEY);if(r&&r.length){setupRates(r);calculate();}await connectCloudRatebook();if(!rates.length){status('rates-status','No ratebook available yet. Sign in to connect the authorised cloud library, or import your own licensed workbook.','bad');$('v8-library-state').textContent='First visit: import V8 just once';$('v8-import').open=true;}/* Saved source is restored by initialiseJobs for the selected job. */}catch(e){status('rates-status','Local storage is blocked or unavailable: '+e.message+'. Check private browsing or storage settings.','bad');$('v8-library-state').textContent='Saved V8 rates unavailable';$('v8-import').open=true;}})();
 })();
 </script></body></html>
