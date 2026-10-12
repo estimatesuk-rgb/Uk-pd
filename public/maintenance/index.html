@@ -1565,6 +1565,40 @@ async function exportProfessionalBoq(){
     });
     review.mergeCells('A20:L22');cellReportText(review,'A20','For review prior to issue: confirm scope, quantities, SOR codes, any provisional SMV values and labour/material allocations. The contract percentage is a change to V8 selling rates — it is not OH&P added a second time. Prices exclude VAT.',{size:10,fill:UK_EST_PALETTE.light,colour:UK_EST_PALETTE.muted});
     review.printArea='A1:L22';
+    // Every source activity is preserved in original order, including unmatched
+    // items, rather than only showing aggregate SOR quantities in the cost sheet.
+    const activities=reviewSourceLines();
+    if(activities.length){
+      const audit=wb.addWorksheet('Source Row Audit',{views:[{state:'frozen',ySplit:4,showGridLines:false}]});
+      [12,24,19,75,15,12,25,67,17,20,23].forEach((width,i)=>audit.getColumn(i+1).width=width);
+      audit.mergeCells('A1:K1');
+      cellReportText(audit,'A1','SOURCE WORKS — MATCHING & PRICING AUDIT',{size:16,bold:true,colour:UK_EST_PALETTE.white,fill:UK_EST_PALETTE.navy});
+      audit.getRow(1).height=34;
+      audit.mergeCells('A2:K2');
+      cellReportText(audit,'A2','Each line links to the original uploaded sheet and Excel row. Unpriced activities remain listed for review. No row renumbering.',{size:10,colour:UK_EST_PALETTE.muted});
+      audit.getRow(3).height=8;
+      const h=['Work line','Original sheet','Original Excel row','Original work description','Qty','UOM','SOR / basket code','Matched rate description','Unit rate £','Extended ex VAT £','Review status'];
+      h.forEach((label,i)=>{const c=cellReportText(audit,audit.getCell(4,i+1).address,label,{size:10,bold:true,colour:UK_EST_PALETTE.white,fill:UK_EST_PALETTE.navy});c.alignment={vertical:'middle',wrapText:true};});
+      audit.getRow(4).height=36;
+      activities.forEach((work,i)=>{
+        const sel=selectedMatches.get(i),loc=sourceMapLocation(i),measurement=findQty(work);
+        const match=sel?(codes.get(sel.code)||job.find(item=>item.code===sel.code)?.snapshot):null;
+        const basket=sel&&String(sel.code).startsWith('MANUAL-');
+        const state=!sel?'NEEDS REVIEW':!match?'RATE UNAVAILABLE':basket?'MANUAL BASKET':sel.exact?'EXACT CODE/DESCRIPTION':sel.auto?'AUTO-FILLED DUPLICATE':'ESTIMATOR SELECTED';
+        const quantity=sel?sel.qty:measurement.explicit?measurement.qty:null;
+        const rowNum=i+5;
+        audit.addRow([i+1,loc?.sheet||'',loc?.row==null?'':loc.row+1,work,quantity??'',measurement.unit||match?.unit||'',sel?.code||'',match?.description||'',match?.rate??'',match&&sel?Math.max(0,Number(sel.qty)||0)*match.rate*factor:'',state]);
+        const row=audit.getRow(rowNum);row.height=Math.min(66,Math.max(25,25+Math.floor(work.length/85)*12));
+        const fill=!sel?'FFF3E2':i%2?'F7F9FD':'FFFFFF';
+        for(let col=1;col<=11;col++){const c=row.getCell(col);c.font=boqFont(9,col===11&&!sel?UK_EST_PALETTE.red:UK_EST_PALETTE.ink,col===11);c.fill=boqFill(fill);c.alignment={vertical:'middle',wrapText:col===4||col===8||col===11,horizontal:[1,3,5,9,10].includes(col)?'right':'left'};}
+        row.getCell(9).numFmt=UK_EST_CURRENCY;row.getCell(10).numFmt=UK_EST_CURRENCY;
+        row.getCell(5).numFmt=UK_EST_NUMBER;
+      });
+      audit.autoFilter={from:{row:4,column:1},to:{row:activities.length+4,column:11}};
+      audit.pageSetup={paperSize:8,orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0};
+      audit.headerFooter.oddFooter='UK Estimates — Source Row Audit — Page &P of &N';
+      audit.printArea='A1:K'+(activities.length+4);
+    }
     const output=await wb.xlsx.writeBuffer();
     download(new Blob([output],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),'UK_Estimates_BRANDED_BoQ_'+(clean($('reference').value).replace(/[^a-z0-9_-]+/gi,'_')||'Maintenance')+'_'+new Date().toISOString().slice(0,10)+'.xlsx');
     status('checks','Branded BoQ downloaded with logo, V8 percentage adjustment, line formulas and reconciled totals.','ok');
