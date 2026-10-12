@@ -533,7 +533,7 @@ async function openSavedJob(id,saveBefore=true){
     sourceLineMap=Array.isArray(original.sourceMap)?original.sourceMap:[];
     $('source-file-label').textContent='Original ready: '+original.name;
   }
-  renderReviewSuggestions();
+  renderReviewSuggestions();renderSubcontractTimesheet();
   status('jobs-status','Opened '+id+' — '+job.length+' BoQ items.','ok');
 }
 async function createNewJob(saveBefore=true){
