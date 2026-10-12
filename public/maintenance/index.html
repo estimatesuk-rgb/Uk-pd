@@ -175,16 +175,34 @@
 .review-document .source-highlight-note strong{display:block;color:#83152c}
 .review-document .source-highlight-note small{display:block;margin-top:4px;color:#604d56}
 
+.job-management{border-top:4px solid var(--navy)}
+.job-management #active-job-number{background:#eaf0ff;color:#24396a;padding:3px 9px;border-radius:6px;font-size:12px}
+.job-management select{background:#fff;border:1px solid #cbd4e2;border-radius:8px}
+.job-management .hint{font-size:12px;color:#68788f}
+@media(max-width:700px){.job-management .row{flex-wrap:wrap}.job-management #saved-jobs{min-width:190px}}
+
 </style>
 </head>
 <body><header><div><div class="brand">UK<span>▰</span>Estimates</div><small>FAST ACCURATE BUILDING COSTINGS</small></div><div class="kind">HOUSING MAINTENANCE &amp; VOIDS<br><b>Standalone SOR V8 estimating app</b></div></header>
 <main>
 <div class="hero"><div><h1>Housing Maintenance &amp; Voids</h1><p>Upload your rates. Measure the works. Build a transparent, fully costed Bill of Quantities.</p></div><div><div class="pill">V8 selling rates • Labour • Materials • SMV</div><div id="v8-library-state" style="font-size:12px;text-align:right;margin-top:7px;opacity:.85">Checking saved V8 library…</div></div></div>
+<div class="card job-management" id="job-management">
+  <div class="row" style="justify-content:space-between;align-items:center;gap:12px">
+    <div><h2 style="margin:0">Maintenance Jobs <span id="active-job-number" class="tag">No job selected</span></h2>
+      <div class="hint">Each job keeps its property, work specification, selected SOR items and percentage. Numbers follow on automatically.</div></div>
+    <div class="row"><button id="new-job" type="button">+ New Job</button><button id="save-job" type="button" class="secondary">Save Job</button></div>
+  </div>
+  <div class="row" style="margin-top:12px;align-items:center;gap:10px">
+    <label style="flex:1;min-width:220px">Saved Jobs <select id="saved-jobs" aria-label="Choose a saved maintenance job" style="width:100%;padding:9px"><option value="">No saved jobs yet</option></select></label>
+    <button id="open-job" class="secondary" type="button">Open Job</button><button id="delete-job" class="red" type="button">Delete Saved Job</button>
+    <span id="jobs-status" class="status" aria-live="polite">Jobs are saved on this device and browser.</span>
+  </div>
+</div>
 <div class="cols"><section>
 <div class="card"><h2><span class="step">1</span> Your V8 rate library</h2>
 <p>Once imported, your V8 schedule loads automatically whenever you open this app on the same browser and device. You do not need to upload it for every job. The ratebook is not published openly.</p>
 <p id="rates-status" class="status">Checking for your saved V8 ratebook…</p><details id="v8-import" open><summary style="cursor:pointer;font-weight:700;color:#182a4b">Import / replace the V8 library (only if needed)</summary><div class="row" style="margin-top:10px"><label class="file" for="ratesfile">⬆ Import V8 Excel ratebook<input id="ratesfile" type="file" accept=".xlsx,.xls,.csv"></label><button id="clear-rates" class="secondary tiny">Remove saved rates</button></div><p class="hint">First-time setup only. Clearing browser data or changing devices can remove the locally saved ratebook.</p></details></div>
-<div class="card"><h2><span class="step">2</span> Project details</h2><div class="fields"><label>Property / scheme address<input id="address" placeholder="Property address"></label><label>Local authority / client<input id="client" placeholder="Council or contractor"></label><label>Job reference<input id="reference" placeholder="VOID-001"></label><label>Surveyor<input id="surveyor" placeholder="Surveyor name"></label></div>
+<div class="card"><h2><span class="step">2</span> Project details</h2><div class="fields"><label>Property / scheme address<input id="address" placeholder="Property address"></label><label>Local authority / client<input id="client" placeholder="Council or contractor"></label><label>Job reference<input id="reference" placeholder="UKM-000001"></label><label>Surveyor<input id="surveyor" placeholder="Surveyor name"></label></div>
 <div class="row" style="justify-content:space-between;margin-top:18px"><div><b>V8 selling-rate adjustment</b><p style="margin:2px 0">0% = agreed rate unchanged. Plus or minus changes all rates.</p></div><div class="controls"><button id="minus" type="button">−</button><input id="adjustment" inputmode="decimal" type="number" step="0.5" value="0" aria-label="V8 rate adjustment percentage"><span>%</span><button id="plus" type="button">+</button></div></div></div>
 <div class="card"><h2><span class="step">3</span> Find and add SOR items</h2><div class="row" style="margin:0 0 9px"><button id="open-review" type="button" class="review-switch">↔ Review original beside SOR rates</button><span class="hint">View the uploaded document while choosing codes.</span></div><input id="search" placeholder="Search a SOR code, work description or trade…" autocomplete="off"><div id="search-results" class="search-results"><div class="empty">Load the V8 workbook to browse the rates.</div></div></div>
 <div class="card"><h2><span class="step">4</span> Written work specification</h2><p>Paste or upload Excel (.xlsx/.xls/.ods), CSV/TSV, Word (.docx), PDF, PowerPoint (.pptx), OpenDocument (.odt), RTF, TXT, Markdown, HTML, JSON, XML, ZIP or an image (JPG/PNG/WEBP/TIFF where supported). Scanned documents and images use on-device OCR. An uploaded V8 ratebook is identified and loaded into the rate library automatically. <b>Check all suggested codes and quantities before adding them.</b></p>
@@ -193,7 +211,7 @@
 <textarea id="specification" placeholder="Example: Prepare and decorate 42 m2 of walls&#10;Renew 12 lm of skirting&#10;Replace 3 no internal doors"></textarea><div class="row"><button id="suggest" type="button">Suggest SOR matches</button><button id="clear-spec" class="secondary" type="button">Clear specification</button></div><div id="suggestions" class="specs"></div></div>
 </section><section>
 <div class="card"><h2>Project summary</h2><div id="totals"><div class="kpi"><div class="caption">Labour</div><b id="labour-total">£0.00</b></div><div class="kpi"><div class="caption">Materials</div><b id="materials-total">£0.00</b></div><div class="kpi"><div class="caption">Labour hours</div><b id="hours-total">0.0</b></div><div class="kpi feature"><div class="caption">Total ex VAT</div><b id="grand-total">£0.00</b></div></div><div id="checks" class="status">Totals reconcile to the adjusted V8 selling rates.</div>
-<div class="row" style="margin-top:18px"><button id="preview-boq" type="button" class="secondary">Preview / adjust BoQ</button><button id="export-excel" type="button">Download NEW branded BoQ (Excel)</button><button id="export-csv" class="secondary">Download CSV</button><button id="clear-job" class="red">Clear job</button></div></div>
+<div class="row" style="margin-top:18px"><button id="preview-boq" type="button" class="secondary">Preview / adjust BoQ</button><button id="export-excel" type="button">Download NEW branded BoQ (Excel)</button><button id="export-csv" class="secondary">Download CSV</button><button id="clear-job" class="red">Clear current BoQ</button></div></div>
 <div class="card boq-card"><h2>Bill of Quantities</h2><p>Every item is split into materials and labour. Change quantities or remove items as needed.</p><div class="tablewrap"><table><thead><tr><th>SOR / description</th><th class="num">Qty</th><th>UOM</th><th class="num">V8 rate</th><th class="num">Labour</th><th class="num">Materials</th><th class="num">Total</th><th></th></tr></thead><tbody id="boq-rows"><tr><td colspan="8" class="empty">No work items added yet.</td></tr></tbody></table></div></div>
 <div class="card"><h2>Labour time &amp; material plan</h2><div class="tablewrap"><table><thead><tr><th>Work item</th><th class="num">Hours</th><th class="num">Material value</th></tr></thead><tbody id="plan-rows"><tr><td colspan="3" class="empty">Add SOR items to generate this schedule.</td></tr></tbody></table></div><p class="notice">The material figures are cost allowances split from V8—not product quantities. A true purchasing list requires approved material recipes and pack sizes. Estimated SMVs are labelled as provisional.</p></div>
 <div class="card"><h2>How the pricing works</h2><p><b>V8 is the agreed selling rate.</b> At 0%, the total is exactly quantity × V8 rate. Adjustment ±% is applied to V8, and its labour/material portions, only once. SMV minutes × quantity / 60 gives labour hours.</p><p><span class="safe">✓</span> Separate app and private on-device data. <b>Note:</b> this pilot does not yet provide cloud project sharing, multi-user logins, genuine AI interpretation or automatic material product recipes.</p></div></section></div>
@@ -270,8 +288,169 @@ function setupRates(rows){
   $('v8-library-state').textContent='✓ V8 ratebook saved on this device';
   $('v8-import').open=false;search();renderReviewRates();
 }
-function save(){try{localStorage.setItem(JOB_KEY,JSON.stringify({job:job,address:$('address').value,client:$('client').value,reference:$('reference').value,surveyor:$('surveyor').value,adjustment:$('adjustment').value,specification:$('specification').value}));}catch(e){console.warn('Project local storage failed',e);}}
-function restore(){try{let d=JSON.parse(localStorage.getItem(JOB_KEY)||'{}');job=d.job||[];['address','client','reference','surveyor','adjustment','specification'].forEach(k=>{if(d[k]!=null)$(k).value=d[k];});}catch(e){job=[];}}
+const JOBS_INDEX_KEY='uk-estimates-maintenance-jobs-index-v2';
+const JOBS_ACTIVE_KEY='uk-estimates-maintenance-active-job-v2';
+const JOBS_SEQUENCE_KEY='uk-estimates-maintenance-job-sequence-v2';
+const JOBS_PREFIX='UKM-';
+let activeJobId=null,jobWriteTimer=null,pendingJobWrite=null,jobsLoadInProgress=false;
+function savedJobIndex(){
+  try{const data=JSON.parse(localStorage.getItem(JOBS_INDEX_KEY)||'[]');return Array.isArray(data)?data.filter(v=>v&&/^UKM-\d{6}$/.test(v.id)):[];}catch(e){return[];}
+}
+function setSavedJobIndex(index){localStorage.setItem(JOBS_INDEX_KEY,JSON.stringify(index));}
+function nextJobId(){
+  const index=savedJobIndex();
+  const maximum=Math.max(0,...index.map(v=>Number(v.id.split('-')[1])||0));
+  const next=Math.max(Number(localStorage.getItem(JOBS_SEQUENCE_KEY))||0,maximum)+1;
+  if(next>999999)throw Error('Job number series is full.');
+  localStorage.setItem(JOBS_SEQUENCE_KEY,String(next));
+  return JOBS_PREFIX+String(next).padStart(6,'0');
+}
+function jobRecordKey(id){return 'maintenance-job-v2-'+id;}
+function jobSourceKey(id){return 'maintenance-source-v2-'+id;}
+function jobSnapshot(){
+  return {id:activeJobId,job:job.map(j=>({code:j.code,qty:j.qty,snapshot:j.snapshot})),
+    address:$('address').value,client:$('client').value,reference:$('reference').value,
+    surveyor:$('surveyor').value,adjustment:$('adjustment').value,
+    specification:$('specification').value,
+    matches:typeof selectedMatches==='undefined'?[]:[...selectedMatches],
+    sourceName:sourceFile?sourceFile.name:'',updatedAt:new Date().toISOString()};
+}
+function renderJobIndex(){
+  const all=savedJobIndex().sort((a,b)=>b.id.localeCompare(a.id));
+  const selector=$('saved-jobs'),oldChoice=selector.value;
+  selector.innerHTML=all.map(v=>'<option value="'+esc(v.id)+'">'+esc(v.id)+' — '+esc(v.address||v.reference||'New maintenance job')+'</option>').join('')||
+    '<option value="">No saved jobs yet</option>';
+  selector.value=all.some(v=>v.id===activeJobId)?activeJobId:(all.some(v=>v.id===oldChoice)?oldChoice:(all[0]?.id||''));
+  $('active-job-number').textContent=activeJobId||'No job selected';
+  $('open-job').disabled=!all.length;
+  $('delete-job').disabled=!all.length;
+}
+function updateJobIndex(snapshot){
+  if(!snapshot.id)return;
+  const existing=savedJobIndex(),at=existing.findIndex(v=>v.id===snapshot.id);
+  const before=at<0?null:existing[at];
+  const row={id:snapshot.id,reference:snapshot.reference,address:snapshot.address,
+    client:snapshot.client,updatedAt:snapshot.updatedAt,createdAt:before?.createdAt||snapshot.updatedAt};
+  if(at<0)existing.push(row);else existing[at]=row;
+  setSavedJobIndex(existing);
+  renderJobIndex();
+}
+function captureCurrentSource(){return sourceFile?{name:sourceFile.name,type:sourceFile.type||'',blob:sourceFile,lastModified:sourceFile.lastModified||0,sourceMap:sourceLineMap}:null;}
+function scheduleJobRecord(snapshot){
+  pendingJobWrite=snapshot;
+  clearTimeout(jobWriteTimer);
+  jobWriteTimer=setTimeout(()=>{writePendingJob().catch(e=>status('jobs-status','Job could not save: '+e.message,'bad'));},500);
+}
+async function writePendingJob(){
+  clearTimeout(jobWriteTimer);jobWriteTimer=null;
+  const snapshot=pendingJobWrite;pendingJobWrite=null;
+  if(snapshot)await put(jobRecordKey(snapshot.id),snapshot);
+}
+function save(){
+  if(jobsLoadInProgress)return;
+  const snapshot=jobSnapshot();
+  try{
+    // Keep the existing draft record for seamless migration from the old pilot.
+    localStorage.setItem(JOB_KEY,JSON.stringify(snapshot));
+    if(activeJobId){updateJobIndex(snapshot);scheduleJobRecord(snapshot);status('jobs-status',activeJobId+' saved on this device.','ok');}
+  }catch(e){console.error('Save job failed',e);status('jobs-status','Save failed: '+e.message,'bad');}
+}
+function restore(){
+  try{const d=JSON.parse(localStorage.getItem(JOB_KEY)||'{}');
+    job=Array.isArray(d.job)?d.job:[];
+    for(const k of ['address','client','reference','surveyor','adjustment','specification'])if(d[k]!=null)$(k).value=d[k];
+  }catch(e){job=[];}
+}
+function installJobSnapshot(snapshot){
+  jobsLoadInProgress=true;
+  try{
+    job=Array.isArray(snapshot.job)?snapshot.job:[];
+    for(const k of ['address','client','reference','surveyor','adjustment','specification'])$(k).value=snapshot[k]??(k==='adjustment'?'0':'');
+    selectedMatches=new Map((snapshot.matches||[]).map(([i,v])=>[Number(i),v]));
+    activeReviewLine=null;
+    activeJobId=snapshot.id;
+    localStorage.setItem(JOBS_ACTIVE_KEY,activeJobId);
+    $('suggestions').innerHTML='';$('source-file-label').textContent='No original document loaded.';
+    releaseSource();showReview(false);
+    persistReviewSelections();calculate();renderJobIndex();
+    $('spec-status').textContent=snapshot.sourceName?'Loading saved original...':'';
+  }finally{jobsLoadInProgress=false;}
+}
+async function saveCurrentJob(){
+  if(!activeJobId)return;
+  const snapshot=jobSnapshot();
+  updateJobIndex(snapshot);
+  pendingJobWrite=snapshot;
+  await writePendingJob();
+  const original=captureCurrentSource();
+  if(original)await put(jobSourceKey(activeJobId),original);
+}
+async function openSavedJob(id,saveBefore=true){
+  if(!/^UKM-\d{6}$/.test(id))throw Error('Invalid job number');
+  if(saveBefore)await saveCurrentJob();
+  const snapshot=await get(jobRecordKey(id));
+  if(!snapshot)throw Error('This saved job is missing from the local browser database.');
+  installJobSnapshot(snapshot);
+  const original=await get(jobSourceKey(id));
+  if(original?.blob){
+    sourceFile=new File([original.blob],original.name,{type:original.type||'',lastModified:original.lastModified||Date.now()});
+    sourceText=snapshot.specification||'';
+    sourceLineMap=Array.isArray(original.sourceMap)?original.sourceMap:[];
+    $('source-file-label').textContent='Original ready: '+original.name;
+  }
+  renderReviewSuggestions();
+  status('jobs-status','Opened '+id+' — '+job.length+' BoQ items.','ok');
+}
+async function createNewJob(saveBefore=true){
+  if(saveBefore)await saveCurrentJob();
+  const id=nextJobId();
+  installJobSnapshot({id,reference:id,address:'',client:'',surveyor:'',adjustment:0,specification:'',job:[],matches:[]});
+  save();
+  await saveCurrentJob();
+  status('jobs-status','Created '+id+' — ready for property details and specification.','ok');
+}
+async function removeSavedJob(id){
+  if(!id||!/^UKM-\d{6}$/.test(id))return;
+  if(!confirm('Permanently delete saved job '+id+' from this browser? This cannot be undone.'))return;
+  clearTimeout(jobWriteTimer);jobWriteTimer=null;
+  if(pendingJobWrite?.id===id)pendingJobWrite=null;
+  await drop(jobRecordKey(id));await drop(jobSourceKey(id));
+  setSavedJobIndex(savedJobIndex().filter(v=>v.id!==id));
+  if(activeJobId===id){
+    activeJobId=null;
+    const remaining=savedJobIndex();
+    if(remaining.length)await openSavedJob(remaining[remaining.length-1].id,false);
+    else await createNewJob(false);
+  }
+  renderJobIndex();
+  status('jobs-status','Deleted '+id+'. Sequential job numbers will not be reused.','ok');
+}
+async function initialiseJobs(){
+  const existing=savedJobIndex();
+  let original=JSON.parse(localStorage.getItem(JOB_KEY)||'{}');
+  if(!existing.length){
+    const firstId=nextJobId();
+    // Preserve existing draft, never wipe an estimate on upgrade.
+    const snapshot={...original,id:firstId,reference:original.reference||firstId,job:original.job||[],
+      matches:typeof selectedMatches==='undefined'?[]:[...selectedMatches],updatedAt:new Date().toISOString()};
+    activeJobId=firstId;installJobSnapshot(snapshot);
+    await put(jobRecordKey(firstId),snapshot);
+    const oldSource=await get(SOURCE_KEY).catch(()=>null);
+    if(oldSource?.blob)await put(jobSourceKey(firstId),oldSource);
+    updateJobIndex(snapshot);
+  }else{
+    const id=localStorage.getItem(JOBS_ACTIVE_KEY);
+    const selected=existing.some(v=>v.id===id)?id:existing[existing.length-1].id;
+    await openSavedJob(selected,false);
+    const highest=Math.max(0,...existing.map(v=>Number(v.id.split('-')[1])));
+    localStorage.setItem(JOBS_SEQUENCE_KEY,String(Math.max(highest,Number(localStorage.getItem(JOBS_SEQUENCE_KEY))||0)));
+  }
+  renderJobIndex();
+}
+$('new-job').onclick=async()=>{try{await createNewJob();}catch(e){status('jobs-status','Could not create new job: '+e.message,'bad');}};
+$('save-job').onclick=async()=>{try{await saveCurrentJob();status('jobs-status','Saved '+activeJobId+' including the original document.','ok');}catch(e){status('jobs-status','Save failed: '+e.message,'bad');}};
+$('open-job').onclick=async()=>{try{await openSavedJob($('saved-jobs').value);}catch(e){status('jobs-status','Could not reopen job: '+e.message,'bad');}};
+$('delete-job').onclick=async()=>{try{await removeSavedJob($('saved-jobs').value);}catch(e){status('jobs-status','Delete failed: '+e.message,'bad');}};
 function adjustment(){let x=Number($('adjustment').value);return Number.isFinite(x)?Math.max(-100,Math.min(1000,x)):0;}
 function calculate(){const f=1+adjustment()/100;let lt=0,mt=0,gt=0,ht=0,lines=[],plans=[];job.forEach((j,i)=>{let r=codes.get(j.code)||j.snapshot;if(!r)return;const q=Math.max(0,num(j.qty));const tot=q*r.rate*f,split=r.labour+r.materials,l=split>0?tot*r.labour/split:0,m=tot-l,h=q*r.smv/60;lt+=l;mt+=m;gt+=tot;ht+=h;lines.push('<tr><td><b>'+esc(r.code)+'</b><br>'+esc(r.description)+'<br><span class="tag">'+esc(r.trade)+'</span></td><td><input type="number" class="qty" min="0" step="any" value="'+esc(q)+'" data-qty="'+i+'"></td><td>'+esc(r.unit)+'</td><td class="num">'+money(r.rate)+'</td><td class="num">'+money(l)+'</td><td class="num">'+money(m)+'</td><td class="num"><b>'+money(tot)+'</b></td><td><button class="tiny red" data-del="'+i+'" aria-label="Remove item">×</button></td></tr>');plans.push('<tr><td>'+esc(r.code)+' — '+esc(r.description)+' '+(r.smvMethod&&/estimated|unavailable/i.test(r.smvMethod)?'<span class="tag">Provisional SMV</span>':'')+'</td><td class="num">'+h.toFixed(2)+'</td><td class="num">'+money(m)+'</td></tr>');});
 $('boq-rows').innerHTML=lines.join('')||'<tr><td colspan="8" class="empty">No work items added yet.</td></tr>';$('plan-rows').innerHTML=plans.join('')||'<tr><td colspan="3" class="empty">Add SOR items to generate this schedule.</td></tr>';
@@ -358,7 +537,7 @@ function releaseSource(){sourceRenderId++;sourcePdf=null;sourceWorkbook=null;sou
 async function activateSource(file,extracted,remember=true,locations=[]){
   releaseSource();clearReviewSelections();activeReviewLine=null;sourceFile=file;sourceText=extracted||'';sourceLineMap=Array.isArray(locations)?locations:[];sourceKind='text';
   $('source-file-label').textContent='Original ready: '+file.name;
-  if(remember){try{await put(SOURCE_KEY,{name:file.name,type:file.type,blob:file,lastModified:file.lastModified||0,sourceMap:sourceLineMap});}catch(e){status('spec-status','File loaded, but the browser could not save a copy for next time: '+e.message,'bad');}}
+  if(remember){try{await put(jobSourceKey(activeJobId),{name:file.name,type:file.type,blob:file,lastModified:file.lastModified||0,sourceMap:sourceLineMap});save();}catch(e){status('spec-status','File loaded, but the browser could not save a copy for next time: '+e.message,'bad');}}
   showReview(true);
 }
 function sourceMapLocation(index){
@@ -900,7 +1079,7 @@ $('specfile').onchange=async function(){
   }catch(e){status('spec-status','Upload failed: '+e.message,'bad');}
   finally{this.value='';}
 };
-$('clear-spec').onclick=async()=>{clearReviewSelections();$('specification').value='';$('suggestions').style.display='none';status('spec-status','Specification cleared.');$('source-file-label').textContent='No original document loaded.';releaseSource();showReview(false);try{await drop(SOURCE_KEY)}catch(e){console.warn(e)}save();};
+$('clear-spec').onclick=async()=>{clearReviewSelections();$('specification').value='';$('suggestions').style.display='none';status('spec-status','Specification cleared.');$('source-file-label').textContent='No original document loaded.';releaseSource();showReview(false);try{await drop(jobSourceKey(activeJobId))}catch(e){console.warn(e)}save();};
 function findQty(line){
   const source=String(line||'');
   const match=source.match(/(?:^|[\s:])(\d+(?:[.,]\d+)?)\s*(m²|m2|sq\.?\s*m|sqm|sm|linear metres?|lin\.?\s*m|lm|m³|m3|cm|cu\.?\s*m|nr|no\.?|each|items?|ea|it|pr|kg|hrs?|hours?|days?|wks?|weeks?)\s*(?=$|[\s;,.])/i);
@@ -1224,7 +1403,7 @@ async function exportProfessionalBoq(){
 $('export-excel').onclick=exportProfessionalBoq;
 $('preview-download').onclick=exportProfessionalBoq;
 $('preview-boq').onclick=previewBoq;
-$('clear-job').onclick=()=>{if(!confirm('Delete this local project and all BoQ items?'))return;clearReviewSelections();activeReviewLine=null;job=[];['address','client','reference','surveyor','specification'].forEach(id=>$(id).value='');$('adjustment').value=0;localStorage.removeItem(JOB_KEY);calculate();};
-(async()=>{restore();restoreReviewSelections();calculate();try{const r=await get(RATE_KEY);if(r&&r.length){setupRates(r);calculate();}else{status('rates-status','No V8 ratebook saved yet on this device. Import the enriched V8 Excel file once to enable automatic loading.','bad');$('v8-library-state').textContent='First visit: import V8 just once';$('v8-import').open=true;}const stored=await get(SOURCE_KEY);if(stored&&stored.blob){sourceFile=new File([stored.blob],stored.name,{type:stored.type||'',lastModified:stored.lastModified||Date.now()});sourceText=$('specification').value;sourceLineMap=Array.isArray(stored.sourceMap)?stored.sourceMap:[];$('source-file-label').textContent='Original ready: '+sourceFile.name;}}catch(e){status('rates-status','Local storage is blocked or unavailable: '+e.message+'. Check private browsing or storage settings.','bad');$('v8-library-state').textContent='Saved V8 rates unavailable';$('v8-import').open=true;}})();
+$('clear-job').onclick=()=>{if(!confirm('Clear the current Bill of Quantities and selected matches for '+activeJobId+'? The job itself will stay saved.'))return;job=[];clearReviewSelections();save();calculate();renderReviewSuggestions();};
+(async()=>{restore();restoreReviewSelections();calculate();try{await initialiseJobs();const r=await get(RATE_KEY);if(r&&r.length){setupRates(r);calculate();}else{status('rates-status','No V8 ratebook saved yet on this device. Import the enriched V8 Excel file once to enable automatic loading.','bad');$('v8-library-state').textContent='First visit: import V8 just once';$('v8-import').open=true;}/* Saved source is restored by initialiseJobs for the selected job. */}catch(e){status('rates-status','Local storage is blocked or unavailable: '+e.message+'. Check private browsing or storage settings.','bad');$('v8-library-state').textContent='Saved V8 rates unavailable';$('v8-import').open=true;}})();
 })();
 </script></body></html>
