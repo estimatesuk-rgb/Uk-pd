@@ -278,6 +278,8 @@ header .brand-logo{display:block;width:clamp(190px,26vw,300px);height:auto;max-w
   .report-client-letterhead{max-height:112px;min-height:60px}
   .boq-paper{padding-bottom:18mm!important}
 }
+
+.report-brand-pair{display:flex;align-items:center;gap:18px;min-width:0}.boq-paper .report-brand-pair img{width:245px;max-width:65%;height:auto}.rics-regulated-mark{display:flex;flex-direction:column;align-items:center;justify-content:center;border-left:1px solid #bbc2cc;padding-left:16px;color:#16354a;white-space:nowrap}.rics-regulated-mark strong{font-size:32px;letter-spacing:-1px;line-height:1}.rics-regulated-mark small{font-size:10px;letter-spacing:.2px}@media print{.report-brand-pair{gap:14px}.rics-regulated-mark strong{font-size:27px}}
 </style>
 </head>
 <body><header><div class="brand-identity"><img class="brand-logo" src="/maintenance/uk-estimates-logo.png" alt="UK Estimates — Fast Accurate Building Costings" width="350" height="95"></div><div class="kind">HOUSING MAINTENANCE &amp; VOIDS<br><b>Standalone SOR V8 estimating app</b></div></header>
@@ -2533,7 +2535,7 @@ function reportCurrentId(type){
 function reportHeaderHtml(title,subtitle,thirdLine='DRAFT REPORT'){
   const customer=activeCustomerLetterhead();
   const banner=customer?'<div class="report-client-letterhead"><img src="'+customer.dataUrl+'" alt="'+esc(clean($('client').value))+' customer letterhead"></div>':'';
-  return banner+'<div class="boq-letterhead'+(customer?' has-client-brand':'')+'"><img src="'+UK_EST_LOGO+'" alt="UK Estimates logo"><div class="boq-report-heading"><h2>'+
+  return banner+'<div class="boq-letterhead'+(customer?' has-client-brand':'')+'"><span class="report-brand-pair"><img src="'+UK_EST_LOGO+'" alt="UK Estimates logo"><span class="rics-regulated-mark" aria-label="Regulated by RICS"><strong>RICS</strong><small>Regulated by RICS</small></span></span><div class="boq-report-heading"><h2>'+
     esc(title)+'</h2><span>'+esc(subtitle)+'</span><span>'+esc(thirdLine)+'</span></div></div>';
 }
 function reportUKFooterHtml(type){
