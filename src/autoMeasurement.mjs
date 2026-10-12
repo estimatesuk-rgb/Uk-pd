@@ -1,4 +1,5 @@
 import {measuredQuantity} from './takeoffMeasurement.mjs';
+import {validateTrace,validatedPolygonWithOpenings,polygonBounds} from './shapeGeometry.mjs';
 
 // AI suggests outlines; all quantities are calculated deterministically against
 // a revision-matched scale. Never infer a scale from the picture or from a label.
@@ -18,11 +19,21 @@ function candidateMark(c){
     return {kind:'length',x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),
       w:Math.abs(b.x-a.x),h:Math.abs(b.y-a.y),points:[{x:a.x,y:a.y},{x:b.x,y:b.y}]};
   }
+  if(c?.kind==='polygon'){
+    const shape=validatedPolygonWithOpenings(c.points,c.openings||[]);
+    if(!shape)return null;
+    return {kind:'polygon',...polygonBounds(shape.outline),points:shape.outline,openings:shape.holes};
+  }
+  if(c?.kind==='polyline'){
+    const points=validateTrace(c.points,false);
+    if(!points)return null;
+    return {kind:'polyline',...polygonBounds(points),points};
+  }
   if(c?.kind==='count'){
     if(!inside(c.x)||!inside(c.y))return null;
     return {kind:'count',x:c.x,y:c.y,w:0,h:0};
   }
-  return null; // No guessed depth, volumes, polylines or arcs.
+  return null; // No guessed depths, 3D volumes, curved arcs or unclosed holes.
 }
 
 export function measureAutoCandidate(c,context){
@@ -39,8 +50,8 @@ export function measureAutoCandidate(c,context){
   const dimensions=context?.dimensions;
   const measured=measuredQuantity(region,dimensions,calibration);
   if(!measured||!Number.isFinite(measured.quantity)||measured.quantity<=0)return {error:'Could not calculate a scaled quantity'};
-  const coords=region.kind==='length'
-    ?region.points.flatMap(p=>[p.x,p.y])
+  const coords=['length','polyline','polygon'].includes(region.kind)
+    ?[...region.points.flatMap(p=>[p.x,p.y]),...(region.openings||[]).flatMap(h=>h.flatMap(p=>[p.x,p.y]))]
     :region.kind==='count'?[region.x,region.y]:[region.x,region.y,region.w,region.h];
   const key=[context.document_id,context.page,region.kind,description.toLowerCase(),
     ...coords.map(round)].join('|');
