@@ -1143,7 +1143,7 @@ function canonicalMatchWord(raw){
     'removing':'remove','removed':'remove','stripout':'remove','demolish':'remove',
     'installation':'install','fitting':'install','fitted':'install','fixing':'install','fittingout':'install',
     'tiles':'tile','tiling':'tile','plastered':'plaster','plastering':'plaster','plasters':'plaster',
-    'plasterboards':'plasterboard','boards':'board','boarding':'board','radiators':'radiator',
+    'plasterboards':'plasterboard','plasterboarding':'plasterboard','plasterboarded':'plasterboard','drylining':'plasterboard','drylined':'plasterboard','gyproc':'plasterboard','wallboard':'plasterboard','boards':'board','boarding':'board','skimming':'skim','skimmed':'skim','skimcoat':'skim','multifinish':'skim','multifinishplaster':'skim','radiators':'radiator',
     'taps':'tap','basins':'basin','washbasin':'basin','wc':'toilet','wcs':'toilet','lavatory':'toilet','lavatories':'toilet',
     'sockets':'socket','outlets':'socket','lamps':'light','lighting':'light','lights':'light',
     'pvc':'upvc','upvc':'upvc','pipework':'pipe','pipes':'pipe','floors':'floor','flooring':'floor',
@@ -1159,7 +1159,7 @@ function canonicalMatchWord(raw){
   return aliases[w]||w;
 }
 function matchWords(str){
-  return [...new Set(String(str||'').toLowerCase().replace(/(\d+)x(\d+)/g,'$1 $2').split(/[^a-z0-9]+/)
+  return [...new Set(String(str||'').toLowerCase().replace(/(\d+)\.(\d+)\s*mm\b/g,'$1p$2mm').replace(/(\d+)x(\d+)/g,'$1 $2').split(/[^a-z0-9]+/)
    .map(canonicalMatchWord).filter(w=>w.length>=3&&!STOP_MATCH_WORDS.has(w)&&!/^\d+$/.test(w)))];
 }
 function matchUnits(unit){
@@ -1192,6 +1192,24 @@ function rankedRateMatches(query,limit=8,ignoreUnit=false){
     if(!shortHits&&!extraHits)continue;
     const objHits=queryObjects.filter(w=>sh.has(w)||ex.has(w)).length;
     if(queryObjects.length&&objHits===0)continue;
+    // Ceiling plasterboard + skim is a combined scope. A ceiling-only or
+    // skim-only rate must not be presented as an exact combined match.
+    const sourceTokens=new Set(key);
+    const candidateTokens=new Set([...sh,...ex]);
+    const combinedBoardSkim=sourceTokens.has('plasterboard')&&sourceTokens.has('skim');
+    const hasBoard=candidateTokens.has('plasterboard');
+    const hasSkim=candidateTokens.has('skim');
+    if(combinedBoardSkim){
+      if(hasBoard&&hasSkim)score+=34;
+      else score-=24;
+      if(sourceTokens.has('ceiling')&&candidateTokens.has('ceiling'))score+=12;
+      else if(sourceTokens.has('ceiling'))score-=12;
+      if(sourceTokens.has('12p5mm')){
+        if(candidateTokens.has('12p5mm'))score+=24;
+        else if([...candidateTokens].some(w=>/^(?:9p5|15|19)mm$/.test(w)))score-=36;
+        else score-=5;
+      }
+    }
     if(queryActions.length){
       const actionHits=queryActions.filter(w=>sh.has(w)).length;
       if(actionHits)score+=6;
