@@ -82,6 +82,7 @@
 .review-match-workspace .spec .suggest.chosen-rate{border:2px solid #c9182a;background:#fff0f1;color:#a91425}
 .review-match-workspace .spec .suggest.chosen-rate strong{color:#a91425}
 .review-match-workspace .spec .suggest button.chosen-button{background:#c8192a!important;color:#fff!important;border-color:#c8192a!important}
+.review-match-workspace .manual-chosen{background:#fff0f1;border-left:4px solid #c9182a}
 .review-match-workspace .review-chosen-label{color:#ae1926;font-weight:800;font-size:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px}
 .review-match-workspace .review-match-counter{position:sticky;top:0;z-index:2;background:#fffaee;border-bottom:1px solid #e9d5a8;color:#45536b;font-size:12px;padding:8px}
 
@@ -262,7 +263,17 @@ $('labour-total').textContent=money(lt);$('materials-total').textContent=money(m
 const gap=Math.abs(gt-lt-mt);$('checks').textContent='Selling-rate adjustment: '+(adjustment()>0?'+':'')+adjustment()+'% • '+(gap<0.03?'Labour + materials reconciled':'Check split: '+money(gap)+' difference caused by unallocated V8 elements.');
 document.querySelectorAll('[data-qty]').forEach(el=>el.onchange=()=>{let i=Number(el.dataset.qty);job[i].qty=Math.max(0,num(el.value));save();calculate();});document.querySelectorAll('[data-del]').forEach(el=>el.onclick=()=>{job.splice(Number(el.dataset.del),1);save();calculate();});updateReviewTotals();}
 function add(code,qty){let r=codes.get(String(code));if(!r)return;let existing=job.find(j=>j.code===r.code);if(existing)existing.qty+=Math.max(0,num(qty||1));else job.push({code:r.code,qty:Math.max(0,num(qty||1)),snapshot:r});save();calculate();if(!$('review-layer').hidden){$('review-selected').textContent='Added '+r.code+' · '+money(r.rate);}}
-function search(){let term=clean($('search').value).toLowerCase();if(!rates.length){$('search-results').innerHTML='<div class="empty">Load the V8 workbook to browse rates.</div>';return;}let found=!term?rates.slice(0,12):rates.filter(r=>(r.code+' '+r.description+' '+r.trade).toLowerCase().includes(term)).slice(0,24);$('search-results').innerHTML=found.map(r=>'<div class="result"><div><strong>'+esc(r.code)+'</strong> · '+esc(r.description)+'<small>'+esc(r.trade)+' · '+esc(r.unit)+' · Labour '+money(r.labour)+' / Material '+money(r.materials)+'</small></div><div class="row" style="justify-content:flex-end"><b>'+money(r.rate)+'</b><button class="tiny" data-add="'+esc(r.code)+'">Add</button></div></div>').join('')||'<div class="empty">No matches found.</div>';document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>add(b.dataset.add,1));}
+function search(){
+  const query=clean($('search').value);
+  const target=$('search-results');
+  if(!rates.length){target.innerHTML='<div class="empty">Load V8 rates to search.</div>';return;}
+  const rows=query?rankedRateMatches(query,35,true).map(x=>x.r):rates.slice(0,16);
+  target.innerHTML=rows.map(r=>'<div class="result"><div><strong>'+esc(r.code)+'</strong> · '+esc(r.description)+
+    '<small>'+esc(r.trade)+' · '+esc(r.unit)+' · Labour '+money(r.labour)+' / Materials '+money(r.materials)+'</small></div>'+
+    '<div class="row" style="justify-content:flex-end"><b>'+money(r.rate)+'</b><button class="tiny" data-add="'+esc(r.code)+'">Add</button></div></div>').join('')||
+    '<div class="empty">No close match. Search for a shorter word such as “door”, “socket” or “paint”.</div>';
+  target.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>add(b.dataset.add,1));
+}
 function importRows(sheet){
   if(!sheet||sheet.length<2)throw Error('Workbook contains no V8 rate items.');
   const h=sheet[0].map(x=>clean(x).toLowerCase());
@@ -335,12 +346,13 @@ function sourceSelect(text){
   const line=String(text||'').replace(/\s+/g,' ').trim().slice(0,220);
   if(!line)return;
   const q=findQty(line);if(q.qty&&q.qty>0)$('review-qty').value=q.qty;
-  const sourceLines=$('specification').value.split(/[\r\n]+/).map(s=>s.trim()).filter(s=>s.length>7).slice(0,60);
+  const sourceLines=reviewSourceLines();
   const normalized=line.toLowerCase();
   const index=sourceLines.findIndex(s=>s.toLowerCase().includes(normalized)||normalized.includes(s.toLowerCase()));
   const suggestions=$('review-suggest');
   suggestions.querySelectorAll('.is-focused').forEach(el=>el.classList.remove('is-focused'));
   if(index>=0){
+    activeReviewLine=index;
     const card=suggestions.querySelector('[data-review-line="'+index+'"]');
     if(card){card.classList.add('is-focused');card.scrollIntoView({block:'nearest',behavior:'smooth'});return;}
   }
@@ -348,13 +360,25 @@ function sourceSelect(text){
   $('review-manual').open=true;
   renderReviewRates();
 }
+let activeReviewLine=null;
 function renderReviewRates(){
   const root=$('review-results');if(!root)return;
-  if(!rates.length){root.innerHTML='<div class="empty">Upload the enriched V8 ratebook first.</div>';return;}
-  const term=clean($('review-search').value).toLowerCase();
-  let rows=term?rates.filter(r=>(r.code+' '+r.description+' '+r.trade).toLowerCase().includes(term)).slice(0,40):rates.slice(0,20);
-  root.innerHTML=rows.map(r=>'<div class="result"><div><strong>'+esc(r.code)+'</strong> — '+esc(r.description)+'<small>'+esc(r.trade)+' · '+esc(r.unit)+' · Labour '+money(r.labour)+' + Materials '+money(r.materials)+'</small></div><div><b>'+money(r.rate)+'</b><br><button type="button" class="tiny" data-review-add="'+esc(r.code)+'">Add rate</button></div></div>').join('')||'<div class="empty">No matching rate. Try a shorter search or check the wording on the left.</div>';
-  root.querySelectorAll('[data-review-add]').forEach(b=>b.onclick=()=>{const q=Math.max(0,num($('review-qty').value));if(q<=0){alert('Enter a quantity greater than zero.');return;}add(b.dataset.reviewAdd,q);});
+  if(!rates.length){root.innerHTML='<div class="empty">Import the V8 ratebook first.</div>';return;}
+  const query=clean($('review-search').value);
+  let matches=query?rankedRateMatches(query,55,true).map(x=>x.r):rates.slice(0,30);
+  root.innerHTML=matches.map(r=>{
+    const selected=activeReviewLine!==null&&selectedMatches.get(activeReviewLine)?.code===r.code;
+    return '<div class="result'+(selected?' manual-chosen':'')+'"><div><strong>'+esc(r.code)+'</strong> — '+esc(r.description)+
+      '<small>'+esc(r.trade)+' · '+esc(r.unit)+' · Labour '+money(r.labour)+' + Materials '+money(r.materials)+'</small></div>'+
+      '<div><b>'+money(r.rate)+'</b><br><button type="button" class="tiny'+(selected?' chosen-button':'')+'" data-review-add="'+esc(r.code)+'">'+(selected?'✓ Selected':activeReviewLine!==null?'Choose for line '+(activeReviewLine+1):'Add rate')+'</button></div></div>';
+  }).join('')||'<div class="empty">No close match. Try a shorter word such as “door” or “paint”, or enter an exact SOR code.</div>';
+  root.querySelectorAll('[data-review-add]').forEach(b=>b.onclick=()=>{
+    const qty=Number($('review-qty').value);
+    if(!Number.isFinite(qty)||qty<=0){alert('Enter a measured quantity greater than zero.');return;}
+    if(activeReviewLine!==null)switchReviewRate(activeReviewLine,b.dataset.reviewAdd,qty);
+    else add(b.dataset.reviewAdd,qty);
+    renderReviewRates();
+  });
 }
 $('review-search').oninput=renderReviewRates;
 function updateReviewTotals(){
@@ -431,7 +455,7 @@ function renderReviewSuggestions(){
   target.querySelectorAll('[data-source-search]').forEach(b=>b.onclick=()=>{
     const i=Number(b.dataset.sourceSearch),card=b.closest('.spec'),best=topMatch(lines[i])[0];
     target.querySelectorAll('.is-focused').forEach(e=>e.classList.remove('is-focused'));
-    card.classList.add('is-focused');$('review-search').value=best?best.r.code:'';
+    card.classList.add('is-focused');activeReviewLine=i;$('review-search').value=best?best.r.code:matchWords(lines[i]).slice(0,3).join(' ');
     $('review-qty').value=card.querySelector('[data-suggest-qty]').value||1;
     $('review-manual').open=true;renderReviewRates();
   });
@@ -813,7 +837,14 @@ function rankedRateMatches(query,limit=8,ignoreUnit=false){
   return matches.slice(0,limit);
 }
 function topMatch(line){return rankedRateMatches(line,6);}
-$('suggest').onclick=()=>{if(!rates.length){status('spec-status','Load the V8 ratebook before requesting suggestions.','bad');return;}const txt=$('specification').value.trim();if(!txt){status('spec-status','Please enter or upload a specification.','bad');return;}let lines=txt.split(/[\r\n]+/).map(s=>s.trim()).filter(s=>s.length>7).slice(0,35);let all=lines.map((line,i)=>{let matches=topMatch(line),q=findQty(line);return '<div class="spec"><div class="source">'+esc(line)+'</div>'+(matches.length?matches.map(x=>'<div class="suggest">'+esc(x.r.code)+' '+esc(x.r.description)+' • '+money(x.r.rate)+'/'+esc(x.r.unit)+' <button class="tiny secondary" data-confirm="'+i+'" data-code="'+esc(x.r.code)+'" data-q="'+q.qty+'">Add '+q.qty+' '+esc(x.r.unit)+'</button></div>').join(''):'<div class="suggest">No reliable match. Search the SOR manually.</div>')+'</div>';});$('suggestions').innerHTML='<p class="notice">These are text-similarity suggestions, NOT AI-verified take-offs. Check code, units and quantities before adding.</p>'+all.join('');$('suggestions').style.display='block';document.querySelectorAll('[data-confirm]').forEach(b=>b.onclick=()=>{add(b.dataset.code,Number(b.dataset.q));b.disabled=true;b.textContent='Added — review BoQ';});status('spec-status',lines.length+' specification lines ready to verify against the original.','ok');showReview(true);};
+$('suggest').onclick=()=>{
+  if(!rates.length){status('spec-status','Load the checked V8 rates before matching.','bad');return;}
+  if(!$('specification').value.trim()){status('spec-status','Upload or enter a job specification first.','bad');return;}
+  $('suggestions').innerHTML='<p class="notice">Use the side-by-side review above: selected matches turn red and alternative options stay visible. Nothing is added until you choose it.</p>';
+  $('suggestions').style.display='block';
+  status('spec-status','Matching is ready. Compare every proposal with the source before adding it.','ok');
+  showReview(true);
+};
 const UK_EST_LOGO='/maintenance/uk-estimates-logo.png';
 function setPercent(value){
   const n=Number(value);
