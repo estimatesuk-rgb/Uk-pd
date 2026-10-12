@@ -24,6 +24,18 @@
 | 9 | Council/contractor multi-tenant portal | Planned (current app stores jobs on current device/browser) | Tenant isolation, secure logins, permissions, central backups, contract-specific authorised ratebooks, billing approvals | Enterprise prerequisite |
 | 10 | Usage tracking and per-job billing | Planned | Unique billable completed/approved/exported job, revisions free, invoices, credit packs, administration | Commercial launch prerequisite |
 
+## Additional customer-requested pilot: Labour-only subcontractor timesheets (12 October 2026)
+
+**Status: Implemented in maintenance app; real-job acceptance and signed-form review outstanding.** This is a requested supplementary report, not a change to the Item 1 matching priority.
+
+- Labour-only subcontract rates are managed separately from V8 agreed selling rates and OH&P adjustments.
+- Starting prices from V8 labour allocations are labelled reference values, **not automatically accepted subcontract rates**. Users can enter agreed £/unit or £/hour, with explicit rate approval.
+- The on-screen completion record tracks original source worksheet and row where available, individual BoQ and completed quantities, actual hours, notes, and subcontractor/site details. Job data is locally saved.
+- Printable/PDF timesheets display the UK Estimates logo and handwritten signature/date fields for subcontractor and site supervisor; **no electronic signature service or verified digital sign-off is claimed**.
+- Branded Excel timesheets have editable quantities, actual hours, prices, agreement status and formula totals, plus signature fields.
+- Missing actual work or unapproved rates are excluded from recorded labour payable; any over-allocation of work against the BoQ is flagged.
+- Tests use synthetic ratebooks; commercial issue requires testing on real authorized council schedules, sample signed timesheets, and review of subcontract terms, CIS and VAT treatment.
+
 ## Item 1 — technical scope and acceptance criteria
 
 1. Never silently lose eligible lines or price wrong source rows. Every activity uses stable original sheet/row mapping and source identity. Review original and export source-row audit.
