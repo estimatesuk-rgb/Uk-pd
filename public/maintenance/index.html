@@ -7,6 +7,8 @@
 <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/mammoth@1.10.0/mammoth.browser.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <style>
 :root{--red:#ed1017;--blue:#0900ec;--navy:#1c2b45;--paper:#fff;--bg:#f3f5fa;--line:#dee3eb;--muted:#67758a;--ok:#16865b}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#203049;font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}header{background:#fff;border-bottom:5px solid var(--red);padding:14px max(16px,calc((100vw - 1240px)/2));display:flex;align-items:center;justify-content:space-between;gap:20px}header .brand{color:var(--red);font-size:31px;letter-spacing:-1.4px;font-weight:900;font-style:italic;line-height:1}header .brand span{color:var(--blue)}header small{font-size:10px;letter-spacing:2.1px;color:var(--blue);display:block;font-weight:700;padding-top:6px}header .kind{font-size:12px;color:#5d6779;text-align:right}main{max-width:1240px;margin:24px auto 75px;padding:0 16px}.hero{border-radius:14px;background:linear-gradient(105deg,#1c2b45,#344962);color:white;padding:26px 28px;display:flex;gap:30px;justify-content:space-between;align-items:center;margin-bottom:20px}.hero h1{font-size:27px;line-height:1.16;margin:0 0 7px}.hero p{opacity:.89;margin:0}.hero .pill{display:inline-block;padding:8px 13px;background:#ffffff20;border:1px solid #ffffff4a;border-radius:99px;white-space:nowrap}.cols{display:grid;grid-template-columns:1.1fr .9fr;gap:18px}.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:18px;box-shadow:0 2px 10px #192e5210}.card h2{margin:0 0 12px;font-size:19px;color:var(--navy)}.card p,.hint{color:var(--muted);font-size:13px}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}.fields label{display:block;font-size:12px;font-weight:700;color:var(--navy)}input,select,textarea{width:100%;border:1px solid #cad4e2;padding:10px 12px;border-radius:8px;background:#fff;color:#203049;font:inherit;outline:none}input:focus,textarea:focus{border-color:var(--blue);box-shadow:0 0 0 3px #1000eb16}textarea{resize:vertical;min-height:105px}label.file{display:inline-flex;border:1px solid var(--blue);color:var(--blue);font-weight:750;border-radius:8px;padding:10px 15px;cursor:pointer;background:#f6f5ff;gap:8px}.file input{display:none}button{border:0;border-radius:8px;background:var(--blue);color:#fff;font:700 14px system-ui;padding:10px 14px;cursor:pointer}button.secondary{background:#edf0f8;color:#1d2b46}button.red{background:var(--red)}button:disabled{opacity:.4;cursor:not-allowed}.tiny{font-size:11px;padding:5px 9px}.status{color:var(--muted);font-size:12px}.status.ok{color:var(--ok)}.status.bad{color:var(--red)}.controls{display:flex;gap:6px;align-items:center}.controls button{width:35px;min-width:35px;padding:8px}.controls input{width:85px;text-align:center}.search-results{max-height:275px;overflow-y:auto;border:1px solid var(--line);border-radius:9px;margin-top:8px}.result{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px;border-bottom:1px solid #ebedf1}.result:last-child{border:0}.result strong{font-size:12px}.result small{display:block;color:#667287}.result b{white-space:nowrap;color:var(--navy)}.tablewrap{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:12px}th{text-align:left;background:#f0f3fa;color:#344660;padding:10px 8px;white-space:nowrap}td{padding:8px;border-bottom:1px solid #e8ecf2;vertical-align:middle}td.num,th.num{text-align:right;white-space:nowrap}td input.qty{min-width:64px;width:72px;padding:5px}tfoot td{font-size:14px;font-weight:800;background:#fafbfc}#totals{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:15px 0}.kpi{background:#f6f8fc;border:1px solid #e5e9f1;border-radius:10px;padding:14px}.kpi .caption{font-size:11px;color:#687687;text-transform:uppercase;font-weight:700}.kpi b{display:block;color:var(--navy);font-size:23px}.kpi.feature{border-top:4px solid var(--red)}.notice{background:#fff8ee;border:1px solid #eddbbd;padding:11px;border-radius:10px;color:#835d29;font-size:12px}.step{display:inline-block;border-radius:50%;background:#ed1017;color:white;width:23px;height:23px;line-height:23px;text-align:center;font-size:12px;margin-right:6px}.specs{display:none;margin-top:12px}.spec{padding:10px 0;border-bottom:1px solid #e4e8f1}.spec .source{font-weight:650}.spec .suggest{font-size:12px;color:#627086}.tag{display:inline-block;background:#edf0ff;color:#241cab;border-radius:6px;padding:2px 6px;font-size:11px}footer{text-align:center;color:#69758a;font-size:12px;padding:14px 10px}.empty{text-align:center;color:#718096;padding:30px}.safe{color:#187e4e;font-weight:700}a{color:var(--blue)}@media(max-width:800px){header .brand{font-size:24px}.hero{display:block}.hero .pill{margin-top:12px}.cols,.fields{grid-template-columns:1fr}#totals{grid-template-columns:repeat(2,1fr)}main{margin-top:14px}.card{padding:14px}.hero h1{font-size:22px}}
 </style>
@@ -21,8 +23,8 @@
 <div class="card"><h2><span class="step">2</span> Project details</h2><div class="fields"><label>Property / scheme address<input id="address" placeholder="Property address"></label><label>Local authority / client<input id="client" placeholder="Council or contractor"></label><label>Job reference<input id="reference" placeholder="VOID-001"></label><label>Surveyor<input id="surveyor" placeholder="Surveyor name"></label></div>
 <div class="row" style="justify-content:space-between;margin-top:18px"><div><b>V8 selling-rate adjustment</b><p style="margin:2px 0">0% = agreed rate unchanged. Plus or minus changes all rates.</p></div><div class="controls"><button id="minus" type="button">−</button><input id="adjustment" inputmode="decimal" type="number" step="0.5" value="0" aria-label="V8 rate adjustment percentage"><span>%</span><button id="plus" type="button">+</button></div></div></div>
 <div class="card"><h2><span class="step">3</span> Find and add SOR items</h2><input id="search" placeholder="Search a SOR code, work description or trade…" autocomplete="off"><div id="search-results" class="search-results"><div class="empty">Load the V8 workbook to browse the rates.</div></div></div>
-<div class="card"><h2><span class="step">4</span> Written work specification</h2><p>Paste the schedule or upload TXT, DOCX or PDF. The browser offers suggested rate matches for your approval. <b>Suggestions are not automatically priced into the BoQ.</b></p>
-<label class="file" for="specfile">⬆ Upload specification<input id="specfile" type="file" accept=".txt,.docx,.pdf"></label><span id="spec-status" class="status"></span>
+<div class="card"><h2><span class="step">4</span> Written work specification</h2><p>Paste or upload Excel (.xlsx/.xls/.ods), CSV/TSV, Word (.docx), PDF, PowerPoint (.pptx), OpenDocument (.odt), RTF, TXT, Markdown, HTML, JSON, XML, ZIP or an image (JPG/PNG/WEBP/TIFF where supported). Scanned documents and images use on-device OCR. An uploaded V8 ratebook is identified and loaded into the rate library automatically. <b>Check all suggested codes and quantities before adding them.</b></p>
+<label class="file" for="specfile">⬆ Upload specification or spreadsheet<input id="specfile" type="file" accept=".txt,.text,.md,.markdown,.csv,.tsv,.xlsx,.xls,.xlsm,.ods,.docx,.doc,.pdf,.pptx,.odt,.rtf,.json,.xml,.html,.htm,.yaml,.yml,.zip,.jpg,.jpeg,.png,.webp,.bmp,.gif,.tif,.tiff,.heic,.heif"></label><span id="spec-status" class="status"></span>
 <textarea id="specification" placeholder="Example: Prepare and decorate 42 m2 of walls&#10;Renew 12 lm of skirting&#10;Replace 3 no internal doors"></textarea><div class="row"><button id="suggest" type="button">Suggest SOR matches</button><button id="clear-spec" class="secondary" type="button">Clear specification</button></div><div id="suggestions" class="specs"></div></div>
 </section><section>
 <div class="card"><h2>Project summary</h2><div id="totals"><div class="kpi"><div class="caption">Labour</div><b id="labour-total">£0.00</b></div><div class="kpi"><div class="caption">Materials</div><b id="materials-total">£0.00</b></div><div class="kpi"><div class="caption">Labour hours</div><b id="hours-total">0.0</b></div><div class="kpi feature"><div class="caption">Total ex VAT</div><b id="grand-total">£0.00</b></div></div><div id="checks" class="status">Totals reconcile to the adjusted V8 selling rates.</div>
@@ -64,8 +66,173 @@ $('ratesfile').onchange=async function(){const file=this.files[0];if(!file)retur
 $('clear-rates').onclick=async()=>{if(!confirm('Remove locally saved ratebook on this device?'))return;await drop(RATE_KEY);rates=[];codes.clear();status('rates-status','Locally saved ratebook cleared.');search();};
 for(const id of ['address','client','reference','surveyor','specification'])$(id).oninput=save;
 $('adjustment').oninput=()=>{save();calculate();};$('plus').onclick=()=>{$('adjustment').value=Math.min(1000,adjustment()+1);save();calculate();};$('minus').onclick=()=>{$('adjustment').value=Math.max(-100,adjustment()-1);save();calculate();};$('search').oninput=search;
-async function specificationText(file){const ext=file.name.toLowerCase().split('.').pop();if(ext==='txt')return await file.text();if(ext==='docx'){if(!window.mammoth)throw Error('Word reader unavailable; check your internet connection.');const r=await mammoth.extractRawText({arrayBuffer:await file.arrayBuffer()});return r.value;}if(ext==='pdf'){if(!window.pdfjsLib)throw Error('PDF reader unavailable; check your internet connection.');pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';const p=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;let texts=[];for(let i=1;i<=p.numPages;i++){const page=await p.getPage(i),t=await page.getTextContent();texts.push(t.items.map(x=>x.str).join(' '));}return texts.join('\n');}throw Error('Only TXT, DOCX and PDF are supported.');}
-$('specfile').onchange=async function(){let f=this.files[0];if(!f)return;status('spec-status','Reading '+f.name+'…');try{let t=await specificationText(f);if(!t.trim())throw Error('No readable text detected; scanned PDFs need OCR.');$('specification').value=t;save();status('spec-status','Loaded '+f.name+' ('+t.length+' characters).','ok');}catch(e){status('spec-status','Upload failed: '+e.message,'bad');}this.value='';};
+
+const MAX_SPEC_TEXT=400000;
+const plainExtensions=new Set(['txt','text','md','markdown','yaml','yml','ini','log','eml','css','js','ts','py','sql']);
+const sheetExtensions=new Set(['xlsx','xls','xlsm','xlsb','ods','csv','tsv']);
+function specLimit(text){if(text.length>MAX_SPEC_TEXT)throw Error('File contains more than 400,000 characters. Please divide this specification into smaller files.');return text;}
+function decodeMarkup(text,xml=false){
+  const parsed=new DOMParser().parseFromString(text,xml?'application/xml':'text/html');
+  if(xml&&parsed.querySelector('parsererror'))throw Error('The XML could not be read.');
+  if(!xml)parsed.querySelectorAll('script,style,noscript').forEach(n=>n.remove());
+  const root=xml?parsed.documentElement:parsed.body;
+  if(!root)return '';
+  return root.textContent.replace(/\n[ \t]+/g,'\n').trim();
+}
+function decodeRtf(t){
+  return t.replace(/\\par[d]?\b ?/gi,'\n').replace(/\\line\b ?/gi,'\n').replace(/\\tab\b ?/gi,'\t')
+    .replace(/\\'([0-9a-f]{2})/gi,(_,h)=>new TextDecoder('windows-1252').decode(new Uint8Array([parseInt(h,16)])))
+    .replace(/\\u(-?\d+)\??/gi,(_,n)=>String.fromCharCode((Number(n)+65536)%65536))
+    .replace(/\\[a-z]+-?\d* ?/gi,'').replace(/\\[{}\\]/g,m=>m.slice(1)).replace(/[{}]/g,'').trim();
+}
+function sheetContent(book){
+  const candidates=book.SheetNames.filter(s=>!/^(instructions|data_quality|material_recipes)$/i.test(s));
+  const out=[];
+  for(const name of candidates.slice(0,15)){
+    const a=XLSX.utils.sheet_to_json(book.Sheets[name],{header:1,defval:'',raw:false,blankrows:false});
+    if(!a.length)continue;
+    let headerIndex=-1,ds=-1,qs=-1,us=-1,cs=-1;
+    for(let i=0;i<Math.min(15,a.length);i++){
+      const labels=(a[i]||[]).map(x=>clean(x).toLowerCase());
+      const desc=labels.findIndex(x=>/^(description|work description|item description|specification|work item|task|item details|short description)$/.test(x));
+      if(desc>=0){headerIndex=i;ds=desc;qs=labels.findIndex(x=>/^(qty|quantity|measured quantity|take.?off|volume|area|length|number)$/.test(x));us=labels.findIndex(x=>/^(unit|uom|unit of measure|measurement unit)$/.test(x));cs=labels.findIndex(x=>/^(sor code|item code|rate code|code|ref|reference)$/.test(x));break;}
+    }
+    out.push('SHEET: '+name);
+    const rows=a.slice(headerIndex>=0?headerIndex+1:0);
+    for(const row of rows){
+      const values=(row||[]).map(v=>clean(v)).filter(Boolean);
+      if(!values.length)continue;
+      if(headerIndex>=0&&row[ds]){
+        const unit=us>=0?clean(row[us]):'',q=qs>=0?clean(row[qs]):'',code=cs>=0?clean(row[cs]):'';
+        out.push((q&&unit?q+' '+unit+' ':q?q+' ':'')+clean(row[ds])+(code?' SOR '+code:''));
+      }else out.push(values.join(' | '));
+    }
+  }
+  return specLimit(out.join('\n'));
+}
+function isRateBook(book){
+  for(const name of book.SheetNames){
+    const a=XLSX.utils.sheet_to_json(book.Sheets[name],{header:1,defval:'',sheetRows:5});
+    const row=a[0]||[];
+    const hs=row.map(v=>clean(v).toLowerCase());
+    if(hs.some(v=>v.includes('sor code'))&&hs.some(v=>v.includes('v8 rate'))&&hs.some(v=>v.includes('labour'))&&hs.some(v=>v.includes('material')))return name;
+  }
+  return null;
+}
+async function readSpreadsheet(file){
+  if(!window.XLSX)throw Error('Excel import library failed to load. Please reconnect to the internet and reload.');
+  const book=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:false});
+  const sheetName=isRateBook(book);
+  if(sheetName){
+    const rows=XLSX.utils.sheet_to_json(book.Sheets[sheetName],{header:1,defval:'',raw:true});
+    const parsed=importRows(rows);
+    await put(RATE_KEY,parsed);
+    setupRates(parsed);calculate();
+    return{ratebook:true,detail:'Recognised and imported '+parsed.length.toLocaleString('en-GB')+' V8 rate items. Your ratebook is ready; now upload a work specification.'};
+  }
+  return{text:sheetContent(book)};
+}
+async function ocrImage(input,label){
+  if(!window.Tesseract)throw Error('Image OCR library unavailable. Please check your connection or upload a typed PDF instead.');
+  const r=await Tesseract.recognize(input,'eng',{logger:m=>{if(m.status==='recognizing text')status('spec-status','Reading '+label+' with OCR: '+Math.round((m.progress||0)*100)+'%');}});
+  return r?.data?.text||'';
+}
+async function zipDocument(file,ext){
+  if(!window.JSZip)throw Error('Office archive library failed to load; reconnect to the internet and reload.');
+  const zip=await JSZip.loadAsync(await file.arrayBuffer());
+  if(ext==='odt'){
+    const entry=zip.file('content.xml');
+    if(!entry)throw Error('OpenDocument text is missing content.xml.');
+    const xml=await entry.async('string');
+    const doc=new DOMParser().parseFromString(xml,'application/xml');
+    return specLimit(Array.from(doc.getElementsByTagName('text:p')).map(e=>e.textContent).join('\n')||doc.documentElement.textContent);
+  }
+  if(ext==='pptx'){
+    const slides=Object.keys(zip.files).filter(n=>/^ppt\/slides\/slide\d+\.xml$/i.test(n)).sort((a,b)=>Number(a.match(/\d+/)[0])-Number(b.match(/\d+/)[0]));
+    const text=[];
+    for(const name of slides){
+      const doc=new DOMParser().parseFromString(await zip.file(name).async('string'),'application/xml');
+      text.push(name+': '+Array.from(doc.getElementsByTagName('a:t')).map(e=>e.textContent).join(' '));
+    }
+    return specLimit(text.join('\n'));
+  }
+  if(ext==='zip'){
+    const names=Object.keys(zip.files).filter(n=>!zip.files[n].dir&&!n.startsWith('__MACOSX/')&&/\.(txt|md|markdown|csv|tsv|json|xml|rtf|html|htm)$/i.test(n)).slice(0,30);
+    if(!names.length)throw Error('ZIP has no readable text files. Extract the documents and upload them individually.');
+    const text=[];
+    for(const n of names){
+      const item=zip.file(n);if(item._data&&item._data.uncompressedSize>5*1024*1024)continue;
+      text.push('FILE: '+n+'\n'+await item.async('string'));
+    }
+    return specLimit(text.join('\n'));
+  }
+  throw Error('Unknown archive type.');
+}
+async function pdfDocument(file){
+  if(!window.pdfjsLib)throw Error('PDF reader unavailable. Please check your internet connection.');
+  pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  const p=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
+  const out=[];let ocrCount=0;
+  for(let i=1;i<=p.numPages;i++){
+    const page=await p.getPage(i);
+    const content=await page.getTextContent();
+    let line=content.items.map(x=>x.str).join(' ').trim();
+    if(line.length<20){
+      if(ocrCount>=12)throw Error('This scan needs OCR for more than 12 pages. Split the document into smaller PDFs.');
+      if(!window.Tesseract)throw Error('Scanned PDF needs OCR but the OCR library did not load.');
+      status('spec-status','Scanning PDF page '+i+' of '+p.numPages+'…');
+      const vp=page.getViewport({scale:1.6}),can=document.createElement('canvas');
+      can.width=Math.round(vp.width);can.height=Math.round(vp.height);
+      await page.render({canvasContext:can.getContext('2d'),viewport:vp}).promise;
+      const blob=await new Promise((ok,no)=>can.toBlob(b=>b?ok(b):no(Error('Unable to render PDF page.')),'image/png'));
+      line=await ocrImage(blob,'PDF page '+i);ocrCount++;
+      can.width=0;can.height=0;
+    }
+    out.push('PAGE '+i+': '+line);
+    if(out.join('\n').length>MAX_SPEC_TEXT)throw Error('PDF is too large. Please upload a smaller section.');
+  }
+  return out.join('\n');
+}
+async function specificationText(file){
+  if(file.size>25*1024*1024)throw Error('File exceeds the 25 MB upload limit. Please compress or divide it.');
+  const ext=file.name.toLowerCase().split('.').pop();
+  if(sheetExtensions.has(ext))return await readSpreadsheet(file);
+  if(plainExtensions.has(ext))return{text:specLimit(await file.text())};
+  if(ext==='docx'){
+    if(!window.mammoth)throw Error('Word reader unavailable. Check your internet connection.');
+    const r=await mammoth.extractRawText({arrayBuffer:await file.arrayBuffer()});
+    return{text:specLimit(r.value)};
+  }
+  if(ext==='pdf')return{text:specLimit(await pdfDocument(file))};
+  if(['png','jpg','jpeg','webp','bmp','gif','tif','tiff','heic','heif'].includes(ext)){
+    if(['tif','tiff','heic','heif'].includes(ext)){
+      const test=await createImageBitmap(file).catch(()=>null);
+      if(!test)throw Error('This image format cannot be decoded by your browser. Save as JPG or PNG and upload again.');
+      test.close();
+    }
+    return{text:specLimit(await ocrImage(file,file.name))};
+  }
+  if(['pptx','odt','zip'].includes(ext))return{text:await zipDocument(file,ext)};
+  if(ext==='rtf')return{text:specLimit(decodeRtf(await file.text()))};
+  if(['html','htm','xml'].includes(ext))return{text:specLimit(decodeMarkup(await file.text(),ext==='xml'))};
+  if(ext==='json')return{text:specLimit(JSON.stringify(JSON.parse(await file.text()),null,2))};
+  if(ext==='doc')throw Error('Legacy Word .doc needs conversion to .docx or PDF. Newer Word files upload directly.');
+  if(ext==='ppt')throw Error('Legacy PowerPoint .ppt needs conversion to .pptx or PDF.');
+  throw Error('Format .'+esc(ext)+' is not readable in this browser yet. Try PDF, Word, Excel, CSV or an image.');
+}
+$('specfile').onchange=async function(){
+  const f=this.files[0];if(!f)return;
+  status('spec-status','Reading '+f.name+'…');
+  try{
+    const result=await specificationText(f);
+    if(result.ratebook){status('spec-status',result.detail,'ok');return;}
+    const t=result.text||'';
+    if(!t.trim())throw Error('No readable text found. Try a clearer scan, or another format.');
+    $('specification').value=t;save();
+    status('spec-status','Loaded '+f.name+' ('+t.length.toLocaleString('en-GB')+' characters). Review the text, then press Suggest SOR matches.','ok');
+  }catch(e){status('spec-status','Upload failed: '+e.message,'bad');}
+  finally{this.value='';}
+};
 $('clear-spec').onclick=()=>{$('specification').value='';$('suggestions').style.display='none';status('spec-status','Specification cleared.');save();};
 function findQty(line){const match=line.match(/(\d+(?:[.,]\d+)?)\s*(m²|m2|sqm|sq\.?\s*m|lm|lin\.?\s*m|m³|m3|nr|no\.?|each|item|ea)\b/i);if(match)return{qty:num(match[1]),unit:match[2].toLowerCase().replace(/[. ]/g,'')};return{qty:1,unit:''};}
 const stop=new Set(['with','into','then','shall','from','them','this','that','work','item','unit','allow','provide','renew','remove','prepare','install','include','measure','area','quantity','repair','making','complete','existing','supply','and','the','for']);
