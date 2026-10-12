@@ -25,7 +25,8 @@ export default function Estimates({db,project,docs=[]}){
  const [builders,setBuilders]=useState([]),[builderForm,setBuilderForm]=useState(null),[builderSaving,setBuilderSaving]=useState(false),[logoUploading,setLogoUploading]=useState(false);const [rateLibrary,setRateLibrary]=useState([]);
  const [rateImportBusy,setRateImportBusy]=useState(false),[rateImportStatus,setRateImportStatus]=useState(''),[rateImportReview,setRateImportReview]=useState([]);
  const [editingBoq,setEditingBoq]=useState(null);const [takeoffNotes,setTakeoffNotes]=useState('');const [item,setItem]=useState(initialItem),[pcDraft,setPcDraft]=useState({description:'',amount:'',attendance_percent:'0'}),[provisionalDraft,setProvisionalDraft]=useState({description:'',amount:'',defined:false,include:true}),[dayworkDraft,setDayworkDraft]=useState({description:'',labour:0,materials:0,plant:0,markup:0}),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);
- const [aiBusy,setAiBusy]=useState(false),[aiReview,setAiReview]=useState(null); const [drawing,setDrawing]=useState(''),[page,setPage]=useState(1),[pageCount,setPageCount]=useState(1),[image,setImage]=useState(''),[dimensions,setDimensions]=useState([0,0]);
+ const [aiBusy,setAiBusy]=useState(false),[aiReview,setAiReview]=useState(null);
+ const [aiProgress,setAiProgress]=useState({processed:0,total:0,stage:'idle'}); const [drawing,setDrawing]=useState(''),[page,setPage]=useState(1),[pageCount,setPageCount]=useState(1),[image,setImage]=useState(''),[dimensions,setDimensions]=useState([0,0]);
  const [calibrate,setCalibrate]=useState(false),[reference,setReference]=useState(null),[calibrationMetres,setCalibrationMetres]=useState(''),[calibrationFirst,setCalibrationFirst]=useState(null),[drag,setDrag]=useState(null),[hover,setHover]=useState(null),[markName,setMarkName]=useState('New work'),[stage,setStage]=useState('Proposed');
  const [markMode,setMarkMode]=useState('area'),[markDepth,setMarkDepth]=useState(''),[firstMeasurePoint,setFirstMeasurePoint]=useState(null);
  const firstMeasurePointRef=useRef(null);
@@ -198,6 +199,19 @@ export default function Estimates({db,project,docs=[]}){
    }catch(error){setNotice('Could not SAVE the drawing scale: '+String(error?.message||error))}
    finally{setCalibrationSaving(false)}
  }
+ async function assertAiServiceReady(){
+   let response;
+   try{response=await fetch('/api/ai-health',{method:'GET',cache:'no-store'});}
+   catch{throw Error('Cannot reach the Cloudflare AI reader. Check the app internet connection and Cloudflare deployment.');}
+   let health;
+   try{health=await response.json()}catch{
+     throw Error('This app deployment does not expose the Cloudflare AI health endpoint. The latest Worker build may not be deployed.');
+   }
+   if(!response.ok||health?.provider!=='Cloudflare Workers AI')
+     throw Error('The Cloudflare plan-reader service is unavailable in this deployment. Ask an administrator to check the Worker route.');
+   if(!health?.ready)throw Error('Cloudflare Workers AI is not connected to this deployment. Configure the AI binding, then redeploy.');
+   return health;
+ }
  async function postCloudflareTakeoff(endpoint,payload,token){
    const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify(payload)});
    let data={};try{data=await response.json()}catch{}
@@ -232,23 +246,29 @@ export default function Estimates({db,project,docs=[]}){
  async function runAiTakeoff(){
    if(aiBusy)return;
    if(!fileDocs.length){setNotice('Upload plans in Documents before running take-off.');return}
-   setAiBusy(true);setAiReview(null);setNotice('Working… preparing drawing pages.');
+   setAiBusy(true);setAiReview(null);setAiProgress({processed:0,total:0,stage:'Checking Cloudflare AI'});
+   setNotice('Working… checking the AI service before opening drawings.');
    let sources=[];
    try{
      const {data:{session}}=await db.auth.getSession();
      if(!session?.access_token)throw Error('Sign in again before running AI take-off.');
+     await assertAiServiceReady();
+     setAiProgress({processed:0,total:0,stage:'Preparing drawings'});
      const prepared=await prepareAiDrawings();sources=prepared.sources;
-     const {count}=prepared;const checkedPages=scaleSheetRegister(sources);
+     const {count}=prepared;setAiProgress({processed:0,total:count,stage:'Checking drawing scales'});
+     const checkedPages=scaleSheetRegister(sources);
      setCalibrationPages(checkedPages);
      const unchecked=missingCalibration(checkedPages);
      if(unchecked.length){
        setCalibrationWizard(true);chooseCalibrationPage(unchecked[0]);
+       setAiProgress({processed:0,total:count,stage:'Waiting for scale calibration'});
        setNotice('Before AI take-off, '+unchecked.length+' drawing page(s) need scale calibration or a construction-notes/no-scale decision. No AI request has been sent.');
        return;
      }
      const reviewed=[],autoCandidates=[],autoRejections=[];let complete=0;
      for(const source of sources){
        for(let pageNumber=1;pageNumber<=source.numPages;pageNumber++){
+         setAiProgress({processed:complete,total:count,stage:'Analysing page '+(complete+1)+' of '+count});
          setNotice('Working… reading drawing page '+(complete+1)+' of '+count+' with Cloudflare AI.');
          const rendered=await renderAiPage(source,pageNumber);
          const result=await postCloudflareTakeoff('/api/estimate-plan-review',{
@@ -267,8 +287,10 @@ export default function Estimates({db,project,docs=[]}){
            filename:source.filename,page:pageNumber,metresPerPixel:savedScale.metresPerPixel});
          for(const problem of rejected)autoRejections.push({...problem,filename:source.filename,page:pageNumber});
          reviewed.push(result.page);complete++;
+         setAiProgress({processed:complete,total:count,stage:'Analysed '+complete+' of '+count+' pages'});
        }
      }
+     setAiProgress({processed:count,total:count,stage:'Comparing drawings and preparing BOQ'});
      setNotice('Working… comparing existing and proposed drawings and preparing draft BOQ.');
      const comparison=await postCloudflareTakeoff('/api/estimate-plan-summary',{project_id:project.id,pages:reviewed},session.access_token);
      if(!comparison.drawing_review||!Array.isArray(comparison.takeoff_draft))throw Error('Cloudflare AI comparison was incomplete; no estimate was saved.');
@@ -360,9 +382,13 @@ export default function Estimates({db,project,docs=[]}){
      const {error:saveError}=await db.from('projects').update({estimate_data:next}).eq('id',project.id);
      if(saveError)throw Error('Could not save draft BOQ: '+saveError.message);
      setEstimate(next);setAiReview(comparison.drawing_review);
+     setAiProgress({processed:count,total:count,stage:'Draft BOQ saved for QS checking'});
      const needsMeasurement=added.filter(x=>!x.quantity).length;
      setNotice('AI reviewed '+count+' page(s): '+autoAdded.length+' calibrated AI-proposed outline(s) measured automatically (all provisional), '+added.length+' other scope item(s) still need measurement; '+autoRejections.length+' outline(s) held for review. Check outlines on each drawing and confirm all quantities before quotation.');
-   }catch(e){setNotice('AI plan reader failed: '+(e.message||String(e))+' No partial BOQ was saved.')}
+   }catch(e){
+     setAiProgress(p=>({...p,stage:'Stopped — review error'}));
+     setNotice('AI plan reader stopped: '+(e.message||String(e))+' No partial BOQ was saved. Fix the reported issue before restarting.');
+   }
    finally{for(const source of sources)if(source.pdf){try{await source.pdf.destroy()}catch{}}setAiBusy(false)}
  }
  function patch(k,v){setEstimate(x=>({...x,[k]:v}))}
@@ -696,6 +722,10 @@ export default function Estimates({db,project,docs=[]}){
  <button type="button" onClick={beginCalibration} disabled={calibrationLoading||aiBusy}>{calibrationLoading?'Working…':'Set drawing scales'}</button>
  <button type="button" aria-busy={aiBusy} style={{fontSize:18,fontWeight:700,padding:'14px 22px'}} onClick={runAiTakeoff} disabled={aiBusy||calibrationLoading||calibrationSaving}>{aiBusy?<span role="status" aria-live="polite">Working…</span>:"Step 2 — Start AI Take-Off"}</button>
  {calibrationPages.length>0&&<p style={{gridColumn:'1 / -1'}} aria-live="polite">{calibrationPages.length-missingCalibration(calibrationPages).length} of {calibrationPages.length} pages scaled or marked no scale required. {missingCalibration(calibrationPages).length?'Finish the remaining pages before take-off.':'All pages checked — ready to start AI drawing review.'}</p>}
+ <div style={{gridColumn:'1 / -1'}} aria-live="polite" role="status">
+  <strong>AI reader: {aiProgress.stage}</strong>
+  {aiProgress.total>0&&<><progress aria-label="Drawing pages analysed" max={aiProgress.total} value={aiProgress.processed} style={{width:'100%',marginTop:8}}/><small>{aiProgress.processed} of {aiProgress.total} drawing pages processed. The comparison and saving stages take additional time.</small></>}
+ </div>
  {notice&&<p role="alert" className="notice" style={{gridColumn:'1 / -1',marginTop:12}}>{notice}</p>}</div>{aiReview&&<div className="estimateForm"><h3>AI drawing review</h3><p>Pages: {aiReview.pages?.length||0} · Changes: {aiReview.changes?.length||0} · Questions: {aiReview.unresolved?.length||0}</p>{(aiReview.pages||[]).map((p,i)=><p key={i}><strong>{p.filename} page {p.page_number}:</strong> {p.classification} — {p.reason}</p>)}{(aiReview.changes||[]).map((c,i)=><p key={i}><strong>{c.element}:</strong> {c.classification} — {c.reason}</p>)}{(aiReview.unresolved||[]).map((q,i)=><p key={i}><strong>Question:</strong> {q.question}</p>)}<button type="button" onClick={()=>document.getElementById('estimate-drawing-takeoff')?.scrollIntoView({behavior:'smooth'})}>Open drawing for measured take-off</button></div>}
  <div className="estimateToolbar"><label>Saved builder<select value={estimate.builder_id||''} onChange={e=>patch('builder_id',e.target.value)}><option value="">Select builder</option>{builders.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label><button type="button" onClick={()=>{setBuilderForm({...emptyBuilderForm});setNotice('')}}>+ Add Builder</button><button type="button" className="outline" onClick={editBuilder} disabled={!builder} title={builder?'Edit the saved company and quotation details':'Select a saved builder first'}>Edit Builder</button><button onClick={()=>save()} disabled={busy}>Save estimate</button><button onClick={makeWord}>Generate Word BOQ</button><button type="button" onClick={exportBoqCSV}>Export BOQ CSV</button><button type="button" onClick={exportTakeoffJSON}>Export take-off JSON</button><button type="button" onClick={printMarkedDrawing}>Marked-up drawing PDF appendix</button><button onClick={printQuote}>Preview / Print Quotation</button><button onClick={saveQuoteRevision} disabled={busy||pricingIssues.length>0} title={pricingIssues.length?'Resolve pricing checks before saving a quote revision':''}>Save Quote Revision</button></div>
  {builderForm&&<div className="estimateForm" aria-label={builderForm.id?'Edit builder':'Add builder'}><h3>{builderForm.id?'Edit Builder — company and letterhead details':'Add Builder — company and letterhead details'}</h3>{[['name','Company name'],['contact_name','Contact'],['address','Postal address'],['phone','Phone'],['email','Email'],['vat_number','VAT number'],['company_number','Company number'],['footer','Quotation footer']].map(([k,l])=><label key={k}>{l}<input value={builderForm[k]||''} onChange={e=>setBuilderForm(b=>({...b,[k]:e.target.value}))}/></label>)}<label>Company logo (PNG or JPEG)<input type="file" accept=".png,.jpg,.jpeg" disabled={builderSaving||logoUploading} onChange={e=>uploadBuilderLogo(e.target.files?.[0])}/>{builderForm.logo_path&&<small>Saved logo on file. Upload another image to replace it.</small>}</label><button type="button" onClick={saveBuilder} disabled={builderSaving||logoUploading}>{builderSaving?'Saving builder…':logoUploading?'Uploading logo…':builderForm.id?'Save Builder Changes':'Save Builder'}</button><button type="button" className="outline" disabled={builderSaving||logoUploading} onClick={()=>setBuilderForm(null)}>Cancel</button></div>}
