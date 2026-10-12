@@ -496,29 +496,42 @@ function decodeRtf(t){
     .replace(/\\[a-z]+-?\d* ?/gi,'').replace(/\\[{}\\]/g,m=>m.slice(1)).replace(/[{}]/g,'').trim();
 }
 function sheetContent(book){
-  const candidates=book.SheetNames.filter(s=>!/^(instructions|data_quality|material_recipes)$/i.test(s));
-  const out=[];
-  for(const name of candidates.slice(0,15)){
-    const a=XLSX.utils.sheet_to_json(book.Sheets[name],{header:1,defval:'',raw:false,blankrows:false});
-    if(!a.length)continue;
-    let headerIndex=-1,ds=-1,qs=-1,us=-1,cs=-1;
-    for(let i=0;i<Math.min(15,a.length);i++){
-      const labels=(a[i]||[]).map(x=>clean(x).toLowerCase());
-      const desc=labels.findIndex(x=>/^(description|work description|item description|specification|work item|task|item details|short description)$/.test(x));
-      if(desc>=0){headerIndex=i;ds=desc;qs=labels.findIndex(x=>/^(qty|quantity|measured quantity|take.?off|volume|area|length|number)$/.test(x));us=labels.findIndex(x=>/^(unit|uom|unit of measure|measurement unit)$/.test(x));cs=labels.findIndex(x=>/^(sor code|item code|rate code|code|ref|reference)$/.test(x));break;}
+  const lines=[];
+  const ignore=/^(instructions?|read\s*me|summary|data.?quality|material.?recipes|lookups?|references?|rates?|pricing|totals?|deleted items.*|m3central service codes|v8 responsive data)$/i;
+  const quantity=v=>{const s=clean(v).replace(/,/g,'');return s!==''&&Number.isFinite(Number(s))?Number(s):null;};
+  for(const name of book.SheetNames.slice(0,20)){
+    if(ignore.test(name.trim()))continue;
+    const rows=XLSX.utils.sheet_to_json(book.Sheets[name],{header:1,defval:'',raw:false,blankrows:false,sheetRows:10000});
+    if(!rows.length)continue;
+    let heading=-1,d=-1,q=-1,u=-1,code=-1;
+    for(let i=0;i<Math.min(20,rows.length);i++){
+      const h=(rows[i]||[]).map(v=>clean(v).toLowerCase().replace(/\s+/g,' '));
+      const desc=h.findIndex(s=>/^(description|work description|works description|item description|specification|work item|scope of works|task|item details|short description)$/.test(s));
+      if(desc>=0){heading=i;d=desc;
+      q=h.findIndex(s=>/^(qty|quantity|measured quantity|take.?off|volume|area|length|number)$/.test(s));
+      u=h.findIndex(s=>/^(unit|uom|unit of measure|measurement unit)$/.test(s));
+      code=h.findIndex(s=>/^(sor code|nhf code|item code|rate code|code)$/.test(s));break;}
     }
-    out.push('SHEET: '+name);
-    const rows=a.slice(headerIndex>=0?headerIndex+1:0);
-    for(const row of rows){
-      const values=(row||[]).map(v=>clean(v)).filter(Boolean);
-      if(!values.length)continue;
-      if(headerIndex>=0&&row[ds]){
-        const unit=us>=0?clean(row[us]):'',q=qs>=0?clean(row[qs]):'',code=cs>=0?clean(row[cs]):'';
-        out.push((q&&unit?q+' '+unit+' ':q?q+' ':'')+clean(row[ds])+(code?' SOR '+code:''));
-      }else out.push(values.join(' | '));
+    if(heading<0){
+      if(rows.length<=300&&rows.every(r=>(r||[]).filter(v=>clean(v)).length<=2)){
+        for(const row of rows){const value=(row||[]).map(clean).filter(Boolean).join(' ');
+          if(value.length>=8&&!/^(total|subtotal|vat|page\s+\d+)\b/i.test(value))lines.push(value);}
+      }
+      continue;
+    }
+    for(const row of rows.slice(heading+1)){
+      const desc=clean(row[d]);if(desc.length<6||/^(total|subtotal|carried forward|brought forward|page|section total|grand total)\b/i.test(desc))continue;
+      const v=q<0?null:quantity(row[q]);
+      if(q>=0&&v===null)continue;
+      if(v!==null&&v<0)continue;
+      const unit=u>=0?clean(row[u]):'',item=code>=0?clean(row[code]):'';
+      if(item&&!/^\d{3,8}$/.test(item))continue;
+      lines.push((v!==null?v+' ':'')+(unit?unit+' ':'')+desc+(item?' SOR '+item:''));
+      if(lines.length>5000)throw Error('More than 5,000 specification items: please split by property or job.');
     }
   }
-  return specLimit(out.join('\n'));
+  if(!lines.length)throw Error('No work items identified. Excel specifications need a Description column, optionally Quantity and UOM. Pricing and summary sheets are ignored.');
+  return specLimit(lines.join('\n'));
 }
 function isRateBook(book){
   for(const name of book.SheetNames){
