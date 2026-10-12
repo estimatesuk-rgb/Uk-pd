@@ -11,6 +11,62 @@
 <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <style>
 :root{--red:#ed1017;--blue:#0900ec;--navy:#1c2b45;--paper:#fff;--bg:#f3f5fa;--line:#dee3eb;--muted:#67758a;--ok:#16865b}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#203049;font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}header{background:#fff;border-bottom:5px solid var(--red);padding:14px max(16px,calc((100vw - 1240px)/2));display:flex;align-items:center;justify-content:space-between;gap:20px}header .brand{color:var(--red);font-size:31px;letter-spacing:-1.4px;font-weight:900;font-style:italic;line-height:1}header .brand span{color:var(--blue)}header small{font-size:10px;letter-spacing:2.1px;color:var(--blue);display:block;font-weight:700;padding-top:6px}header .kind{font-size:12px;color:#5d6779;text-align:right}main{max-width:1240px;margin:24px auto 75px;padding:0 16px}.hero{border-radius:14px;background:linear-gradient(105deg,#1c2b45,#344962);color:white;padding:26px 28px;display:flex;gap:30px;justify-content:space-between;align-items:center;margin-bottom:20px}.hero h1{font-size:27px;line-height:1.16;margin:0 0 7px}.hero p{opacity:.89;margin:0}.hero .pill{display:inline-block;padding:8px 13px;background:#ffffff20;border:1px solid #ffffff4a;border-radius:99px;white-space:nowrap}.cols{display:grid;grid-template-columns:1.1fr .9fr;gap:18px}.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:18px;box-shadow:0 2px 10px #192e5210}.card h2{margin:0 0 12px;font-size:19px;color:var(--navy)}.card p,.hint{color:var(--muted);font-size:13px}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}.fields label{display:block;font-size:12px;font-weight:700;color:var(--navy)}input,select,textarea{width:100%;border:1px solid #cad4e2;padding:10px 12px;border-radius:8px;background:#fff;color:#203049;font:inherit;outline:none}input:focus,textarea:focus{border-color:var(--blue);box-shadow:0 0 0 3px #1000eb16}textarea{resize:vertical;min-height:105px}label.file{display:inline-flex;border:1px solid var(--blue);color:var(--blue);font-weight:750;border-radius:8px;padding:10px 15px;cursor:pointer;background:#f6f5ff;gap:8px}.file input{display:none}button{border:0;border-radius:8px;background:var(--blue);color:#fff;font:700 14px system-ui;padding:10px 14px;cursor:pointer}button.secondary{background:#edf0f8;color:#1d2b46}button.red{background:var(--red)}button:disabled{opacity:.4;cursor:not-allowed}.tiny{font-size:11px;padding:5px 9px}.status{color:var(--muted);font-size:12px}.status.ok{color:var(--ok)}.status.bad{color:var(--red)}.controls{display:flex;gap:6px;align-items:center}.controls button{width:35px;min-width:35px;padding:8px}.controls input{width:85px;text-align:center}.search-results{max-height:275px;overflow-y:auto;border:1px solid var(--line);border-radius:9px;margin-top:8px}.result{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px;border-bottom:1px solid #ebedf1}.result:last-child{border:0}.result strong{font-size:12px}.result small{display:block;color:#667287}.result b{white-space:nowrap;color:var(--navy)}.tablewrap{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:12px}th{text-align:left;background:#f0f3fa;color:#344660;padding:10px 8px;white-space:nowrap}td{padding:8px;border-bottom:1px solid #e8ecf2;vertical-align:middle}td.num,th.num{text-align:right;white-space:nowrap}td input.qty{min-width:64px;width:72px;padding:5px}tfoot td{font-size:14px;font-weight:800;background:#fafbfc}#totals{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:15px 0}.kpi{background:#f6f8fc;border:1px solid #e5e9f1;border-radius:10px;padding:14px}.kpi .caption{font-size:11px;color:#687687;text-transform:uppercase;font-weight:700}.kpi b{display:block;color:var(--navy);font-size:23px}.kpi.feature{border-top:4px solid var(--red)}.notice{background:#fff8ee;border:1px solid #eddbbd;padding:11px;border-radius:10px;color:#835d29;font-size:12px}.step{display:inline-block;border-radius:50%;background:#ed1017;color:white;width:23px;height:23px;line-height:23px;text-align:center;font-size:12px;margin-right:6px}.specs{display:none;margin-top:12px}.spec{padding:10px 0;border-bottom:1px solid #e4e8f1}.spec .source{font-weight:650}.spec .suggest{font-size:12px;color:#627086}.tag{display:inline-block;background:#edf0ff;color:#241cab;border-radius:6px;padding:2px 6px;font-size:11px}footer{text-align:center;color:#69758a;font-size:12px;padding:14px 10px}.empty{text-align:center;color:#718096;padding:30px}.safe{color:#187e4e;font-weight:700}a{color:var(--blue)}@media(max-width:800px){header .brand{font-size:24px}.hero{display:block}.hero .pill{margin-top:12px}.cols,.fields{grid-template-columns:1fr}#totals{grid-template-columns:repeat(2,1fr)}main{margin-top:14px}.card{padding:14px}.hero h1{font-size:22px}}
+
+
+/* Side-by-side source verification workspace */
+.review-layer[hidden]{display:none!important}
+.review-layer{position:fixed;z-index:2000;inset:0;display:flex;flex-direction:column;background:#edf1f7}
+.review-top{background:#152b48;color:white;min-height:65px;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 18px;border-bottom:4px solid var(--red)}
+.review-top .filename{font-weight:800;max-width:min(58vw,800px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.review-top small{display:block;color:#d4deec;font-weight:400}
+.review-top button{background:#fff;color:#1e2e48}
+.review-main{display:grid;grid-template-columns:minmax(300px,55%) minmax(340px,45%);min-height:0;flex:1}
+.review-source,.review-rates{min-height:0;min-width:0;display:flex;flex-direction:column;background:#fff}
+.review-source{border-right:3px solid #cbd4e4}
+.review-pane-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.review-pane-head b{font-size:14px}
+.review-pane-head button{padding:5px 9px;font-size:12px}
+.review-pane-head input{width:75px;padding:4px 6px;font-size:13px}
+.review-pager{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.review-document{flex:1;overflow:auto;background:#f2f4f8;padding:14px;min-height:0;position:relative}
+.review-document pre{font:13px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;background:white;padding:18px;max-width:920px;margin:0 auto;min-height:90%;border:1px solid #dbe1ea;box-shadow:0 3px 16px #152b481c}
+.review-document canvas{display:block;margin:auto;max-width:none;background:white;box-shadow:0 2px 16px #152b4833}
+.review-document img{display:block;margin:auto;max-width:none;box-shadow:0 3px 15px #152b482b}
+.review-document table{background:white;font-size:12px;min-width:600px;width:max-content;max-width:none;border:1px solid #d6deea}
+.review-document table th{position:sticky;top:0;background:#e8eef8;border:1px solid #d3dbe8;z-index:2}
+.review-document table td{border:1px solid #d8dfe9;white-space:pre-wrap;max-width:350px;min-width:70px}
+.review-document table tbody tr{cursor:pointer}
+.review-document table tbody tr:hover,.review-document table tbody tr.source-selected{background:#e5f1ff}
+.review-document .source-line{display:block;padding:5px 4px;border-bottom:1px solid #e8edf5;cursor:pointer}
+.review-document .source-line:hover,.review-document .source-line.source-selected{background:#e7edff}
+.review-document .source-line small{display:block;color:#8190a2}
+.review-document .source-paper{background:white;max-width:930px;margin:auto;padding:18px;min-height:90%;box-shadow:0 3px 15px #152b4818;overflow-wrap:anywhere}
+.review-control{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.review-control select{max-width:180px;padding:5px;font-size:12px}
+.review-workarea{min-height:0;flex:1;overflow-y:auto;padding:14px}
+.review-workarea .search-results{max-height:48vh;min-height:170px}
+.review-workarea .result{background:#fff}
+.review-workarea .result:hover{background:#f2f6ff}
+.review-workarea .review-suggest{max-height:24vh;overflow-y:auto;border:1px solid #dee5f0;border-radius:9px;padding:0 10px}
+.review-workarea .review-suggest .spec{padding:8px 0}
+.review-bottom{padding:10px 14px;background:#f1f5fc;border-top:1px solid #d6e0ec;font-size:13px}
+.review-bottom strong{color:#1e2d43}
+.review-hint{font-size:12px;color:#58677e}
+.review-switch{background:#fff;border:1px solid #d2d9e5;color:#233d6f}
+.review-selected{font-size:12px;color:#096a4d;padding-left:5px}
+@media(max-width:760px){
+.review-top{min-height:58px;padding:8px}
+.review-top .filename{max-width:60vw;font-size:13px}
+.review-main{grid-template-columns:1fr;grid-template-rows:43vh minmax(0,1fr)}
+.review-source{border-right:0;border-bottom:3px solid #becbe1}
+.review-document{padding:8px}
+.review-pane-head{padding:6px 9px}
+.review-workarea{padding:8px;overflow-y:auto}
+.review-workarea .search-results{max-height:26vh;min-height:100px}
+.review-workarea .review-suggest{max-height:20vh}
+.review-bottom{padding:7px 8px}
+}
+
 </style>
 </head>
 <body><header><div><div class="brand">UK<span>▰</span>Estimates</div><small>FAST ACCURATE BUILDING COSTINGS</small></div><div class="kind">HOUSING MAINTENANCE &amp; VOIDS<br><b>Standalone SOR V8 estimating app</b></div></header>
@@ -22,9 +78,10 @@
 <div class="row"><label class="file" for="ratesfile">⬆ Upload V8 Excel ratebook<input id="ratesfile" type="file" accept=".xlsx,.xls,.csv"></label><button id="clear-rates" class="secondary tiny">Clear saved rates</button></div><p id="rates-status" class="status">No ratebook loaded yet.</p></div>
 <div class="card"><h2><span class="step">2</span> Project details</h2><div class="fields"><label>Property / scheme address<input id="address" placeholder="Property address"></label><label>Local authority / client<input id="client" placeholder="Council or contractor"></label><label>Job reference<input id="reference" placeholder="VOID-001"></label><label>Surveyor<input id="surveyor" placeholder="Surveyor name"></label></div>
 <div class="row" style="justify-content:space-between;margin-top:18px"><div><b>V8 selling-rate adjustment</b><p style="margin:2px 0">0% = agreed rate unchanged. Plus or minus changes all rates.</p></div><div class="controls"><button id="minus" type="button">−</button><input id="adjustment" inputmode="decimal" type="number" step="0.5" value="0" aria-label="V8 rate adjustment percentage"><span>%</span><button id="plus" type="button">+</button></div></div></div>
-<div class="card"><h2><span class="step">3</span> Find and add SOR items</h2><input id="search" placeholder="Search a SOR code, work description or trade…" autocomplete="off"><div id="search-results" class="search-results"><div class="empty">Load the V8 workbook to browse the rates.</div></div></div>
+<div class="card"><h2><span class="step">3</span> Find and add SOR items</h2><div class="row" style="margin:0 0 9px"><button id="open-review" type="button" class="review-switch">↔ Review original beside SOR rates</button><span class="hint">View the uploaded document while choosing codes.</span></div><input id="search" placeholder="Search a SOR code, work description or trade…" autocomplete="off"><div id="search-results" class="search-results"><div class="empty">Load the V8 workbook to browse the rates.</div></div></div>
 <div class="card"><h2><span class="step">4</span> Written work specification</h2><p>Paste or upload Excel (.xlsx/.xls/.ods), CSV/TSV, Word (.docx), PDF, PowerPoint (.pptx), OpenDocument (.odt), RTF, TXT, Markdown, HTML, JSON, XML, ZIP or an image (JPG/PNG/WEBP/TIFF where supported). Scanned documents and images use on-device OCR. An uploaded V8 ratebook is identified and loaded into the rate library automatically. <b>Check all suggested codes and quantities before adding them.</b></p>
 <label class="file" for="specfile">⬆ Upload specification or spreadsheet<input id="specfile" type="file" accept=".txt,.text,.md,.markdown,.csv,.tsv,.xlsx,.xls,.xlsm,.ods,.docx,.doc,.pdf,.pptx,.odt,.rtf,.json,.xml,.html,.htm,.yaml,.yml,.zip,.jpg,.jpeg,.png,.webp,.bmp,.gif,.tif,.tiff,.heic,.heif"></label><span id="spec-status" class="status"></span>
+<div class="row" style="margin:12px 0 8px"><button id="review-file" class="secondary" type="button">↔ View document while selecting rates</button><span id="source-file-label" class="status">No original document loaded.</span></div>
 <textarea id="specification" placeholder="Example: Prepare and decorate 42 m2 of walls&#10;Renew 12 lm of skirting&#10;Replace 3 no internal doors"></textarea><div class="row"><button id="suggest" type="button">Suggest SOR matches</button><button id="clear-spec" class="secondary" type="button">Clear specification</button></div><div id="suggestions" class="specs"></div></div>
 </section><section>
 <div class="card"><h2>Project summary</h2><div id="totals"><div class="kpi"><div class="caption">Labour</div><b id="labour-total">£0.00</b></div><div class="kpi"><div class="caption">Materials</div><b id="materials-total">£0.00</b></div><div class="kpi"><div class="caption">Labour hours</div><b id="hours-total">0.0</b></div><div class="kpi feature"><div class="caption">Total ex VAT</div><b id="grand-total">£0.00</b></div></div><div id="checks" class="status">Totals reconcile to the adjusted V8 selling rates.</div>
@@ -32,7 +89,35 @@
 <div class="card"><h2>Bill of Quantities</h2><p>Every item is split into materials and labour. Change quantities or remove items as needed.</p><div class="tablewrap"><table><thead><tr><th>SOR / description</th><th class="num">Qty</th><th>UOM</th><th class="num">V8 rate</th><th class="num">Labour</th><th class="num">Materials</th><th class="num">Total</th><th></th></tr></thead><tbody id="boq-rows"><tr><td colspan="8" class="empty">No work items added yet.</td></tr></tbody></table></div></div>
 <div class="card"><h2>Labour time &amp; material plan</h2><div class="tablewrap"><table><thead><tr><th>Work item</th><th class="num">Hours</th><th class="num">Material value</th></tr></thead><tbody id="plan-rows"><tr><td colspan="3" class="empty">Add SOR items to generate this schedule.</td></tr></tbody></table></div><p class="notice">The material figures are cost allowances split from V8—not product quantities. A true purchasing list requires approved material recipes and pack sizes. Estimated SMVs are labelled as provisional.</p></div>
 <div class="card"><h2>How the pricing works</h2><p><b>V8 is the agreed selling rate.</b> At 0%, the total is exactly quantity × V8 rate. Adjustment ±% is applied to V8, and its labour/material portions, only once. SMV minutes × quantity / 60 gives labour hours.</p><p><span class="safe">✓</span> Separate app and private on-device data. <b>Note:</b> this pilot does not yet provide cloud project sharing, multi-user logins, genuine AI interpretation or automatic material product recipes.</p></div></section></div>
-</main><footer>© UK Estimates • Housing Maintenance &amp; Voids • Designed for UK council and housing-association maintenance estimating</footer>
+</main>
+<div id="review-layer" class="review-layer" hidden role="dialog" aria-modal="true" aria-label="Review specification beside schedule of rates">
+  <div class="review-top">
+    <div><div class="filename" id="review-filename">Uploaded specification</div><small>Source document on left · Verified SOR rates on right</small></div>
+    <button id="review-close" type="button" aria-label="Close side-by-side review">✕ Close review</button>
+  </div>
+  <div class="review-main">
+    <section class="review-source" aria-label="Source file preview">
+      <div class="review-pane-head">
+        <b>Original uploaded document</b>
+        <div class="review-pager" id="review-pager"></div>
+      </div>
+      <div id="review-document" class="review-document"><p class="empty">Upload a specification to view it here.</p></div>
+    </section>
+    <section class="review-rates" aria-label="Rate matching">
+      <div class="review-pane-head"><b>V8 schedule of rates</b><span class="review-hint">Check description · unit · rate</span></div>
+      <div class="review-workarea">
+        <div class="row" style="margin-bottom:9px"><input style="flex:1;min-width:170px" id="review-search" placeholder="Search code, trade or description" aria-label="Search V8 schedule rates">
+        <label class="review-hint">Quantity <input id="review-qty" type="number" value="1" min="0" step="any" style="width:84px"></label></div>
+        <div class="review-hint" style="margin-bottom:8px">Click a line or spreadsheet row on the left to find matching items. Confirm the correct SOR code before adding.</div>
+        <div class="search-results" id="review-results"><div class="empty">Load V8 rates to search.</div></div>
+        <div class="row" style="margin:16px 0 7px"><b>Suggested matches from specification</b><button id="review-refresh" class="secondary tiny" type="button">Refresh suggestions</button></div>
+        <div class="review-suggest" id="review-suggest"><div class="empty">Upload or paste a specification for suggestions.</div></div>
+      </div>
+      <div class="review-bottom"><strong id="review-total">0 items · £0.00 ex VAT</strong><span class="review-selected" id="review-selected"></span><div class="review-hint">All prices use agreed V8 selling rates with your chosen ±% adjustment. Changes update the main BoQ immediately.</div></div>
+    </section>
+  </div>
+</div>
+<footer>© UK Estimates • Housing Maintenance &amp; Voids • Designed for UK council and housing-association maintenance estimating</footer>
 <script>
 (function(){
 "use strict";
@@ -40,13 +125,13 @@ const $=id=>document.getElementById(id), money=n=>'£'+Number(n||0).toLocaleStri
 const clean=s=>String(s==null?'':s).trim(), num=v=>Number(String(v==null?'':v).replace(/[£,]/g,''))||0;
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let rates=[],codes=new Map(),job=[],db=null;
-const RATE_KEY='uk-estimates-v8-rates-v1', JOB_KEY='uk-estimates-voids-job-v1';
+const RATE_KEY='uk-estimates-v8-rates-v1', JOB_KEY='uk-estimates-voids-job-v1', SOURCE_KEY='uk-estimates-source-document-v1';
 function status(id,msg,type){$(id).textContent=msg;$(id).className='status'+(type?' '+type:'');}
 function indexed(){return new Promise((ok,no)=>{if(!window.indexedDB){no(new Error('This browser does not support local data storage.'));return;}const r=indexedDB.open('uk-estimates-voids-v1',1);r.onupgradeneeded=()=>{if(!r.result.objectStoreNames.contains('settings'))r.result.createObjectStore('settings');};r.onerror=()=>no(r.error);r.onsuccess=()=>ok(r.result);});}
 async function put(key,val){db=db||await indexed();return new Promise((ok,no)=>{const t=db.transaction('settings','readwrite'),s=t.objectStore('settings');s.put(val,key);t.oncomplete=()=>ok();t.onerror=()=>no(t.error);});}
 async function get(key){db=db||await indexed();return new Promise((ok,no)=>{const t=db.transaction('settings'),r=t.objectStore('settings').get(key);r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error);});}
 async function drop(key){db=db||await indexed();return new Promise((ok,no)=>{const t=db.transaction('settings','readwrite');t.objectStore('settings').delete(key);t.oncomplete=()=>ok();t.onerror=()=>no(t.error);});}
-function setupRates(rows){rates=rows;codes=new Map(rows.map(r=>[r.code,r]));status('rates-status',rates.length.toLocaleString('en-GB')+' V8 rate items ready to use. Locally stored on this device.','ok');search();}
+function setupRates(rows){rates=rows;codes=new Map(rows.map(r=>[r.code,r]));status('rates-status',rates.length.toLocaleString('en-GB')+' V8 rate items ready to use. Locally stored on this device.','ok');search();renderReviewRates();}
 function save(){try{localStorage.setItem(JOB_KEY,JSON.stringify({job:job,address:$('address').value,client:$('client').value,reference:$('reference').value,surveyor:$('surveyor').value,adjustment:$('adjustment').value,specification:$('specification').value}));}catch(e){console.warn('Project local storage failed',e);}}
 function restore(){try{let d=JSON.parse(localStorage.getItem(JOB_KEY)||'{}');job=d.job||[];['address','client','reference','surveyor','adjustment','specification'].forEach(k=>{if(d[k]!=null)$(k).value=d[k];});}catch(e){job=[];}}
 function adjustment(){let x=Number($('adjustment').value);return Number.isFinite(x)?Math.max(-100,Math.min(1000,x)):0;}
@@ -54,8 +139,8 @@ function calculate(){const f=1+adjustment()/100;let lt=0,mt=0,gt=0,ht=0,lines=[]
 $('boq-rows').innerHTML=lines.join('')||'<tr><td colspan="8" class="empty">No work items added yet.</td></tr>';$('plan-rows').innerHTML=plans.join('')||'<tr><td colspan="3" class="empty">Add SOR items to generate this schedule.</td></tr>';
 $('labour-total').textContent=money(lt);$('materials-total').textContent=money(mt);$('hours-total').textContent=ht.toFixed(1);$('grand-total').textContent=money(gt);
 const gap=Math.abs(gt-lt-mt);$('checks').textContent='Selling-rate adjustment: '+(adjustment()>0?'+':'')+adjustment()+'% • '+(gap<0.03?'Labour + materials reconciled':'Check split: '+money(gap)+' difference caused by unallocated V8 elements.');
-document.querySelectorAll('[data-qty]').forEach(el=>el.onchange=()=>{let i=Number(el.dataset.qty);job[i].qty=Math.max(0,num(el.value));save();calculate();});document.querySelectorAll('[data-del]').forEach(el=>el.onclick=()=>{job.splice(Number(el.dataset.del),1);save();calculate();});}
-function add(code,qty){let r=codes.get(String(code));if(!r)return;let existing=job.find(j=>j.code===r.code);if(existing)existing.qty+=Math.max(0,num(qty||1));else job.push({code:r.code,qty:Math.max(0,num(qty||1)),snapshot:r});save();calculate();}
+document.querySelectorAll('[data-qty]').forEach(el=>el.onchange=()=>{let i=Number(el.dataset.qty);job[i].qty=Math.max(0,num(el.value));save();calculate();});document.querySelectorAll('[data-del]').forEach(el=>el.onclick=()=>{job.splice(Number(el.dataset.del),1);save();calculate();});updateReviewTotals();}
+function add(code,qty){let r=codes.get(String(code));if(!r)return;let existing=job.find(j=>j.code===r.code);if(existing)existing.qty+=Math.max(0,num(qty||1));else job.push({code:r.code,qty:Math.max(0,num(qty||1)),snapshot:r});save();calculate();if(!$('review-layer').hidden){$('review-selected').textContent='Added '+r.code+' · '+money(r.rate);}}
 function search(){let term=clean($('search').value).toLowerCase();if(!rates.length){$('search-results').innerHTML='<div class="empty">Load the V8 workbook to browse rates.</div>';return;}let found=!term?rates.slice(0,12):rates.filter(r=>(r.code+' '+r.description+' '+r.trade).toLowerCase().includes(term)).slice(0,24);$('search-results').innerHTML=found.map(r=>'<div class="result"><div><strong>'+esc(r.code)+'</strong> · '+esc(r.description)+'<small>'+esc(r.trade)+' · '+esc(r.unit)+' · Labour '+money(r.labour)+' / Material '+money(r.materials)+'</small></div><div class="row" style="justify-content:flex-end"><b>'+money(r.rate)+'</b><button class="tiny" data-add="'+esc(r.code)+'">Add</button></div></div>').join('')||'<div class="empty">No matches found.</div>';document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>add(b.dataset.add,1));}
 function importRows(sheet){if(!sheet||sheet.length<2)throw Error('The workbook contains no rate items.');const h=sheet[0].map(x=>clean(x).toLowerCase());const ix=(p)=>h.findIndex(x=>p.some(s=>x.includes(s)));
 const c=ix(['sor code','item code','rate code']),d=ix(['short description','description']),u=ix(['uom','unit of meas']),v=ix(['v8 rate','selling rate','total rate']),l=ix(['labour £','labour cost']),m=ix(['materials £','material cost']),smv=ix(['smv minutes','standard minute']),trade=ix(['trade']),method=ix(['smv method']);
@@ -66,6 +151,160 @@ $('ratesfile').onchange=async function(){const file=this.files[0];if(!file)retur
 $('clear-rates').onclick=async()=>{if(!confirm('Remove locally saved ratebook on this device?'))return;await drop(RATE_KEY);rates=[];codes.clear();status('rates-status','Locally saved ratebook cleared.');search();};
 for(const id of ['address','client','reference','surveyor','specification'])$(id).oninput=save;
 $('adjustment').oninput=()=>{save();calculate();};$('plus').onclick=()=>{$('adjustment').value=Math.min(1000,adjustment()+1);save();calculate();};$('minus').onclick=()=>{$('adjustment').value=Math.max(-100,adjustment()-1);save();calculate();};$('search').oninput=search;
+
+
+
+/* Document-review workspace: the source file remains beside the item picker. */
+let sourceFile=null,sourceBlobUrl=null,sourcePdf=null,sourceWorkbook=null,sourceText='',sourcePage=1,sourceZoom=1,sourceSheet=0,sourceRowPage=0,sourceKind='text',sourceRenderId=0;
+function sourceExt(){return sourceFile?sourceFile.name.toLowerCase().split('.').pop():'';}
+function showReview(isOpen){
+  $('review-layer').hidden=!isOpen;
+  document.body.style.overflow=isOpen?'hidden':'';
+  if(isOpen){
+    $('review-filename').textContent=sourceFile?sourceFile.name:'Pasted / typed work specification';
+    renderSource().catch(e=>{$('review-document').innerHTML='<p class="notice">Could not preview this original: '+esc(e.message)+'. Extracted specification text remains available below.</p><pre>'+esc(sourceText||$('specification').value)+'</pre>';});
+    renderReviewRates();
+    renderReviewSuggestions();
+    updateReviewTotals();
+    setTimeout(()=>$('review-search').focus(),50);
+  }
+}
+$('open-review').onclick=()=>showReview(true);
+$('review-file').onclick=()=>showReview(true);
+$('review-close').onclick=()=>showReview(false);
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('review-layer').hidden)showReview(false);});
+function releaseSource(){sourceRenderId++;sourcePdf=null;sourceWorkbook=null;sourceFile=null;sourceText='';sourcePage=1;sourceSheet=0;sourceRowPage=0;sourceZoom=1;if(sourceBlobUrl)URL.revokeObjectURL(sourceBlobUrl);sourceBlobUrl=null;}
+async function activateSource(file,extracted,remember=true){
+  releaseSource();sourceFile=file;sourceText=extracted||'';sourceKind='text';
+  $('source-file-label').textContent='Original ready: '+file.name;
+  if(remember){try{await put(SOURCE_KEY,{name:file.name,type:file.type,blob:file,lastModified:file.lastModified||0});}catch(e){status('spec-status','File loaded, but the browser could not save a copy for next time: '+e.message,'bad');}}
+  showReview(true);
+}
+function sourceSelect(text){
+  const line=String(text||'').replace(/\s+/g,' ').trim().slice(0,220);
+  if(!line)return;
+  $('review-search').value=line.replace(/^\d+(?:\.\d+)?\s*(?:m2|m²|lm|m3|m³|no\.?|nr|each)\s+/i,'').slice(0,110);
+  const q=findQty(line);if(q.qty&&q.qty>0)$('review-qty').value=q.qty;
+  renderReviewRates();
+}
+function renderReviewRates(){
+  const root=$('review-results');if(!root)return;
+  if(!rates.length){root.innerHTML='<div class="empty">Upload the enriched V8 ratebook first.</div>';return;}
+  const term=clean($('review-search').value).toLowerCase();
+  let rows=term?rates.filter(r=>(r.code+' '+r.description+' '+r.trade).toLowerCase().includes(term)).slice(0,40):rates.slice(0,20);
+  root.innerHTML=rows.map(r=>'<div class="result"><div><strong>'+esc(r.code)+'</strong> — '+esc(r.description)+'<small>'+esc(r.trade)+' · '+esc(r.unit)+' · Labour '+money(r.labour)+' + Materials '+money(r.materials)+'</small></div><div><b>'+money(r.rate)+'</b><br><button type="button" class="tiny" data-review-add="'+esc(r.code)+'">Add rate</button></div></div>').join('')||'<div class="empty">No matching rate. Try a shorter search or check the wording on the left.</div>';
+  root.querySelectorAll('[data-review-add]').forEach(b=>b.onclick=()=>{const q=Math.max(0,num($('review-qty').value));if(q<=0){alert('Enter a quantity greater than zero.');return;}add(b.dataset.reviewAdd,q);});
+}
+$('review-search').oninput=renderReviewRates;
+function updateReviewTotals(){
+  const elt=$('review-total');if(!elt)return;
+  const f=1+adjustment()/100;
+  let total=0;for(const j of job){const r=codes.get(j.code)||j.snapshot;if(r)total+=Math.max(0,num(j.qty))*r.rate*f;}
+  elt.textContent=job.length+' SOR items · '+money(total)+' ex VAT';
+}
+function renderReviewSuggestions(){
+  const target=$('review-suggest');if(!target)return;
+  const text=clean($('specification').value);
+  if(!text){target.innerHTML='<div class="empty">No specification text yet.</div>';return;}
+  if(!rates.length){target.innerHTML='<div class="empty">Import the V8 ratebook before matching.</div>';return;}
+  const lines=text.split(/[\r\n]+/).map(x=>x.trim()).filter(x=>x.length>7).slice(0,40);
+  target.innerHTML=lines.map((line,i)=>{
+    const ranked=topMatch(line),q=findQty(line);
+    return '<div class="spec"><button type="button" class="secondary tiny" data-source-search="'+i+'">Search</button> <span class="source">'+esc(line.slice(0,180))+'</span>'+
+    (ranked.length?ranked.map(x=>'<div class="suggest">'+esc(x.r.code)+' '+esc(x.r.description)+' • '+money(x.r.rate)+'/'+esc(x.r.unit)+' <button type="button" class="tiny secondary" data-source-add="'+esc(x.r.code)+'" data-source-qty="'+q.qty+'">Add '+q.qty+'</button></div>').join(''):'<div class="suggest">No confident text match. Search manually using the item above.</div>')+'</div>';
+  }).join('')||'<div class="empty">No description lines found.</div>';
+  target.querySelectorAll('[data-source-search]').forEach(b=>b.onclick=()=>sourceSelect(lines[Number(b.dataset.sourceSearch)]));
+  target.querySelectorAll('[data-source-add]').forEach(b=>b.onclick=()=>{add(b.dataset.sourceAdd,Number(b.dataset.sourceQty));b.disabled=true;b.textContent='Added';});
+}
+$('review-refresh').onclick=renderReviewSuggestions;
+function pager(html){$('review-pager').innerHTML=html;}
+function previewFallback(text){
+  pager('<span class="review-hint">Click any line to search its wording</span>');
+  const t=text||sourceText||$('specification').value;
+  if(!t){$('review-document').innerHTML='<div class="empty">No source file yet. Upload a document or paste a specification.</div>';return;}
+  const lines=t.split(/[\r\n]+/);
+  $('review-document').innerHTML='<div class="source-paper">'+lines.slice(0,3000).map((line,i)=>'<div class="source-line" data-view-line="'+i+'"><small>'+String(i+1)+'</small>'+esc(line||' ')+'</div>').join('')+'</div>';
+  $('review-document').querySelectorAll('[data-view-line]').forEach(e=>e.onclick=()=>{
+    $('review-document').querySelectorAll('.source-selected').forEach(el=>el.classList.remove('source-selected'));
+    e.classList.add('source-selected');sourceSelect(lines[Number(e.dataset.viewLine)]);
+  });
+}
+function pageBtns(current,max,label){
+  return '<button class="secondary tiny" id="review-prev" '+(current<=1?'disabled':'')+'>◀</button><span class="review-hint">'+esc(label||'Page')+' '+current+' / '+max+'</span><button class="secondary tiny" id="review-next" '+(current>=max?'disabled':'')+'>▶</button><button class="secondary tiny" id="review-zoomout">−</button><span class="review-hint">'+Math.round(sourceZoom*100)+'%</span><button class="secondary tiny" id="review-zoomin">+</button>';
+}
+function setPreviewActions(max){
+  $('review-prev').onclick=()=>{sourcePage=Math.max(1,sourcePage-1);renderSource();};
+  $('review-next').onclick=()=>{sourcePage=Math.min(max,sourcePage+1);renderSource();};
+  $('review-zoomout').onclick=()=>{sourceZoom=Math.max(0.5,Math.round((sourceZoom-.25)*100)/100);renderSource();};
+  $('review-zoomin').onclick=()=>{sourceZoom=Math.min(3,Math.round((sourceZoom+.25)*100)/100);renderSource();};
+}
+async function renderSource(){
+  const rid=++sourceRenderId;
+  if(!sourceFile){previewFallback(sourceText||$('specification').value);return;}
+  const ext=sourceExt(),container=$('review-document');
+  $('review-filename').textContent=sourceFile.name;
+  if(ext==='pdf'){
+    if(!window.pdfjsLib){previewFallback(sourceText);return;}
+    if(!sourcePdf){pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';sourcePdf=await pdfjsLib.getDocument({data:await sourceFile.arrayBuffer()}).promise;}
+    if(rid!==sourceRenderId)return;
+    sourcePage=Math.max(1,Math.min(sourcePdf.numPages,sourcePage));
+    pager(pageBtns(sourcePage,sourcePdf.numPages,'Page'));setPreviewActions(sourcePdf.numPages);
+    const pg=await sourcePdf.getPage(sourcePage);if(rid!==sourceRenderId)return;
+    const vp=pg.getViewport({scale:sourceZoom*1.25});
+    const canvas=document.createElement('canvas');canvas.width=Math.round(vp.width);canvas.height=Math.round(vp.height);
+    const ctx=canvas.getContext('2d');
+    container.replaceChildren(canvas);
+    await pg.render({canvasContext:ctx,viewport:vp}).promise;
+    return;
+  }
+  if(['png','jpg','jpeg','webp','bmp','gif','tif','tiff','heic','heif'].includes(ext)){
+    if(!sourceBlobUrl)sourceBlobUrl=URL.createObjectURL(sourceFile);
+    pager('<span class="review-hint">Original image</span> <button class="secondary tiny" id="review-zoomout">−</button><span class="review-hint">'+Math.round(sourceZoom*100)+'%</span><button class="secondary tiny" id="review-zoomin">+</button>');
+    $('review-zoomout').onclick=()=>{sourceZoom=Math.max(.25,sourceZoom-.25);renderSource();};
+    $('review-zoomin').onclick=()=>{sourceZoom=Math.min(4,sourceZoom+.25);renderSource();};
+    container.innerHTML='<div class="source-paper" style="width:max-content;min-width:100%"><img id="review-image" alt="Original uploaded source document" src="'+esc(sourceBlobUrl)+'" style="width:'+(Math.round(sourceZoom*800))+'px"></div>';
+    return;
+  }
+  if(sheetExtensions.has(ext)){
+    if(!window.XLSX){previewFallback(sourceText);return;}
+    if(!sourceWorkbook)sourceWorkbook=XLSX.read(await sourceFile.arrayBuffer(),{type:'array'});
+    if(rid!==sourceRenderId)return;
+    const names=sourceWorkbook.SheetNames;
+    sourceSheet=Math.max(0,Math.min(names.length-1,sourceSheet));
+    const ws=sourceWorkbook.Sheets[names[sourceSheet]];
+    const range=XLSX.utils.decode_range(ws['!ref']||'A1');
+    const total=range.e.r-range.s.r+1;
+    const pages=Math.max(1,Math.ceil(total/60));
+    sourceRowPage=Math.max(0,Math.min(pages-1,sourceRowPage));
+    const start=range.s.r+sourceRowPage*60,end=Math.min(range.e.r,start+59);
+    const maxCol=Math.min(range.e.c,24);
+    let html='<table><thead><tr><th>#</th>';
+    for(let col=range.s.c;col<=maxCol;col++)html+='<th>'+esc(XLSX.utils.encode_col(col))+'</th>';
+    html+='</tr></thead><tbody>';
+    for(let row=start;row<=end;row++){
+      const cells=[];for(let col=range.s.c;col<=maxCol;col++){const cell=ws[XLSX.utils.encode_cell({r:row,c:col})];cells.push(cell?clean(cell.w!==undefined?cell.w:cell.v):'');}
+      html+='<tr data-source-row="'+row+'"><td><b>'+(row+1)+'</b></td>'+cells.map(v=>'<td>'+esc(v)+'</td>').join('')+'</tr>';
+    }
+    html+='</tbody></table>';
+    container.innerHTML=html;
+    pager('<label class="review-hint">Sheet <select id="review-sheet">'+names.map((n,i)=>'<option value="'+i+'" '+(i===sourceSheet?'selected':'')+'>'+esc(n)+'</option>').join('')+'</select></label>'+
+      '<button id="review-prev" class="secondary tiny" '+(sourceRowPage===0?'disabled':'')+'>◀</button><span class="review-hint">Rows '+(start+1)+'–'+(end+1)+' / '+(range.e.r+1)+'</span><button id="review-next" class="secondary tiny" '+(sourceRowPage>=pages-1?'disabled':'')+'>▶</button>');
+    $('review-sheet').onchange=e=>{sourceSheet=Number(e.target.value);sourceRowPage=0;renderSource();};
+    $('review-prev').onclick=()=>{sourceRowPage=Math.max(0,sourceRowPage-1);renderSource();};
+    $('review-next').onclick=()=>{sourceRowPage=Math.min(pages-1,sourceRowPage+1);renderSource();};
+    container.querySelectorAll('[data-source-row]').forEach(row=>row.onclick=()=>{
+      container.querySelectorAll('.source-selected').forEach(el=>el.classList.remove('source-selected'));
+      row.classList.add('source-selected');
+      const values=Array.from(row.querySelectorAll('td')).slice(1).map(x=>x.textContent).filter(Boolean);
+      const words=values.filter(v=>/[a-z]{3,}/i.test(v)).sort((a,b)=>b.length-a.length);
+      const qty=values.find(v=>/^\d+(?:\.\d+)?\s*(?:m²|m2|lm|m³|m3|no|nr|ea)?$/i.test(v));
+      if(qty)$('review-qty').value=num(qty)||1;
+      sourceSelect(words[0]||values.join(' '));
+    });
+    return;
+  }
+  previewFallback(sourceText);
+}
 
 const MAX_SPEC_TEXT=400000;
 const plainExtensions=new Set(['txt','text','md','markdown','yaml','yml','ini','log','eml','css','js','ts','py','sql']);
@@ -229,11 +468,12 @@ $('specfile').onchange=async function(){
     const t=result.text||'';
     if(!t.trim())throw Error('No readable text found. Try a clearer scan, or another format.');
     $('specification').value=t;save();
-    status('spec-status','Loaded '+f.name+' ('+t.length.toLocaleString('en-GB')+' characters). Review the text, then press Suggest SOR matches.','ok');
+    status('spec-status','Loaded '+f.name+' ('+t.length.toLocaleString('en-GB')+' characters). Compare the original beside the SOR list before adding items.','ok');
+    await activateSource(f,t);
   }catch(e){status('spec-status','Upload failed: '+e.message,'bad');}
   finally{this.value='';}
 };
-$('clear-spec').onclick=()=>{$('specification').value='';$('suggestions').style.display='none';status('spec-status','Specification cleared.');save();};
+$('clear-spec').onclick=async()=>{$('specification').value='';$('suggestions').style.display='none';status('spec-status','Specification cleared.');$('source-file-label').textContent='No original document loaded.';releaseSource();showReview(false);try{await drop(SOURCE_KEY)}catch(e){console.warn(e)}save();};
 function findQty(line){const match=line.match(/(\d+(?:[.,]\d+)?)\s*(m²|m2|sqm|sq\.?\s*m|lm|lin\.?\s*m|m³|m3|nr|no\.?|each|item|ea)\b/i);if(match)return{qty:num(match[1]),unit:match[2].toLowerCase().replace(/[. ]/g,'')};return{qty:1,unit:''};}
 const stop=new Set(['with','into','then','shall','from','them','this','that','work','item','unit','allow','provide','renew','remove','prepare','install','include','measure','area','quantity','repair','making','complete','existing','supply','and','the','for']);
 function topMatch(line){const words=line.toLowerCase().replace(/[^a-z0-9 ]/g,' ').split(/\s+/).filter(w=>w.length>=3&&!stop.has(w));const q=findQty(line);const lineLow=line.toLowerCase();let ranked=rates.map(r=>{let d=r.description.toLowerCase(),score=0;for(const w of words){if(d.includes(w))score+=w.length>5?3:2;}if(new RegExp('\\b'+r.code+'\\b').test(lineLow))score+=20;const uu=r.unit.toLowerCase();if(q.unit&&(uu.includes(q.unit)||q.unit==='m2'&&uu==='m²'||q.unit==='no'&&uu==='nr'))score+=2;return{r,score};}).filter(x=>x.score>1).sort((a,b)=>b.score-a.score);return ranked.slice(0,2);}
@@ -244,6 +484,6 @@ function download(blob,name){const a=document.createElement('a'),u=URL.createObj
 $('export-csv').onclick=()=>{let d=exportData();if(!d.length){alert('Add BoQ items first.');return;}const keys=Object.keys(d[0]);let csv=[keys,...d.map(r=>keys.map(k=>r[k]))].map(row=>row.map(x=>'"'+String(x).replace(/"/g,'""')+'"').join(',')).join('\r\n');download(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}),filename('csv'));};
 $('export-excel').onclick=()=>{let d=exportData();if(!d.length){alert('Add BoQ items first.');return;}if(!window.XLSX){alert('Excel export library unavailable. Use CSV instead.');return;}let a=XLSX.utils.json_to_sheet(d);let b=XLSX.utils.book_new();XLSX.utils.book_append_sheet(b,a,'BoQ');let sum=XLSX.utils.aoa_to_sheet([['UK ESTIMATES - HOUSING MAINTENANCE & VOIDS'],['Property',$('address').value],['Client',$('client').value],['Reference',$('reference').value],['V8 rate adjustment %',adjustment()],['Selling total EX VAT',d.reduce((v,r)=>v+r['Extended Selling £'],0)],['Labour £',d.reduce((v,r)=>v+r['Labour £'],0)],['Materials £',d.reduce((v,r)=>v+r['Materials £'],0)],['Labour hours',d.reduce((v,r)=>v+r['Labour Hours'],0)]]);XLSX.utils.book_append_sheet(b,sum,'Summary');XLSX.writeFile(b,filename('xlsx'));};
 $('clear-job').onclick=()=>{if(!confirm('Delete this local project and all BoQ items?'))return;job=[];['address','client','reference','surveyor','specification'].forEach(id=>$(id).value='');$('adjustment').value=0;localStorage.removeItem(JOB_KEY);calculate();};
-(async()=>{restore();calculate();try{const r=await get(RATE_KEY);if(r&&r.length){setupRates(r);calculate();}}catch(e){status('rates-status','Ratebook storage not available: '+e.message,'bad');}})();
+(async()=>{restore();calculate();try{const r=await get(RATE_KEY);if(r&&r.length){setupRates(r);calculate();}const stored=await get(SOURCE_KEY);if(stored&&stored.blob){sourceFile=new File([stored.blob],stored.name,{type:stored.type||'',lastModified:stored.lastModified||Date.now()});sourceText=$('specification').value;$('source-file-label').textContent='Original ready: '+sourceFile.name;}}catch(e){status('rates-status','Local storage not available: '+e.message,'bad');}})();
 })();
 </script></body></html>
