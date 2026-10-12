@@ -276,7 +276,8 @@ export default function Estimates({db,project,docs=[]}){
      const previousAuto=new Set((estimate.items||[]).map(i=>i.ai_auto_key).filter(Boolean));
      const added=[],autoAdded=[],newHighlights=[];
      const uniqueAuto=autoCandidates.filter(m=>!previousAuto.has(m.key));
-     const measuredDescriptions=new Set(uniqueAuto.map(m=>norm(m.mark.name)+'|'+norm(m.unit)));
+     const measuredDescriptions=new Set([...autoCandidates.map(m=>norm(m.mark.name)+'|'+norm(m.unit)),
+       ...(estimate.items||[]).filter(i=>i.ai_auto_key).map(i=>norm(i.description)+'|'+norm(i.unit))]);
      for(const draft of comparison.takeoff_draft){
        const description=String(draft.description||'').trim();
        if(!description)continue;
