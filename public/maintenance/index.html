@@ -1040,7 +1040,7 @@ function repeatWorkKey(line){
 function fillIdenticalWorkLines(index,code){
   const lines=reviewSourceLines(),key=repeatWorkKey(lines[index]);
   if(!key||key.length<5)return 0;
-  const rate=codes.get(code);if(!rate)return 0;
+  const rate=codes.get(code);if(!rate||String(code).startsWith('MANUAL-'))return 0;
   let count=0;
   lines.forEach((line,i)=>{
     if(i===index||selectedMatches.has(i)||repeatWorkKey(line)!==key)return;
@@ -1051,6 +1051,8 @@ function fillIdenticalWorkLines(index,code){
     // Do not copy between explicitly conflicting measurement units.
     const firstUnit=findQty(lines[index]).unit;
     if(firstUnit&&measurement.unit&&firstUnit!==measurement.unit)return;
+    const allowed=matchUnits(measurement.unit);
+    if(!allowed||!allowed.includes(String(rate.unit||'').toUpperCase()))return;
     if(!Number.isFinite(qty)||qty<=0)return;
     const entry=job.find(j=>j.code===code);
     if(entry)entry.qty=Math.round((entry.qty+qty)*1000000)/1000000;
@@ -1071,7 +1073,9 @@ function switchReviewRate(index,code,qty){
   const rate=codes.get(code);
   if(!rate){reviewAction('SOR '+code+' is unavailable. Reload the ratebook or enter a manual price.',true);return false;}
   const prior=selectedMatches.get(index);
-  if(prior&&prior.code===code&&prior.qty===qty){focusOriginalForSelection(index).catch(console.warn);reviewAction('Already priced: original line '+(index+1)+' has SOR '+code+' with quantity '+qty+'. Change quantity or use alternatives to switch.');$('review-selected').textContent='Already selected · line '+(index+1)+' · '+code;return true;}
+  if(prior&&prior.code===code&&prior.qty===qty){
+    if(prior.auto&&!prior.confirmed){prior.confirmed=true;rememberHumanApproval(index,code);persistReviewSelections();save();}
+    focusOriginalForSelection(index).catch(console.warn);reviewAction('Confirmed: original line '+(index+1)+' uses SOR '+code+' with quantity '+qty+'. Change quantity or choose alternatives to switch.');$('review-selected').textContent='Already selected · line '+(index+1)+' · '+code;return true;}
   if(prior){
     const existing=job.find(j=>j.code===prior.code);
     if(existing){existing.qty=Math.max(0,Math.round((existing.qty-prior.qty)*1000000)/1000000);if(existing.qty<=0)job=job.filter(j=>j!==existing);}
@@ -1081,6 +1085,7 @@ function switchReviewRate(index,code,qty){
   else job.push({code,qty,snapshot:rate});
   selectedMatches.set(index,{code,qty});
   const repeatedCount=fillIdenticalWorkLines(index,code);
+  rememberHumanApproval(index,code);
   focusOriginalForSelection(index).catch(e=>console.warn('Original source highlight unavailable',e));
   persistReviewSelections();save();calculate();
   renderReviewSuggestions();
@@ -1142,6 +1147,7 @@ function renderReviewSuggestions(){
     const i=Number(b.dataset.undoLine),prior=selectedMatches.get(i);if(!prior)return;
     const entry=job.find(j=>j.code===prior.code);
     if(entry){entry.qty=Math.max(0,Math.round((entry.qty-prior.qty)*1000000)/1000000);if(entry.qty<=0)job=job.filter(j=>j!==entry);}
+    disableLearnedAfterUndo(lines[i],prior.code);
     selectedMatches.delete(i);persistReviewSelections();save();calculate();renderReviewSuggestions();
     markOriginalHighlights();$('review-document').querySelectorAll('.source-highlight-note').forEach(el=>el.remove());
   });
@@ -1650,6 +1656,16 @@ function rememberHumanApproval(index,code){
   updateMatchLearningStatus();queueLearningSave();REVIEW_RANK_CACHE.clear();
   return true;
 }
+
+function disableLearnedAfterUndo(line,code){
+  const key=approvalKey(line);
+  if(!key)return;
+  const remembered=approvedMatchMemory.get(key);
+  if(!remembered||remembered.code!==String(code))return;
+  approvedMatchMemory.set(key,{code:null,conflict:true,priorCodes:[String(code)],updatedAt:new Date().toISOString(),reason:'Estimator reversed the approval'});
+  updateMatchLearningStatus();queueLearningSave();REVIEW_RANK_CACHE.clear();
+}
+
 function verifiedRateForLine(line){
   const key=approvalKey(line),history=key?approvedMatchMemory.get(key):null;
   if(history?.conflict)return {rate:null,kind:'conflict'};
@@ -1709,23 +1725,44 @@ function safeExactMatch(line){
   return matches.length===1?matches[0]:null;
 }
 function applyExactMatches(){
-  if(!rates.length){alert('Import V8 before auto-matching.');return;}
+  if(!rates.length){reviewAction('Import the checked V8 ratebook before applying verified matches.',true);return;}
   const lines=reviewSourceLines();
-  let added=0,unchecked=0;
+  let exactCount=0,learnedCount=0,unresolvedCount=0,conflictCount=0;
   for(let i=0;i<lines.length;i++){
     if(selectedMatches.has(i))continue;
-    const rate=safeExactMatch(lines[i]);
-    if(!rate){unchecked++;continue;}
-    const qty=findQty(lines[i]).qty,existing=job.find(j=>j.code===rate.code);
+    const checked=verifiedRateForLine(lines[i]),rate=checked.rate;
+    if(!rate){
+      unresolvedCount++;
+      if(checked.kind==='conflict')conflictCount++;
+      continue;
+    }
+    const measure=findQty(lines[i]),qty=Number(measure.qty);
+    const allowed=matchUnits(measure.unit);
+    if(!measure.explicit||!allowed||!allowed.includes(String(rate.unit||'').toUpperCase())||!Number.isFinite(qty)||qty<=0){
+      unresolvedCount++;continue;
+    }
+    const existing=job.find(item=>item.code===rate.code);
     if(existing)existing.qty=Math.round((existing.qty+qty)*1000000)/1000000;
     else job.push({code:rate.code,qty,snapshot:rate});
-    selectedMatches.set(i,{code:rate.code,qty,auto:true,exact:true});
-    added++;
+    selectedMatches.set(i,{code:rate.code,qty,auto:true,exact:checked.kind==='exact',learned:checked.kind==='learned'});
+    if(checked.kind==='exact')exactCount++;else learnedCount++;
   }
-  if(added){persistReviewSelections();save();calculate();renderReviewSuggestions();markOriginalHighlights(activeReviewLine);}
-  $('review-selected').textContent=added+' unique-source rows auto-matched by exact wording/code and measured UOM; '+unchecked+' remain for estimator review. No fuzzy matches auto-approved.';
+  if(exactCount||learnedCount){persistReviewSelections();save();calculate();renderReviewSuggestions();markOriginalHighlights(activeReviewLine);}
+  const note='✓ '+exactCount+' exact ratebook matches + '+learnedCount+' previously approved matches · '+unresolvedCount+
+    ' activities remain for estimator review'+(conflictCount?' · '+conflictCount+' conflicting mappings blocked':'')+'. No fuzzy suggestions were automatically approved.';
+  $('review-selected').textContent=note;reviewAction(note,!!conflictCount);
 }
 $('review-exact').onclick=applyExactMatches;
+$('review-next-unpriced').onclick=()=>{
+  const lines=reviewSourceLines();
+  if(!lines.length){reviewAction('Upload a specification before reviewing unmatched activities.',true);return;}
+  const next=lines.findIndex((_,i)=>!selectedMatches.has(i)&&i>(activeReviewLine??-1));
+  const start=next>=0?next:lines.findIndex((_,i)=>!selectedMatches.has(i));
+  if(start<0){reviewAction('All '+lines.length+' original activities are priced. Export the audit sheet to check them.');return;}
+  activeReviewLine=start;jumpToReviewLine(start);
+  focusOriginalForSelection(start).catch(console.warn);
+  reviewAction('Review original work line '+(start+1)+' of '+lines.length+'. Verify the right SOR, quantity and unit before approving.');
+};
 const REVIEW_RANK_CACHE=new Map();
 function topMatch(line){
   const measurement=findQty(line);
