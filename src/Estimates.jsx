@@ -12,6 +12,7 @@ import {applySavedRate,applySavedRates,rateLibraryCoverage,rateComponents} from 
 import {measureAutoPage} from './autoMeasurement.mjs';
 import {summariseAiCoverage} from './aiCoverage.mjs';
 import {duplicateAutoCandidate} from './aiDuplicateGuard.mjs';
+import {stageAiTakeoff,decideAiSuggestion} from './aiTakeoffQueue.mjs';
 pdfjs.GlobalWorkerOptions.workerSrc=new URL('pdfjs-dist/build/pdf.worker.min.mjs',import.meta.url).toString();
 const fresh={items:[],highlights:[],builder_id:'',takeoff_review_status:'Draft',takeoff_reviewer:'',takeoff_reviewed_at:'',measurement_standard:'NRM2',drawing_stages:{},supplier_price_date:'',supplier_price_source:'',global_adjustment:0,overheads:15,profit:10,vat:20,pc_sums:[],provisional_sums:[],dayworks:[],contingency_mode:'percent',contingency_value:0,quote_intro:'We are pleased to provide our quotation for the works described below.',quote_scope:'',quote_validity:'30 days',quote_payment_terms:'Payment schedule to be agreed before commencement.',quote_exclusions:'Items not expressly included are excluded.',quote_terms:'Subject to agreed contract terms.',quote_ref:'',quote_revisions:[]};
 const initialItem={ref_no:'',work_section:'Measured Works',description:'',trade:'General',drawing:'',quantity:0,unit:'m²',material_rate:0,plant_rate:0,labour_hours:0,labour_rate:0,supplier:'',price_url:'',status:'Needs verification'};
@@ -388,9 +389,11 @@ export default function Estimates({db,project,docs=[]}){
            method:entry.method,quantity_status:'Provisional - QS verify'},
        });
      }
-     const next={...estimate,items:[...(estimate.items||[]),...added,...autoAdded],
-       highlights:[...(estimate.highlights||[]),...newHighlights],
-       ai_auto_measurement_review:{accepted:autoAdded.length,rejected:autoRejections.slice(0,100),
+     const stage=stageAiTakeoff(estimate,added,autoAdded,newHighlights);
+     const next={...estimate,items:stage.items,highlights:stage.highlights,
+       ai_pending_takeoff:stage.ai_pending_takeoff,ai_review_mode:stage.ai_review_mode,
+       ai_auto_measurement_review:{accepted:stage.ai_review_mode==='initial'?autoAdded.length:0,
+         suggested_for_review:stage.staged_count,rejected:autoRejections.slice(0,100),
          checked_pages:count,analysed_at:new Date().toISOString()},
        ai_page_coverage:summariseAiCoverage(pageCoverage),
        ai_drawing_review:comparison.drawing_review,ai_last_analysed_at:new Date().toISOString(),
@@ -398,14 +401,38 @@ export default function Estimates({db,project,docs=[]}){
      const {error:saveError}=await db.from('projects').update({estimate_data:next}).eq('id',project.id);
      if(saveError)throw Error('Could not save draft BOQ: '+saveError.message);
      setEstimate(next);setAiReview(comparison.drawing_review);
-     setAiProgress({processed:count,total:count,stage:'Draft BOQ saved for QS checking'});
+     setAiProgress({processed:count,total:count,
+       stage:stage.ai_review_mode==='rerun-review'?'Reanalysis saved — BOQ unchanged':'Draft BOQ saved for QS checking'});
      const needsMeasurement=added.filter(x=>!x.quantity).length;
-     setNotice('AI reviewed '+count+' page(s): '+autoAdded.length+' calibrated AI-proposed outline(s) measured automatically (all provisional), '+added.length+' other scope item(s) still need measurement; '+autoRejections.length+' outline(s) held for review. Check outlines on each drawing and confirm all quantities before quotation.');
+     setNotice(stage.ai_review_mode==='rerun-review'
+       ?'AI reviewed '+count+' page(s). Existing BOQ and marked areas were LEFT UNCHANGED. '
+         +stage.staged_count+' new observation(s) queued for QS approval; '
+         +autoRejections.length+' outline(s) held as duplicates, conflicts or invalid. Inspect the Review new AI suggestions section.'
+       :'AI reviewed '+count+' page(s): '+autoAdded.length+' provisional AI measured outline(s) and '
+         +added.length+' other scope item(s) needing measurement. All require QS checks before quotation.');
    }catch(e){
      setAiProgress(p=>({...p,stage:'Stopped — review error'}));
      setNotice('AI plan reader stopped: '+(e.message||String(e))+' No partial BOQ was saved. Fix the reported issue before restarting.');
    }
    finally{for(const source of sources)if(source.pdf){try{await source.pdf.destroy()}catch{}}setAiBusy(false)}
+ }
+ async function reviewAiSuggestion(id,decision){
+   if(aiBusy||busy)return;
+   const proposal=(estimate.ai_pending_takeoff||[]).find(p=>p.id===id);
+   if(!proposal)return setNotice('AI suggestion was not found. Refresh the estimate.');
+   if(decision==='add'&&!window.confirm('Add this AI suggestion to the draft BOQ for QS verification?\n'+
+      proposal.item.description+' — '+proposal.item.quantity+' '+proposal.item.unit+
+      '\n'+proposal.item.drawing+'\nThis does not verify the drawing boundary, dimensions or price.'))return;
+   const result=decideAiSuggestion(estimate,id,decision);
+   if(result.error)return setNotice('Suggestion not added: '+result.error);
+   setBusy(true);
+   try{
+     const {error}=await db.from('projects').update({estimate_data:result.next}).eq('id',project.id);
+     if(error)throw Error(error.message);
+     setEstimate(result.next);
+     setNotice(decision==='add'?'AI suggestion added to draft BOQ with QS verification outstanding.':'AI suggestion dismissed. Existing BOQ unchanged.');
+   }catch(error){setNotice('Could not save suggestion decision: '+String(error?.message||error))}
+   finally{setBusy(false)}
  }
  function patch(k,v){setEstimate(x=>({...x,[k]:v}))}
  async function save(next=estimate){setBusy(true);try{const{error}=await db.from('projects').update({estimate_data:next}).eq('id',project.id);setNotice(error?'Save failed: '+error.message:'Estimate and drawing highlights saved')}finally{setBusy(false)}}
@@ -800,6 +827,18 @@ export default function Estimates({db,project,docs=[]}){
  </svg>}{currentHighlights.filter(h=>!['length','count','polygon','polyline'].includes(h.kind)).map(h=><div key={h.id} className="estimateMark" style={{left:h.x*100+'%',top:h.y*100+'%',width:h.w*100+'%',height:h.h*100+'%',background:pricedBoq(h).length?"rgba(35,156,82,.34)":linkedBoq(h).length?"rgba(234,172,37,.3)":"rgba(205,57,57,.2)",borderColor:pricedBoq(h).length?"#239c52":linkedBoq(h).length?"#eaaa25":"#cd3939"}} title={h.name+" — "+(pricedBoq(h).length?"Priced: "+pricedBoq(h).map(i=>i.ref_no||i.description).join(", "):linkedBoq(h).length?"Linked but unpriced":"Not linked to BOQ")}/>) }{drag&&hover&&!calibrate&&<div className="estimateMark drawingNew" style={{left:Math.min(drag.x,hover.x)*100+'%',top:Math.min(drag.y,hover.y)*100+'%',width:Math.abs(drag.x-hover.x)*100+'%',height:Math.abs(drag.y-hover.y)*100+'%'}}/>}</div></div></div><p className="muted">Drawing key: 🟢 Green = linked to a priced BOQ item; 🟡 Amber = linked but unpriced; 🔴 Red = not linked to BOQ. Drawings must be calibrated and measured quantities reviewed before issue.</p>
  {currentHighlights.map(h=>{const m=regionMeasures(h);return <div key={h.id} className="estimateHighlightRow">{h.stage}: {h.name} — {h.kind||'area'} (page {h.page}) {m?m.quantity+' '+m.unit:''}{m?.openings_count?' (gross '+m.gross_area_m2+' m² less '+m.deductions_area_m2+' m² for '+m.openings_count+' opening(s))':''} — {pricedBoq(h).length?'PRICED':linkedBoq(h).length?'LINKED / UNPRICED':'NOT LINKED'} <button type="button" disabled={selectedCalibrationStatus==='reference-only'||(h.kind!=='count'&&!metresPerPixel)} onClick={()=>addMeasured(h)}>Add measured {h.kind||'area'} to BOQ</button> <button type="button" className="outline" onClick={()=>patch('highlights',estimate.highlights.filter(x=>x.id!==h.id))}>Remove</button></div>})}
  <h3>2. Build measured BOQ items</h3>
+ {(estimate.ai_pending_takeoff||[]).length>0&&<div className="notice" role="region" aria-label="Review new AI takeoff suggestions">
+   <strong>Review new AI suggestions — {(estimate.ai_pending_takeoff||[]).length} pending</strong>
+   <p>The AI has reanalysed drawings. <strong>It has not changed your existing BOQ.</strong> These are unapproved observations, not additional priced work. Check against the marked drawings and other BOQ entries to prevent duplication before adding anything.</p>
+   {(estimate.ai_pending_takeoff||[]).map(p=><div key={p.id} className="estimateHighlightRow">
+     <div><strong>{p.kind==='measured'?'Measured suggestion':'Scope needing measurement'}:</strong>
+       {' '+p.item.description+' — '+p.item.quantity+' '+p.item.unit+' · '+(p.item.drawing||'Drawing reference required')}
+       <small> · QS must verify location, quantity and rate</small>
+     </div>
+     <button type="button" disabled={busy||aiBusy} onClick={()=>reviewAiSuggestion(p.id,'add')}>Review and add as draft BOQ line</button>
+     <button type="button" className="outline" disabled={busy||aiBusy} onClick={()=>reviewAiSuggestion(p.id,'dismiss')}>Dismiss</button>
+   </div>)}
+  </div>}
  {estimate.ai_page_coverage&&<div className="notice" aria-label="Project-wide AI drawing coverage">
    <b>Automatic take-off coverage by drawing:</b>
    <p>{estimate.ai_page_coverage.total_pages||0} drawing page(s) analysed; {estimate.ai_page_coverage.provisional_shapes||0} candidate quantity mark(s);
