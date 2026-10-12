@@ -7,6 +7,7 @@ import {scaleSheetRegister,calibrationStatus as storedCalibrationStatus,missingC
 import {clampZoom,normalizedDrawingPoint,anchoredScroll,pinchGeometry} from './drawingZoom.mjs';
 import {resolveCalibrationClick} from './calibrationInteraction.mjs';
 import {prepareMasterRateImport,rateMatchKey} from './rateImport.mjs';
+import {measuredQuantity,findUniqueRate} from './takeoffMeasurement.mjs';
 pdfjs.GlobalWorkerOptions.workerSrc=new URL('pdfjs-dist/build/pdf.worker.min.mjs',import.meta.url).toString();
 const fresh={items:[],highlights:[],builder_id:'',takeoff_review_status:'Draft',takeoff_reviewer:'',takeoff_reviewed_at:'',measurement_standard:'NRM2',drawing_stages:{},supplier_price_date:'',supplier_price_source:'',global_adjustment:0,overheads:15,profit:10,vat:20,pc_sums:[],provisional_sums:[],dayworks:[],contingency_mode:'percent',contingency_value:0,quote_intro:'We are pleased to provide our quotation for the works described below.',quote_scope:'',quote_validity:'30 days',quote_payment_terms:'Payment schedule to be agreed before commencement.',quote_exclusions:'Items not expressly included are excluded.',quote_terms:'Subject to agreed contract terms.',quote_ref:'',quote_revisions:[]};
 const initialItem={ref_no:'',work_section:'Measured Works',description:'',trade:'General',drawing:'',quantity:0,unit:'m²',material_rate:0,plant_rate:0,labour_hours:0,labour_rate:0,supplier:'',price_url:'',status:'Needs verification'};
@@ -22,6 +23,8 @@ export default function Estimates({db,project,docs=[]}){
  const [editingBoq,setEditingBoq]=useState(null);const [takeoffNotes,setTakeoffNotes]=useState('');const [item,setItem]=useState(initialItem),[pcDraft,setPcDraft]=useState({description:'',amount:'',attendance_percent:'0'}),[provisionalDraft,setProvisionalDraft]=useState({description:'',amount:'',defined:false,include:true}),[dayworkDraft,setDayworkDraft]=useState({description:'',labour:0,materials:0,plant:0,markup:0}),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);
  const [aiBusy,setAiBusy]=useState(false),[aiReview,setAiReview]=useState(null); const [drawing,setDrawing]=useState(''),[page,setPage]=useState(1),[pageCount,setPageCount]=useState(1),[image,setImage]=useState(''),[dimensions,setDimensions]=useState([0,0]);
  const [calibrate,setCalibrate]=useState(false),[reference,setReference]=useState(null),[calibrationMetres,setCalibrationMetres]=useState(''),[calibrationFirst,setCalibrationFirst]=useState(null),[drag,setDrag]=useState(null),[hover,setHover]=useState(null),[markName,setMarkName]=useState('New work'),[stage,setStage]=useState('Proposed');
+ const [markMode,setMarkMode]=useState('area'),[markDepth,setMarkDepth]=useState(''),[firstMeasurePoint,setFirstMeasurePoint]=useState(null);
+ const firstMeasurePointRef=useRef(null);
  const [calibrationWizard,setCalibrationWizard]=useState(false),[calibrationPages,setCalibrationPages]=useState([]),[calibrationLoading,setCalibrationLoading]=useState(false),[calibrationSaving,setCalibrationSaving]=useState(false);
  const canvas=useRef(null),overlay=useRef(null),drawingScroll=useRef(null);
  // Physical PDF bitmap resolution can change on zoom; logical page dimensions must not.
@@ -30,7 +33,7 @@ export default function Estimates({db,project,docs=[]}){
  const pressedPoint=useRef(null),firstCalibrationPoint=useRef(null);
  const [zoom,setZoom]=useState(1),[panMode,setPanMode]=useState(false);
  const zoomRef=useRef(1),pointerPositions=useRef(new Map()),pinchRef=useRef(null),panRef=useRef(null),gestureRef=useRef(false),scrollAnimation=useRef(null);
- useEffect(()=>{zoomRef.current=1;setZoom(1);setPanMode(false);pointerPositions.current.clear();pinchRef.current=null;panRef.current=null;gestureRef.current=false;pressedPoint.current=null;firstCalibrationPoint.current=null;setDrag(null);setHover(null);return()=>{if(scrollAnimation.current)cancelAnimationFrame(scrollAnimation.current)}},[drawing,page]);
+ useEffect(()=>{zoomRef.current=1;setZoom(1);setPanMode(false);pointerPositions.current.clear();pinchRef.current=null;panRef.current=null;gestureRef.current=false;pressedPoint.current=null;firstCalibrationPoint.current=null;firstMeasurePointRef.current=null;setFirstMeasurePoint(null);setDrag(null);setHover(null);return()=>{if(scrollAnimation.current)cancelAnimationFrame(scrollAnimation.current)}},[drawing,page]);
  const fileDocs=docs.filter(d=>d.status!=='Superseded'&&/\.(pdf|png|jpg|jpeg)$/i.test(d.document_no||d.title||d.file_path||''));
  useEffect(()=>{db.from('estimate_rate_library').select('*').order('description').limit(5000).then(({data,error})=>{if(!error)setRateLibrary(data||[])});},[db]);
  useEffect(()=>{db.from('estimate_builders').select('*').order('name').then(({data,error})=>{if(!error)setBuilders(data||[])});},[db]);
@@ -399,7 +402,7 @@ export default function Estimates({db,project,docs=[]}){
      drawingScroll.current.scrollTop=p.top-(e.clientY-p.y);
      return;
    }
-   if(!gestureRef.current&&(pressedPoint.current||firstCalibrationPoint.current))setHover(point(e));
+   if(!gestureRef.current&&(pressedPoint.current||firstCalibrationPoint.current||firstMeasurePointRef.current))setHover(point(e));
  }
  function handleDrawingPointerUp(e){
    const wasActive=pointerPositions.current.has(e.pointerId);
@@ -444,33 +447,59 @@ export default function Estimates({db,project,docs=[]}){
      setNotice('A and B selected. Enter the dimension in metres, then press Save scale & next.');
      return;
    }
+   if(selectedCalibrationStatus==='reference-only')return setNotice('Construction notes cannot supply measured quantities. Select a measurable drawing page.');
+   if(markMode==='count'){
+     patch('highlights',[...estimate.highlights,{id:crypto.randomUUID(),drawing_id:drawing,page,x:end.x,y:end.y,w:0,h:0,kind:'count',name:markName,stage}]);
+     setNotice('One item counted and marked. Add more points for more items; then add each count to the draft BOQ.');
+     return;
+   }
+   if(!metresPerPixel)return setNotice('Set a checked scale on this page before measuring a length, area or volume.');
+   if(markMode==='length'){
+     if(!firstMeasurePointRef.current){
+       firstMeasurePointRef.current=end;setFirstMeasurePoint(end);
+       setNotice('Length point A selected. Tap or click point B.');
+       return;
+     }
+     const a=firstMeasurePointRef.current;
+     if(Math.hypot((end.x-a.x)*dimensions[0],(end.y-a.y)*dimensions[1])<5)return setNotice('Length points are too close. Tap a different endpoint.');
+     const line={id:crypto.randomUUID(),drawing_id:drawing,page,kind:'length',points:[a,end],x:Math.min(a.x,end.x),y:Math.min(a.y,end.y),w:Math.abs(end.x-a.x),h:Math.abs(end.y-a.y),name:markName,stage};
+     firstMeasurePointRef.current=null;setFirstMeasurePoint(null);
+     patch('highlights',[...estimate.highlights,line]);
+     setNotice('Length marked. Add it to the draft BOQ to use the checked drawing scale.');
+     return;
+   }
    if(w<.01||h<.01)return;
-   patch('highlights',[...estimate.highlights,{id:crypto.randomUUID(),drawing_id:drawing,page,x,y,w,h,name:markName,stage}]);
-   setNotice('Highlighted region saved in draft. Enter verified dimensions to price its work.');
+   const depth=Number(markDepth);
+   if(markMode==='volume'&&(!Number.isFinite(depth)||depth<=0))return setNotice('Enter a positive depth in metres before marking a volume.');
+   patch('highlights',[...estimate.highlights,{id:crypto.randomUUID(),drawing_id:drawing,page,x,y,w,h,kind:markMode,depth_m:markMode==='volume'?depth:undefined,name:markName,stage}]);
+   setNotice(markMode==='volume'?'Plan area marked with the entered depth. Review the depth and add the volume to the BOQ.':'Area marked on scaled plan. Add to draft BOQ and check the quantity.');
  }
 
  const selectedCalibrationEntry=calibrationPages.find(x=>x.document_id===drawing&&x.page===page);
  const selectedCalibrationStatus=selectedCalibrationEntry?calibrationStatus(selectedCalibrationEntry):'needed';
  const calibration=(estimate.calibrations||{})[drawing+'#'+page];
  const metresPerPixel=selectedCalibrationStatus==='calibrated'?Number(calibration?.metresPerPixel)||0:0;
- const regionMeasures=h=>({area:h.w*dimensions[0]*h.h*dimensions[1]*metresPerPixel**2,perimeter:2*(h.w*dimensions[0]+h.h*dimensions[1])*metresPerPixel});
+ const regionMeasures=h=>measuredQuantity(h,dimensions,metresPerPixel);
  function addMeasured(h){
- if(!metresPerPixel||!Number.isFinite(metresPerPixel)||dimensions[0]<=0||dimensions[1]<=0)return alert('Calibrate this page against a known dimension first');
- if(!estimate.drawing_stages?.[drawing]||estimate.drawing_stages[drawing]==='Unclassified')return alert('Classify this drawing before measuring.');
- if((estimate.items||[]).some(i=>i.takeoff_evidence?.highlight_id===h.id))return alert('This measured region already has a BOQ item. Edit the existing line to avoid double counting.');
- const m=regionMeasures(h),quantity=Number(m.area.toFixed(2));
- if(!(quantity>0))return alert('The area is too small to round to 0.01 m². Recheck the marked region.');
- const description=String(h.name||'').trim(),unit='m²';
- const norm=x=>String(x||'').trim().toLowerCase().replace(/\\s+/g,' ');
- const matches=rateLibrary.filter(r=>norm(r.description)===norm(description)&&['m²','m2'].includes(norm(r.unit)));
- const match=matches.length===1?matches[0]:null;
- const rate=match?{material_rate:num(match.material_rate),plant_rate:num(match.plant_rate),labour_hours:num(match.labour_hours),labour_rate:num(match.labour_rate),supplier:match.supplier||'',price_url:match.price_url||'',rate_source:match.supplier||'Saved rate library',rate_checked_at:match.updated_at||null}:{};
- const draft={...initialItem,...rate,id:crypto.randomUUID(),ref_no:String(estimate.items.length+1).padStart(3,'0'),description,trade:match?.trade||'Measured '+h.stage.toLowerCase()+' work',drawing:(fileDocs.find(x=>x.id===drawing)?.document_no||'')+' p'+page,quantity,unit,
- status:match?'Matched library rate — quantity and pricing require QS verification':'Measured area — rate required and QS verification',
- takeoff_evidence:{highlight_id:h.id,drawing_id:drawing,page,region:{x:h.x,y:h.y,w:h.w,h:h.h},calibration_m_per_px:metresPerPixel,method:'calibrated rectangle',drawing_stage:estimate.drawing_stages[drawing],work_stage:h.stage,confidence:'unverified'}};
- patch('items',[...estimate.items,draft]);
- setNotice('Added '+quantity.toFixed(2)+' m² to draft BOQ. '+(match?'One matching m² rate applied.':'No unique matching m² rate found; check rate library.')+' Review and Save estimate before leaving this page.');
-}
+   if(selectedCalibrationStatus==='reference-only')return alert('Reference-only construction notes cannot supply measured quantities.');
+   if(!estimate.drawing_stages?.[drawing]||estimate.drawing_stages[drawing]==='Unclassified')return alert('Classify this drawing before measuring.');
+   if(['Existing','Retained'].includes(h.stage))return alert('Existing and retained work is not a new-build BOQ charge. Mark the actual new or demolition work separately.');
+   if((estimate.items||[]).some(i=>i.takeoff_evidence?.highlight_id===h.id))return alert('This marked region already has a BOQ item. Edit that line to avoid double counting.');
+   const m=regionMeasures(h);
+   if(!m||!(m.quantity>0))return alert('No valid quantity: calibrate this page or enter a valid depth, and check the marked geometry.');
+   const description=String(h.name||'').trim()||'Measured work';
+   const {rate:match,status:matchStatus}=findUniqueRate(rateLibrary,description,m.unit);
+   const rate=match?{material_rate:num(match.material_rate),plant_rate:num(match.plant_rate),labour_hours:num(match.labour_hours),labour_rate:num(match.labour_rate),supplier:match.supplier||'',price_url:match.price_url||'',rate_source:match.supplier||'Saved rate library',rate_checked_at:match.updated_at||null}:{};
+   const draft={...initialItem,...rate,id:crypto.randomUUID(),ref_no:String(estimate.items.length+1).padStart(3,'0'),
+     description,trade:match?.trade||'Measured '+String(h.stage||'proposed').toLowerCase()+' work',
+     drawing:(fileDocs.find(x=>x.id===drawing)?.document_no||'')+' p'+page,quantity:m.quantity,unit:m.unit,
+     status:match?'Matched rate — QS verification required':'Measured quantity — rate and QS verification required',
+     takeoff_evidence:{highlight_id:h.id,drawing_id:drawing,page,kind:h.kind||'area',depth_m:h.depth_m||null,
+       points:h.points||null,region:{x:h.x,y:h.y,w:h.w,h:h.h},calibration_m_per_px:metresPerPixel||null,
+       method:m.method,drawing_stage:estimate.drawing_stages[drawing],work_stage:h.stage,confidence:'unverified'}};
+   patch('items',[...estimate.items,draft]);
+   setNotice('Added '+m.quantity+' '+m.unit+' to draft BOQ. '+(match?'A unique matching '+m.unit+' rate was applied.':matchStatus==='ambiguous'?'Multiple library rates match; choose and verify a rate.':'No matching rate; enter labour, materials and plant rates.')+' Review and Save estimate.');
+ }
  const currentHighlights=(estimate.highlights||[]).filter(x=>x.drawing_id===drawing&&x.page===page); const linkedBoq=h=>(estimate.items||[]).filter(i=>i.takeoff_evidence?.highlight_id===h.id); const pricedBoq=h=>linkedBoq(h).filter(i=>perLine(i)>0);
  const sum=estimate.items.reduce((a,i)=>({materials:a.materials+num(i.quantity)*num(i.material_rate),plant:a.plant+num(i.quantity)*num(i.plant_rate),labour:a.labour+num(i.quantity)*num(i.labour_hours)*num(i.labour_rate)}),{materials:0,plant:0,labour:0});
  const pricingIssues=(estimate.items||[]).flatMap(row=>{const problems=[];if(!Number.isFinite(Number(row.quantity))||Number(row.quantity)<=0)problems.push('quantity is missing or invalid');if([row.material_rate,row.plant_rate,row.labour_hours,row.labour_rate].some(x=>!Number.isFinite(Number(x))||Number(x)<0))problems.push('invalid rate');if(num(row.material_rate)+num(row.plant_rate)+num(row.labour_hours)*num(row.labour_rate)<=0)problems.push('no priced materials, labour or plant');return problems.map(problem=>({ref:row.ref_no||row.description||'Unnumbered item',problem,id:row.id}));});
@@ -586,7 +615,7 @@ export default function Estimates({db,project,docs=[]}){
   <button type="button" disabled={calibrationSaving||!reference||reference.drawing_id!==drawing||reference.page!==page||!(Number(calibrationMetres)>0)} onClick={()=>saveCalibration(false)}>{calibrationSaving?'Saving…':'Save scale & next'}</button>
   <button type="button" className="outline" disabled={calibrationSaving||!calibrationWizard||!drawing} onClick={()=>saveCalibration(true)}>Construction notes — no scale required</button>
   <span role="status" aria-live="polite">{calibrate?(calibrationFirst?'Tap second end of the dimension':'Tap first and second ends, or drag along the dimension'):reference?'Line selected — enter metres and save':selectedCalibrationStatus==='calibrated'?'This page has a saved scale':selectedCalibrationStatus==='reference-only'?'Construction notes — no scale required':'Scale not set for this page'}</span>
- </div><div className="estimateToolbar"><label>Choose uploaded plan<select value={drawing} onChange={e=>{setDrawing(e.target.value);setPage(1);setReference(null);setCalibrationFirst(null);setCalibrate(false)}}><option value="">Select existing or proposed PDF</option>{fileDocs.map(d=><option key={d.id} value={d.id}>{d.document_no||d.title}</option>)}</select></label><label>Area label<input value={markName} onChange={e=>setMarkName(e.target.value)}/></label><label>Drawing stage<select value={stage} onChange={e=>setStage(e.target.value)}><option>Proposed</option><option>Existing</option><option>Demolition</option><option>Retained</option></select></label>{pageCount>1&&<label>Page<select value={page} onChange={e=>{setPage(Number(e.target.value));setReference(null);setCalibrationFirst(null);setCalibrate(false)}}>{Array.from({length:pageCount},(_,i)=><option key={i} value={i+1}>{i+1}</option>)}</select></label>}</div>
+ </div><div className="estimateToolbar" aria-label="Manual take-off tools"><label>Mark type<select value={markMode} onChange={e=>{setMarkMode(e.target.value);firstMeasurePointRef.current=null;setFirstMeasurePoint(null);setCalibrate(false);setReference(null);setNotice('Select a measurable plan and mark '+e.target.value+' work.')}}><option value="area">Area — m² (rectangle)</option><option value="length">Length — m (two taps)</option><option value="count">Count — nr (one tap per item)</option><option value="volume">Volume — m³ (rectangle × depth)</option></select></label>{markMode==='volume'&&<label>Depth / thickness (metres)<input type="number" inputMode="decimal" step="any" min="0.001" value={markDepth} placeholder="e.g. 0.15" onChange={e=>setMarkDepth(e.target.value)}/></label>}<small>Manual marks only, checked against project scale where required. All BOQ quantities need QS review.</small></div><div className="estimateToolbar"><label>Choose uploaded plan<select value={drawing} onChange={e=>{setDrawing(e.target.value);setPage(1);setReference(null);setCalibrationFirst(null);setCalibrate(false)}}><option value="">Select existing or proposed PDF</option>{fileDocs.map(d=><option key={d.id} value={d.id}>{d.document_no||d.title}</option>)}</select></label><label>Area label<input value={markName} onChange={e=>setMarkName(e.target.value)}/></label><label>Drawing stage<select value={stage} onChange={e=>setStage(e.target.value)}><option>Proposed</option><option>Existing</option><option>Demolition</option><option>Retained</option></select></label>{pageCount>1&&<label>Page<select value={page} onChange={e=>{setPage(Number(e.target.value));setReference(null);setCalibrationFirst(null);setCalibrate(false)}}>{Array.from({length:pageCount},(_,i)=><option key={i} value={i+1}>{i+1}</option>)}</select></label>}</div>
  <div className="estimateToolbar estimateZoomControls" aria-label="Drawing zoom and movement">
    <button type="button" disabled={!drawing||!dimensions[0]} onClick={()=>setDrawingZoom(zoomRef.current/1.5)} aria-label="Zoom out on drawing">− Zoom out</button>
    <button type="button" disabled={!drawing||!dimensions[0]} onClick={()=>setDrawingZoom(zoomRef.current*1.5)} aria-label="Zoom in on drawing">+ Zoom in</button>
@@ -607,8 +636,13 @@ export default function Estimates({db,project,docs=[]}){
  {reference?.points?.map((p,i)=><g key={i}><circle cx={p.x*100} cy={p.y*100} r="1.4" fill="#0076ba" stroke="white" strokeWidth=".3"/><text x={p.x*100+1.7} y={p.y*100-1.7} fontSize="2.8" fill="#004b75" stroke="white" strokeWidth=".2" paintOrder="stroke">{i===0?'A':'B'}</text></g>)}
  {calibrationFirst&&<g><circle cx={calibrationFirst.x*100} cy={calibrationFirst.y*100} r="1.5" fill="#0076ba" stroke="white" strokeWidth=".3"/><text x={calibrationFirst.x*100+1.7} y={calibrationFirst.y*100-1.7} fontSize="2.8" fill="#004b75" stroke="white" strokeWidth=".2" paintOrder="stroke">A</text></g>}
  {calibrationFirst&&hover&&<line x1={calibrationFirst.x*100} y1={calibrationFirst.y*100} x2={hover.x*100} y2={hover.y*100} stroke="#0076ba" strokeWidth=".35" strokeDasharray="1 .6"/>}
- </svg>}{currentHighlights.map(h=><div key={h.id} className="estimateMark" style={{left:h.x*100+'%',top:h.y*100+'%',width:h.w*100+'%',height:h.h*100+'%',background:pricedBoq(h).length?"rgba(35,156,82,.34)":linkedBoq(h).length?"rgba(234,172,37,.3)":"rgba(205,57,57,.2)",borderColor:pricedBoq(h).length?"#239c52":linkedBoq(h).length?"#eaaa25":"#cd3939"}} title={h.name+" — "+(pricedBoq(h).length?"Priced: "+pricedBoq(h).map(i=>i.ref_no||i.description).join(", "):linkedBoq(h).length?"Linked but unpriced":"Not linked to BOQ")}/>) }{drag&&hover&&!calibrate&&<div className="estimateMark drawingNew" style={{left:Math.min(drag.x,hover.x)*100+'%',top:Math.min(drag.y,hover.y)*100+'%',width:Math.abs(drag.x-hover.x)*100+'%',height:Math.abs(drag.y-hover.y)*100+'%'}}/>}</div></div></div><p className="muted">Drawing key: 🟢 Green = linked to a priced BOQ item; 🟡 Amber = linked but unpriced; 🔴 Red = not linked to BOQ. Drawings must be calibrated and measured quantities reviewed before issue.</p>
- {currentHighlights.map(h=><div key={h.id} className="estimateHighlightRow">{h.stage}: {h.name} (page {h.page}) {metresPerPixel?'— '+regionMeasures(h).area.toFixed(2)+' m², perimeter '+regionMeasures(h).perimeter.toFixed(2)+' m':''} — {pricedBoq(h).length?'PRICED ('+pricedBoq(h).map(i=>i.ref_no||i.description).join(', ')+')':linkedBoq(h).length?'LINKED / UNPRICED':'NOT LINKED'} <button type="button" onClick={()=>addMeasured(h)}>Add measured area to BOQ</button> <button className="outline" onClick={()=>patch('highlights',estimate.highlights.filter(x=>x.id!==h.id))}>Remove</button></div>)}
+ </svg>}{(currentHighlights.some(h=>h.kind==='length'||h.kind==='count')||firstMeasurePoint)&&<svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none',overflow:'visible'}} viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+ {currentHighlights.filter(h=>h.kind==='length'&&h.points?.length===2).map(h=><line key={h.id} x1={h.points[0].x*100} y1={h.points[0].y*100} x2={h.points[1].x*100} y2={h.points[1].y*100} stroke="#cc3939" strokeWidth=".5"/>)}
+ {currentHighlights.filter(h=>h.kind==='count').map(h=><circle key={h.id} cx={h.x*100} cy={h.y*100} r="1" fill="#cc3939" stroke="#fff" strokeWidth=".3"/>)}
+ {firstMeasurePoint&&<circle cx={firstMeasurePoint.x*100} cy={firstMeasurePoint.y*100} r="1.3" fill="#006a9d" stroke="white" strokeWidth=".3"/>}
+ {firstMeasurePoint&&hover&&<line x1={firstMeasurePoint.x*100} y1={firstMeasurePoint.y*100} x2={hover.x*100} y2={hover.y*100} stroke="#006a9d" strokeDasharray="1 .6" strokeWidth=".4"/>}
+ </svg>}{currentHighlights.filter(h=>!['length','count'].includes(h.kind)).map(h=><div key={h.id} className="estimateMark" style={{left:h.x*100+'%',top:h.y*100+'%',width:h.w*100+'%',height:h.h*100+'%',background:pricedBoq(h).length?"rgba(35,156,82,.34)":linkedBoq(h).length?"rgba(234,172,37,.3)":"rgba(205,57,57,.2)",borderColor:pricedBoq(h).length?"#239c52":linkedBoq(h).length?"#eaaa25":"#cd3939"}} title={h.name+" — "+(pricedBoq(h).length?"Priced: "+pricedBoq(h).map(i=>i.ref_no||i.description).join(", "):linkedBoq(h).length?"Linked but unpriced":"Not linked to BOQ")}/>) }{drag&&hover&&!calibrate&&<div className="estimateMark drawingNew" style={{left:Math.min(drag.x,hover.x)*100+'%',top:Math.min(drag.y,hover.y)*100+'%',width:Math.abs(drag.x-hover.x)*100+'%',height:Math.abs(drag.y-hover.y)*100+'%'}}/>}</div></div></div><p className="muted">Drawing key: 🟢 Green = linked to a priced BOQ item; 🟡 Amber = linked but unpriced; 🔴 Red = not linked to BOQ. Drawings must be calibrated and measured quantities reviewed before issue.</p>
+ {currentHighlights.map(h=>{const m=regionMeasures(h);return <div key={h.id} className="estimateHighlightRow">{h.stage}: {h.name} — {h.kind||'area'} (page {h.page}) {m?m.quantity+' '+m.unit:''} — {pricedBoq(h).length?'PRICED':linkedBoq(h).length?'LINKED / UNPRICED':'NOT LINKED'} <button type="button" disabled={selectedCalibrationStatus==='reference-only'||(h.kind!=='count'&&!metresPerPixel)} onClick={()=>addMeasured(h)}>Add measured {h.kind||'area'} to BOQ</button> <button type="button" className="outline" onClick={()=>patch('highlights',estimate.highlights.filter(x=>x.id!==h.id))}>Remove</button></div>})}
  <h3>2. Build measured BOQ items</h3>
   <div className="estimateToolbar" aria-label="Import master pricing rates">
    <label>Import Construction Rates Master (staff only)
