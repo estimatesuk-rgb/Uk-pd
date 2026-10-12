@@ -15,6 +15,7 @@ import {duplicateAutoCandidate} from './aiDuplicateGuard.mjs';
 import {stageAiTakeoff,decideAiSuggestion} from './aiTakeoffQueue.mjs';
 import {findPotentialAiOverlaps,auditExistingBoqOverlap} from './aiSuggestionConflict.mjs';
 import {auditMeasurementQuality} from './aiMeasurementQuality.mjs';
+import {previewPendingMark} from './aiPendingPreview.mjs';
 pdfjs.GlobalWorkerOptions.workerSrc=new URL('pdfjs-dist/build/pdf.worker.min.mjs',import.meta.url).toString();
 const fresh={items:[],highlights:[],builder_id:'',takeoff_review_status:'Draft',takeoff_reviewer:'',takeoff_reviewed_at:'',measurement_standard:'NRM2',drawing_stages:{},supplier_price_date:'',supplier_price_source:'',global_adjustment:0,overheads:15,profit:10,vat:20,pc_sums:[],provisional_sums:[],dayworks:[],contingency_mode:'percent',contingency_value:0,quote_intro:'We are pleased to provide our quotation for the works described below.',quote_scope:'',quote_validity:'30 days',quote_payment_terms:'Payment schedule to be agreed before commencement.',quote_exclusions:'Items not expressly included are excluded.',quote_terms:'Subject to agreed contract terms.',quote_ref:'',quote_revisions:[]};
 const initialItem={ref_no:'',work_section:'Measured Works',description:'',trade:'General',drawing:'',quantity:0,unit:'m²',material_rate:0,plant_rate:0,labour_hours:0,labour_rate:0,supplier:'',price_url:'',status:'Needs verification'};
@@ -31,6 +32,7 @@ export default function Estimates({db,project,docs=[]}){
  const [rateImportBusy,setRateImportBusy]=useState(false),[rateImportStatus,setRateImportStatus]=useState(''),[rateImportReview,setRateImportReview]=useState([]);
  const [editingBoq,setEditingBoq]=useState(null);const [takeoffNotes,setTakeoffNotes]=useState('');const [item,setItem]=useState(initialItem),[pcDraft,setPcDraft]=useState({description:'',amount:'',attendance_percent:'0'}),[provisionalDraft,setProvisionalDraft]=useState({description:'',amount:'',defined:false,include:true}),[dayworkDraft,setDayworkDraft]=useState({description:'',labour:0,materials:0,plant:0,markup:0}),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);
  const [aiBusy,setAiBusy]=useState(false),[aiReview,setAiReview]=useState(null);
+ const [aiPreviewId,setAiPreviewId]=useState(null);
  const [aiProgress,setAiProgress]=useState({processed:0,total:0,stage:'idle'}); const [drawing,setDrawing]=useState(''),[page,setPage]=useState(1),[pageCount,setPageCount]=useState(1),[image,setImage]=useState(''),[dimensions,setDimensions]=useState([0,0]);
  const [calibrate,setCalibrate]=useState(false),[reference,setReference]=useState(null),[calibrationMetres,setCalibrationMetres]=useState(''),[calibrationFirst,setCalibrationFirst]=useState(null),[drag,setDrag]=useState(null),[hover,setHover]=useState(null),[markName,setMarkName]=useState('New work'),[stage,setStage]=useState('Proposed');
  const [markMode,setMarkMode]=useState('area'),[markDepth,setMarkDepth]=useState(''),[firstMeasurePoint,setFirstMeasurePoint]=useState(null);
@@ -420,6 +422,18 @@ export default function Estimates({db,project,docs=[]}){
    }
    finally{for(const source of sources)if(source.pdf){try{await source.pdf.destroy()}catch{}}setAiBusy(false)}
  }
+ function viewAiSuggestionOnDrawing(id){
+   const proposal=(estimate.ai_pending_takeoff||[]).find(p=>p.id===id);
+   const mark=proposal?.highlight;
+   if(!mark?.drawing_id||!Number.isInteger(Number(mark.page))||!fileDocs.some(doc=>doc.id===mark.drawing_id)){
+     setNotice('This AI suggestion has no valid stored drawing reference. Verify it manually before approval.');return;
+   }
+   setDrawing(mark.drawing_id);setPage(Number(mark.page));
+   setAiPreviewId(id);setCalibrate(false);setReference(null);setCalibrationFirst(null);
+   setPanMode(true);panRef.current=null;pressedPoint.current=null;setDrag(null);
+   setNotice('Previewing an unapproved AI outline in blue. Inspect the drawing and scale. This is not saved or added to the BOQ.');
+   setTimeout(()=>document.getElementById('estimate-drawing-takeoff')?.scrollIntoView({behavior:'smooth',block:'start'}),0);
+ }
  async function reviewAiSuggestion(id,decision){
    if(aiBusy||busy)return;
    const proposal=(estimate.ai_pending_takeoff||[]).find(p=>p.id===id);
@@ -656,6 +670,8 @@ export default function Estimates({db,project,docs=[]}){
    patch('items',[...estimate.items,draft]);
    setNotice('Added '+m.quantity+' '+m.unit+' to draft BOQ. '+(components?'A unique valid matching '+m.unit+' rate was applied.':matchStatus==='ambiguous'?'Multiple library rates match; choose and verify a rate.':match?'Library rate is incomplete or invalid; enter correct rates.':'No matching rate; enter labour, materials and plant rates.')+' Review and Save estimate.');
  }
+ const selectedAiProposal=(estimate.ai_pending_takeoff||[]).find(p=>p.id===aiPreviewId)||null;
+ const previewMark=previewPendingMark(selectedAiProposal,drawing,page);
  const currentHighlights=(estimate.highlights||[]).filter(x=>x.drawing_id===drawing&&x.page===page); const linkedBoq=h=>(estimate.items||[]).filter(i=>i.takeoff_evidence?.highlight_id===h.id); const pricedBoq=h=>linkedBoq(h).filter(i=>perLine(i)>0);
  const coverage=rateLibraryCoverage(rateLibrary);
  const existingOverlaps=auditExistingBoqOverlap(estimate.items||[]);
@@ -785,6 +801,12 @@ export default function Estimates({db,project,docs=[]}){
  <div className="estimateToolbar"><label>Saved builder<select value={estimate.builder_id||''} onChange={e=>patch('builder_id',e.target.value)}><option value="">Select builder</option>{builders.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label><button type="button" onClick={()=>{setBuilderForm({...emptyBuilderForm});setNotice('')}}>+ Add Builder</button><button type="button" className="outline" onClick={editBuilder} disabled={!builder} title={builder?'Edit the saved company and quotation details':'Select a saved builder first'}>Edit Builder</button><button onClick={()=>save()} disabled={busy}>Save estimate</button><button onClick={makeWord}>Generate Word BOQ</button><button type="button" onClick={exportBoqCSV}>Export BOQ CSV</button><button type="button" onClick={exportTakeoffJSON}>Export take-off JSON</button><button type="button" onClick={printMarkedDrawing}>Marked-up drawing PDF appendix</button><button onClick={printQuote}>Preview / Print Quotation</button><button onClick={saveQuoteRevision} disabled={busy||pricingIssues.length>0} title={pricingIssues.length?'Resolve pricing checks before saving a quote revision':''}>Save Quote Revision</button></div>
  {builderForm&&<div className="estimateForm" aria-label={builderForm.id?'Edit builder':'Add builder'}><h3>{builderForm.id?'Edit Builder — company and letterhead details':'Add Builder — company and letterhead details'}</h3>{[['name','Company name'],['contact_name','Contact'],['address','Postal address'],['phone','Phone'],['email','Email'],['vat_number','VAT number'],['company_number','Company number'],['footer','Quotation footer']].map(([k,l])=><label key={k}>{l}<input value={builderForm[k]||''} onChange={e=>setBuilderForm(b=>({...b,[k]:e.target.value}))}/></label>)}<label>Company logo (PNG or JPEG)<input type="file" accept=".png,.jpg,.jpeg" disabled={builderSaving||logoUploading} onChange={e=>uploadBuilderLogo(e.target.files?.[0])}/>{builderForm.logo_path&&<small>Saved logo on file. Upload another image to replace it.</small>}</label><button type="button" onClick={saveBuilder} disabled={builderSaving||logoUploading}>{builderSaving?'Saving builder…':logoUploading?'Uploading logo…':builderForm.id?'Save Builder Changes':'Save Builder'}</button><button type="button" className="outline" disabled={builderSaving||logoUploading} onClick={()=>setBuilderForm(null)}>Cancel</button></div>}
  <h3 id="estimate-drawing-takeoff">1. Drawing take-off and QS review</h3>
+ {selectedAiProposal&&<div className="notice" role="status">
+   <strong>Unapproved AI drawing preview:</strong> {selectedAiProposal.item.description} — {selectedAiProposal.item.quantity} {selectedAiProposal.item.unit}.
+   {previewMark?' The AI outline is shown in blue on this drawing.':' Switch to the correct source drawing/page to see this AI outline.'}
+   {' '}This is a suggested trace, not a QS-verified measurement.
+   <button type="button" className="outline" onClick={()=>setAiPreviewId(null)}>Clear AI preview</button>
+ </div>}
  {calibrationWizard&&<div className="estimateCalibrationWizard" aria-label="Drawing calibration checklist">
    <h4>Drawing scale checklist — {calibrationPages.length-missingCalibration(calibrationPages).length} of {calibrationPages.length} reviewed</h4>
    <p>Open each measurable drawing page, tap the two ends of a printed dimension, type that dimension in metres and press <strong>Save scale &amp; next</strong>. Calibration saves to this project automatically. For a page with only construction notes and no measurable drawing, press <strong>Construction notes — no scale required</strong>. AI will still read its notes but no scaled measurements will be taken from it. For sheets with more than one scale, check each view separately before relying on a measurement.</p>
@@ -836,7 +858,12 @@ export default function Estimates({db,project,docs=[]}){
  {currentHighlights.filter(h=>h.kind==='polygon'&&h.points?.length>=3).map(h=><path key={h.id} d={svgPolygon(h)} fill={pricedBoq(h).length?'rgba(35,156,82,.30)':linkedBoq(h).length?'rgba(234,172,37,.30)':'rgba(205,57,57,.22)'} fillRule="evenodd" stroke={pricedBoq(h).length?'#239c52':linkedBoq(h).length?'#eaaa25':'#cc3939'} strokeWidth=".35" strokeLinejoin="round"/>)}
  {firstMeasurePoint&&<circle cx={firstMeasurePoint.x*100} cy={firstMeasurePoint.y*100} r="1.3" fill="#006a9d" stroke="white" strokeWidth=".3"/>}
  {firstMeasurePoint&&hover&&<line x1={firstMeasurePoint.x*100} y1={firstMeasurePoint.y*100} x2={hover.x*100} y2={hover.y*100} stroke="#006a9d" strokeDasharray="1 .6" strokeWidth=".4"/>}
- </svg>}{currentHighlights.filter(h=>!['length','count','polygon','polyline'].includes(h.kind)).map(h=><div key={h.id} className="estimateMark" style={{left:h.x*100+'%',top:h.y*100+'%',width:h.w*100+'%',height:h.h*100+'%',background:pricedBoq(h).length?"rgba(35,156,82,.34)":linkedBoq(h).length?"rgba(234,172,37,.3)":"rgba(205,57,57,.2)",borderColor:pricedBoq(h).length?"#239c52":linkedBoq(h).length?"#eaaa25":"#cd3939"}} title={h.name+" — "+(pricedBoq(h).length?"Priced: "+pricedBoq(h).map(i=>i.ref_no||i.description).join(", "):linkedBoq(h).length?"Linked but unpriced":"Not linked to BOQ")}/>) }{drag&&hover&&!calibrate&&<div className="estimateMark drawingNew" style={{left:Math.min(drag.x,hover.x)*100+'%',top:Math.min(drag.y,hover.y)*100+'%',width:Math.abs(drag.x-hover.x)*100+'%',height:Math.abs(drag.y-hover.y)*100+'%'}}/>}</div></div></div><p className="muted">Drawing key: 🟢 Green = linked to a priced BOQ item; 🟡 Amber = linked but unpriced; 🔴 Red = not linked to BOQ. Drawings must be calibrated and measured quantities reviewed before issue.</p>
+ </svg>}{currentHighlights.filter(h=>!['length','count','polygon','polyline'].includes(h.kind)).map(h=><div key={h.id} className="estimateMark" style={{left:h.x*100+'%',top:h.y*100+'%',width:h.w*100+'%',height:h.h*100+'%',background:pricedBoq(h).length?"rgba(35,156,82,.34)":linkedBoq(h).length?"rgba(234,172,37,.3)":"rgba(205,57,57,.2)",borderColor:pricedBoq(h).length?"#239c52":linkedBoq(h).length?"#eaaa25":"#cd3939"}} title={h.name+" — "+(pricedBoq(h).length?"Priced: "+pricedBoq(h).map(i=>i.ref_no||i.description).join(", "):linkedBoq(h).length?"Linked but unpriced":"Not linked to BOQ")}/>) }{previewMark&&<svg aria-label={'Unapproved AI outline preview: '+selectedAiProposal.item.description} style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none',overflow:'visible'}} viewBox="0 0 100 100" preserveAspectRatio="none">
+ {previewMark.kind==='area'&&<rect x={previewMark.x*100} y={previewMark.y*100} width={previewMark.w*100} height={previewMark.h*100} fill="rgba(17,108,206,.22)" stroke="#0561bd" strokeWidth=".65" strokeDasharray="1.2 .6"/>}
+ {previewMark.kind==='count'&&<circle cx={previewMark.x*100} cy={previewMark.y*100} r="1.5" fill="#0561bd" stroke="#fff" strokeWidth=".35"/>}
+ {['length','polyline'].includes(previewMark.kind)&&<path d={svgTrace(previewMark.points,false)} fill="none" stroke="#0561bd" strokeWidth=".7" strokeDasharray="1.2 .5" strokeLinecap="round" strokeLinejoin="round"/>}
+ {previewMark.kind==='polygon'&&<path d={svgPolygon(previewMark)} fill="rgba(17,108,206,.22)" fillRule="evenodd" stroke="#0561bd" strokeWidth=".7" strokeDasharray="1.2 .5" strokeLinejoin="round"/>}
+ </svg>}{drag&&hover&&!calibrate&&<div className="estimateMark drawingNew" style={{left:Math.min(drag.x,hover.x)*100+'%',top:Math.min(drag.y,hover.y)*100+'%',width:Math.abs(drag.x-hover.x)*100+'%',height:Math.abs(drag.y-hover.y)*100+'%'}}/>}</div></div></div><p className="muted">Drawing key: 🟢 Green = linked to a priced BOQ item; 🟡 Amber = linked but unpriced; 🔴 Red = not linked to BOQ. 🔵 Blue dashed = an unapproved AI proposal (preview only). Drawings must be calibrated and measured quantities reviewed before issue.</p>
  {currentHighlights.map(h=>{const m=regionMeasures(h);return <div key={h.id} className="estimateHighlightRow">{h.stage}: {h.name} — {h.kind||'area'} (page {h.page}) {m?m.quantity+' '+m.unit:''}{m?.openings_count?' (gross '+m.gross_area_m2+' m² less '+m.deductions_area_m2+' m² for '+m.openings_count+' opening(s))':''} — {pricedBoq(h).length?'PRICED':linkedBoq(h).length?'LINKED / UNPRICED':'NOT LINKED'} <button type="button" disabled={selectedCalibrationStatus==='reference-only'||(h.kind!=='count'&&!metresPerPixel)} onClick={()=>addMeasured(h)}>Add measured {h.kind||'area'} to BOQ</button> <button type="button" className="outline" onClick={()=>patch('highlights',estimate.highlights.filter(x=>x.id!==h.id))}>Remove</button></div>})}
  <h3>2. Build measured BOQ items</h3>
  {(estimate.ai_pending_takeoff||[]).length>0&&<div className="notice" role="region" aria-label="Review new AI takeoff suggestions">
@@ -854,6 +881,7 @@ export default function Estimates({db,project,docs=[]}){
          Do not add twice without checking the original drawing and measurement evidence.</p>
        )}
      </div>
+     {p.kind==='measured'&&p.highlight&&<button type="button" className="outline" disabled={busy||aiBusy} onClick={()=>viewAiSuggestionOnDrawing(p.id)}>View AI outline on drawing</button>}
      <button type="button" disabled={busy||aiBusy} onClick={()=>reviewAiSuggestion(p.id,'add')}>Review and add as draft BOQ line</button>
      <button type="button" className="outline" disabled={busy||aiBusy} onClick={()=>reviewAiSuggestion(p.id,'dismiss')}>Dismiss</button>
    </div>)}
