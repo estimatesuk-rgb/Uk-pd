@@ -168,7 +168,7 @@
 <textarea id="specification" placeholder="Example: Prepare and decorate 42 m2 of walls&#10;Renew 12 lm of skirting&#10;Replace 3 no internal doors"></textarea><div class="row"><button id="suggest" type="button">Suggest SOR matches</button><button id="clear-spec" class="secondary" type="button">Clear specification</button></div><div id="suggestions" class="specs"></div></div>
 </section><section>
 <div class="card"><h2>Project summary</h2><div id="totals"><div class="kpi"><div class="caption">Labour</div><b id="labour-total">£0.00</b></div><div class="kpi"><div class="caption">Materials</div><b id="materials-total">£0.00</b></div><div class="kpi"><div class="caption">Labour hours</div><b id="hours-total">0.0</b></div><div class="kpi feature"><div class="caption">Total ex VAT</div><b id="grand-total">£0.00</b></div></div><div id="checks" class="status">Totals reconcile to the adjusted V8 selling rates.</div>
-<div class="row" style="margin-top:18px"><button id="preview-boq" type="button" class="secondary">Preview / adjust BoQ</button><button id="export-excel" type="button">Download professional BoQ (Excel)</button><button id="export-csv" class="secondary">Download CSV</button><button id="clear-job" class="red">Clear job</button></div></div>
+<div class="row" style="margin-top:18px"><button id="preview-boq" type="button" class="secondary">Preview / adjust BoQ</button><button id="export-excel" type="button">Download NEW branded BoQ (Excel)</button><button id="export-csv" class="secondary">Download CSV</button><button id="clear-job" class="red">Clear job</button></div></div>
 <div class="card boq-card"><h2>Bill of Quantities</h2><p>Every item is split into materials and labour. Change quantities or remove items as needed.</p><div class="tablewrap"><table><thead><tr><th>SOR / description</th><th class="num">Qty</th><th>UOM</th><th class="num">V8 rate</th><th class="num">Labour</th><th class="num">Materials</th><th class="num">Total</th><th></th></tr></thead><tbody id="boq-rows"><tr><td colspan="8" class="empty">No work items added yet.</td></tr></tbody></table></div></div>
 <div class="card"><h2>Labour time &amp; material plan</h2><div class="tablewrap"><table><thead><tr><th>Work item</th><th class="num">Hours</th><th class="num">Material value</th></tr></thead><tbody id="plan-rows"><tr><td colspan="3" class="empty">Add SOR items to generate this schedule.</td></tr></tbody></table></div><p class="notice">The material figures are cost allowances split from V8—not product quantities. A true purchasing list requires approved material recipes and pack sizes. Estimated SMVs are labelled as provisional.</p></div>
 <div class="card"><h2>How the pricing works</h2><p><b>V8 is the agreed selling rate.</b> At 0%, the total is exactly quantity × V8 rate. Adjustment ±% is applied to V8, and its labour/material portions, only once. SMV minutes × quantity / 60 gives labour hours.</p><p><span class="safe">✓</span> Separate app and private on-device data. <b>Note:</b> this pilot does not yet provide cloud project sharing, multi-user logins, genuine AI interpretation or automatic material product recipes.</p></div></section></div>
@@ -727,7 +727,7 @@ async function exportProfessionalBoq(){
   if(!job.length){alert('Add at least one SOR item before downloading the Bill of Quantities.');return;}
   const button=$('export-excel'),previewButton=$('preview-download');
   if(!window.ExcelJS){alert('The professional Excel exporter did not load. Check your internet connection and refresh the page. No plain replacement has been downloaded.');return;}
-  const oldText=button.textContent;button.disabled=true;previewButton.disabled=true;button.textContent='Preparing branded BoQ...';
+  const oldText=button.textContent;button.disabled=true;previewButton.disabled=true;button.textContent='Preparing NEW branded BoQ...';
   try{
     const lines=reportLines(),totals=reportTotals(lines),factor=1+adjustment()/100;
     const wb=new ExcelJS.Workbook();wb.creator='UK Estimates Ltd';wb.subject='Housing maintenance and void property Bill of Quantities';wb.title='UK Estimates | Bill of Quantities';wb.created=new Date();
@@ -826,7 +826,7 @@ async function exportProfessionalBoq(){
     review.mergeCells('A20:L22');cellReportText(review,'A20','For review prior to issue: confirm scope, quantities, SOR codes, any provisional SMV values and labour/material allocations. The contract percentage is a change to V8 selling rates — it is not OH&P added a second time. Prices exclude VAT.',{size:10,fill:UK_EST_PALETTE.light,colour:UK_EST_PALETTE.muted});
     review.printArea='A1:L22';
     const output=await wb.xlsx.writeBuffer();
-    download(new Blob([output],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),filename('xlsx'));
+    download(new Blob([output],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),'UK_Estimates_BRANDED_BoQ_'+(clean($('reference').value).replace(/[^a-z0-9_-]+/gi,'_')||'Maintenance')+'_'+new Date().toISOString().slice(0,10)+'.xlsx');
     status('checks','Branded BoQ downloaded with logo, V8 percentage adjustment, line formulas and reconciled totals.','ok');
   }catch(e){
     console.error('Branded BoQ export failed:',e);
