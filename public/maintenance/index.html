@@ -518,6 +518,216 @@ $('save-job').onclick=async()=>{try{await saveCurrentJob();status('jobs-status',
 $('open-job').onclick=async()=>{try{await openSavedJob($('saved-jobs').value);}catch(e){status('jobs-status','Could not reopen job: '+e.message,'bad');}};
 $('delete-job').onclick=async()=>{try{await removeSavedJob($('saved-jobs').value);}catch(e){status('jobs-status','Delete failed: '+e.message,'bad');}};
 function adjustment(){let x=Number($('adjustment').value);return Number.isFinite(x)?Math.max(-100,Math.min(1000,x)):0;}
+
+/* Planning is derived from the current approved BoQ. No unpublished source
+   quantities, invented SMV figures or unverified programme end dates. */
+function normalisePlanner(saved){
+  const x=saved&&typeof saved==='object'?saved:{};
+  const trades={};
+  if(x.trades&&typeof x.trades==='object')for(const [name,val] of Object.entries(x.trades)){
+    if(!name||!val||typeof val!=='object')continue;
+    trades[name]={crew:Number.isFinite(Number(val.crew))?Math.max(1,Math.min(99,Math.floor(Number(val.crew)))):1,
+      order:Number.isFinite(Number(val.order))?Math.max(1,Math.min(9999,Math.floor(Number(val.order)))):null,
+      rule:val.rule==='parallel'?'parallel':'sequence'};
+  }
+  const overrides={};
+  if(x.overrides&&typeof x.overrides==='object')for(const [code,minutes] of Object.entries(x.overrides)){
+    const v=Number(minutes);
+    if(v>0&&Number.isFinite(v)&&v<=100000)overrides[code]=v;
+  }
+  const start=typeof x.startDate==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(x.startDate)?x.startDate:'';
+  const hours=Number(x.dailyHours);
+  return {startDate:start,dailyHours:Number.isFinite(hours)&&hours>=1&&hours<=16?hours:7,trades,overrides};
+}
+function planDateKey(d){return String(d.getFullYear()).padStart(4,'0')+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function parsePlanDate(s){
+  const match=String(s||'').match(/^(\d{4})-(\d\d)-(\d\d)$/);
+  if(!match)return null;
+  const d=new Date(Number(match[1]),Number(match[2])-1,Number(match[3]),12);
+  return planDateKey(d)===s?d:null;
+}
+function planNextDate(d){return new Date(d.getFullYear(),d.getMonth(),d.getDate()+1,12);}
+function planWorkDate(input){
+  let d=new Date(input.getFullYear(),input.getMonth(),input.getDate(),12);
+  while([0,6].includes(d.getDay()))d=planNextDate(d);
+  return d;
+}
+function planAddWorkingDays(start,days){
+  if(!Number.isFinite(days)||days<=0)return null;
+  let d=planWorkDate(start);
+  for(let i=1;i<days;i++)d=planWorkDate(planNextDate(d));
+  return d;
+}
+function planWorkdayIndex(start,target){
+  if(!target)return -1;
+  let d=planWorkDate(start),i=0;
+  const dateKey=planDateKey(target);
+  while(planDateKey(d)<dateKey&&i<5000){d=planWorkDate(planNextDate(d));i++;}
+  return i;
+}
+function planDisplayDate(d){return d?d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}):'Unscheduled';}
+function smvClass(rate,override){
+  const recorded=Number(rate.smv);
+  const entered=Number(override);
+  if(Number.isFinite(entered)&&entered>0&&entered<=100000)return {minutes:entered,status:'Manual planning allowance',level:'warning',source:'Planner override'};
+  if(!Number.isFinite(recorded)||recorded<=0)return {minutes:null,status:'Missing SMV',level:'missing',source:'No SMV supplied'};
+  const method=String(rate.smvMethod||'');
+  const provisional=/estimated|provisional|unavailable|assumed|approx|not specified|unverified|indicative/i.test(method);
+  return {minutes:recorded,status:provisional?'Provisional SMV':'Ratebook SMV',level:provisional?'warning':'provided',source:method||'Ratebook'};
+}
+function buildJobProgramme(){
+  const groups=new Map(),details=[];
+  const dayHours=Number(planner.dailyHours)>0?Number(planner.dailyHours):7;
+  const start=planWorkDate(parsePlanDate(planner.startDate)||new Date());
+  let missing=0,provisional=0,knownHours=0;
+  for(const item of job){
+    const rate=codes.get(item.code)||item.snapshot;
+    if(!rate)continue;
+    const qty=Math.max(0,num(item.qty));
+    if(qty<=0)continue;
+    const trade=clean(rate.trade)||'Unclassified trade';
+    if(!groups.has(trade))groups.set(trade,{trade,firstOrder:groups.size+1,details:[],hours:0,missing:0,provisional:0,items:0});
+    const group=groups.get(trade),override=planner.overrides[rate.code];
+    const assessed=smvClass(rate,override);
+    const hours=assessed.minutes===null?null:qty*assessed.minutes/60;
+    const row={code:rate.code,description:rate.description,trade,unit:rate.unit,qty,ratebookSmv:Number(rate.smv)||0,smv:assessed.minutes,
+      hours,status:assessed.status,level:assessed.level,source:assessed.source,method:rate.smvMethod||''};
+    details.push(row);group.details.push(row);group.items++;
+    if(hours===null){group.missing++;missing++;}
+    else {group.hours+=hours;knownHours+=hours;if(assessed.level==='warning'){group.provisional++;provisional++;}}
+  }
+  const ordered=[...groups.values()].map(g=>{
+    const config=planner.trades[g.trade]||{};
+    return {...g,crew:Math.max(1,Math.min(99,Number(config.crew)||1)),order:Number(config.order)||g.firstOrder,rule:config.rule==='parallel'?'parallel':'sequence'};
+  }).sort((a,b)=>a.order-b.order||a.firstOrder-b.firstOrder||a.trade.localeCompare(b.trade));
+  let sequentialCursor=start,latestFinish=null,latestIndex=-1;
+  for(const trade of ordered){
+    const days=trade.hours>0?Math.ceil(trade.hours/(trade.crew*dayHours)-1e-10):0;
+    const begins=days?(trade.rule==='parallel'?start:sequentialCursor):null;
+    const finish=days?planAddWorkingDays(begins,days):null;
+    trade.days=days;trade.begins=begins;trade.finish=finish;
+    if(finish){
+      const endIndex=planWorkdayIndex(start,finish);
+      if(endIndex>latestIndex){latestIndex=endIndex;latestFinish=finish;}
+      if(trade.rule!=='parallel')sequentialCursor=planWorkDate(planNextDate(finish));
+    }
+  }
+  const durationDays=latestFinish?planWorkdayIndex(start,latestFinish)+1:0;
+  return {start,dayHours,trades:ordered,details,missing,provisional,knownHours,latestFinish,durationDays,
+    totalOperativeDays:knownHours/dayHours};
+}
+function planStatusLabel(text,kind){
+  return '<span class="smv-flag'+(kind==='missing'?' missing':kind==='warning'?' warn':'')+'">'+esc(text)+'</span>';
+}
+function renderJobPlanning(){
+  if(!$('planner-summary'))return;
+  const p=buildJobProgramme();
+  $('planner-start').value=planner.startDate||planDateKey(p.start);
+  $('planner-hours').value=String(planner.dailyHours);
+  const stats=[
+    ['Trade groups',p.trades.length],
+    ['Planned SMV hours',p.knownHours.toFixed(1)+' h'],
+    ['Labour operative-days',p.totalOperativeDays.toFixed(1)],
+    ['Indicative finish',p.latestFinish?planDisplayDate(p.latestFinish):'Awaiting SMV']
+  ];
+  $('planner-summary').innerHTML=stats.map(([label,value])=>'<div class="smv-stat"><span>'+esc(label)+'</span><strong>'+esc(value)+'</strong></div>').join('');
+  $('planner-warning').innerHTML=(p.missing||p.provisional?
+    '<div class="plan-warning"><strong>Programme requires review.</strong> '+p.missing+' BoQ rate(s) have no SMV; '+p.provisional+' use provisional/manual minutes. Missing SMVs are <b>excluded</b> from calculated durations — the displayed finish date may be too early.</div>':
+    p.trades.length?'<div class="plan-success">All BoQ lines have ratebook SMV minutes recorded. Confirm trade order, crew availability, site constraints and bank holidays before issuing the programme.</div>':
+    '<div class="plan-warning">Add priced BoQ items to calculate a programme.</div>');
+  const header='<thead><tr><th>Order</th><th>Trade</th><th>SMV hours</th><th>Operatives</th><th>Start rule</th><th>Working days</th><th>Start</th><th>Finish</th><th>Review</th></tr></thead>';
+  $('planner-trades').innerHTML=p.trades.length?'<table>'+header+'<tbody>'+p.trades.map(t=>{
+    const status=t.missing?planStatusLabel(t.missing+' missing','missing'):t.provisional?planStatusLabel(t.provisional+' provisional','warning'):planStatusLabel('SMV recorded','provided');
+    const key=esc(encodeURIComponent(t.trade));
+    return '<tr><td><input class="plan-order" aria-label="Trade order '+esc(t.trade)+'" type="number" min="1" step="1" data-plan-order="'+key+'" value="'+t.order+'"></td>'+
+      '<td><b>'+esc(t.trade)+'</b><div class="hint">'+t.items+' BoQ item(s)</div></td>'+
+      '<td class="num">'+t.hours.toFixed(2)+'</td>'+
+      '<td><input class="plan-crew" aria-label="Operatives for '+esc(t.trade)+'" type="number" min="1" max="99" step="1" data-plan-crew="'+key+'" value="'+t.crew+'"></td>'+
+      '<td><select class="plan-start-rule" aria-label="Start rule for '+esc(t.trade)+'" data-plan-rule="'+key+'"><option value="sequence" '+(t.rule==='sequence'?'selected':'')+'>After previous</option><option value="parallel" '+(t.rule==='parallel'?'selected':'')+'>Alongside / day one</option></select></td>'+
+      '<td class="num">'+(t.days||'—')+(t.missing?' + unplanned':'')+'</td>'+
+      '<td>'+esc(planDisplayDate(t.begins))+'</td><td>'+esc(planDisplayDate(t.finish))+'</td><td>'+status+'</td></tr>';
+  }).join('')+'</tbody></table>':'<div class="empty">No priced BoQ work yet. Add SOR rates to create trade groups.</div>';
+  $('planner-detail').innerHTML=p.details.length?
+    '<table><thead><tr><th>SOR</th><th>Description / trade</th><th>Qty</th><th>Unit</th><th>Ratebook SMV min</th><th>Planning SMV override</th><th>Planning hours</th><th>SMV status</th></tr></thead><tbody>'+
+    p.details.map(d=>{
+      const saved=planner.overrides[d.code];
+      return '<tr><td><b>'+esc(d.code)+'</b></td><td>'+esc(d.description)+'<div class="hint">'+esc(d.trade)+'</div></td>'+
+        '<td class="num">'+d.qty+'</td><td>'+esc(d.unit)+'</td>'+
+        '<td class="num">'+(d.ratebookSmv>0?d.ratebookSmv:'—')+'</td>'+
+        '<td><input class="plan-smv-override" type="number" min="0" max="100000" step="0.1" placeholder="Minutes / unit" data-plan-smv="'+esc(d.code)+'" aria-label="Planning-only SMV minutes for '+esc(d.code)+'" value="'+(saved??'')+'"></td>'+
+        '<td class="num">'+(d.hours===null?'—':d.hours.toFixed(2))+'</td>'+
+        '<td>'+planStatusLabel(d.status,d.level)+(d.method?'<div class="hint">'+esc(d.method)+'</div>':'')+'</td></tr>';
+    }).join('')+'</tbody></table>':'<div class="empty">An SMV review list will appear when the Bill of Quantities contains rates.</div>';
+  const gantt=$('planner-gantt');
+  if(!p.trades.length){gantt.innerHTML='<div class="empty">Add BoQ items to generate an indicative Gantt programme.</div>';return;}
+  if(!p.durationDays){gantt.innerHTML='<div class="plan-warning">No trade has usable SMV hours. Enter planning-only allowances for missing SMVs to create a provisional programme.</div>';return;}
+  const cols=Math.min(520,Math.max(20,p.durationDays)),trackWidth=cols*26;
+  let ticks='';
+  for(let i=0;i<cols;i+=5){const day=planAddWorkingDays(p.start,i+1);ticks+='<span class="smv-gantt-scale" style="left:'+(i*26+3)+'px">'+esc(day.toLocaleDateString('en-GB',{day:'2-digit',month:'short'}))+'</span>';}
+  gantt.innerHTML='<div style="width:'+(trackWidth+185)+'px"><div style="display:flex"><div class="smv-gantt-label">Trade / time</div>'+
+    '<div class="smv-gantt-header" style="width:'+trackWidth+'px">'+ticks+'</div></div>'+
+    p.trades.map(t=>{
+      const from=t.begins?planWorkdayIndex(p.start,t.begins):0;
+      const width=Math.max(0,Math.min(cols-from,t.days))*26;
+      const bar=width>0?'<div class="smv-gantt-bar'+(t.missing||t.provisional?' uncertain':'')+'" style="left:'+(from*26)+'px;width:'+width+'px" title="'+esc(t.trade)+': '+esc(planDisplayDate(t.begins))+' to '+esc(planDisplayDate(t.finish))+'"></div>':'';
+      return '<div class="smv-gantt-row"><div class="smv-gantt-label" title="'+esc(t.trade)+'">'+esc(t.trade)+'</div><div class="smv-gantt-track" style="width:'+trackWidth+'px">'+bar+'</div></div>';
+    }).join('')+'</div>'+(p.durationDays>cols?'<p class="smv-footnote">Chart shows the first '+cols+' working days only; the complete end dates are in the trade schedule.</p>':'');
+}
+function updatePlannerTradeInput(target,field){
+  let name;try{name=decodeURIComponent(target.dataset[field]);}catch(e){return;}
+  if(!name)return;
+  const current=planner.trades[name]||{crew:1,order:buildJobProgramme().trades.find(t=>t.trade===name)?.order||1,rule:'sequence'};
+  if(field==='planCrew'){
+    const count=Number(target.value);
+    if(!Number.isInteger(count)||count<1||count>99){status('planner-status','Operatives must be between 1 and 99.','bad');return;}
+    current.crew=count;
+  }else if(field==='planOrder'){
+    const order=Number(target.value);
+    if(!Number.isInteger(order)||order<1||order>9999){status('planner-status','Trade order must be a whole number from 1 to 9999.','bad');return;}
+    current.order=order;
+  }else current.rule=target.value==='parallel'?'parallel':'sequence';
+  planner.trades[name]=current;
+  save();renderJobPlanning();
+  status('planner-status','Programme recalculated and saved to '+(activeJobId||'current job')+'.','ok');
+  if(!$('boq-preview-layer').hidden)renderBoqPaper();
+}
+$('planner-trades').addEventListener('change',event=>{
+  const t=event.target;
+  if(t.matches('[data-plan-crew]'))updatePlannerTradeInput(t,'planCrew');
+  if(t.matches('[data-plan-order]'))updatePlannerTradeInput(t,'planOrder');
+  if(t.matches('[data-plan-rule]'))updatePlannerTradeInput(t,'planRule');
+});
+$('planner-detail').addEventListener('change',event=>{
+  const t=event.target;if(!t.matches('[data-plan-smv]'))return;
+  const minutes=t.value.trim()===''?0:Number(t.value);
+  if(!Number.isFinite(minutes)||minutes<0||minutes>100000){status('planner-status','Planning-only SMV must be blank or a positive number of minutes up to 100,000.','bad');return;}
+  if(minutes===0)delete planner.overrides[t.dataset.planSmv];else planner.overrides[t.dataset.planSmv]=minutes;
+  save();calculate();
+  status('planner-status',minutes>0?'Recorded a clearly marked planning-only SMV for '+t.dataset.planSmv+'. Original V8 rate unchanged.':'Cleared planning override for '+t.dataset.planSmv+'.','ok');
+  if(!$('boq-preview-layer').hidden)renderBoqPaper();
+});
+$('planner-start').addEventListener('change',e=>{
+  const d=parsePlanDate(e.target.value);
+  if(!d){status('planner-status','Choose a valid programme start date.','bad');return;}
+  planner.startDate=planDateKey(d);save();renderJobPlanning();
+  status('planner-status','Programme start date saved. Dates calculated using Monday–Friday working days.','ok');
+});
+$('planner-hours').addEventListener('change',e=>{
+  const v=Number(e.target.value);
+  if(!Number.isFinite(v)||v<1||v>16){status('planner-status','Productive hours must be from 1 to 16 per operative per day.','bad');return;}
+  planner.dailyHours=v;save();renderJobPlanning();
+  status('planner-status','Productive working hours saved and programme recalculated.','ok');
+});
+$('planner-generate').onclick=()=>{
+  if(!job.length){status('planner-status','Add approved BoQ rates before generating a programme.','bad');return;}
+  planner.startDate=planDateKey(planWorkDate(parsePlanDate($('planner-start').value)||new Date()));
+  planner.dailyHours=Number($('planner-hours').value);
+  planner=normalisePlanner(planner);
+  save();renderJobPlanning();
+  const current=buildJobProgramme();
+  status('planner-status','Draft programme generated: '+current.trades.length+' trade(s), '+current.knownHours.toFixed(1)+' planned SMV hours'+(current.missing?' — '+current.missing+' missing SMV items require review.':'.')+' Stored with this job.',current.missing?'bad':'ok');
+};
+
 function calculate(){const f=1+adjustment()/100;let lt=0,mt=0,gt=0,ht=0,lines=[],plans=[];job.forEach((j,i)=>{let r=codes.get(j.code)||j.snapshot;if(!r)return;const q=Math.max(0,num(j.qty));const tot=q*r.rate*f,split=r.labour+r.materials,l=split>0?tot*r.labour/split:0,m=tot-l,h=q*r.smv/60;lt+=l;mt+=m;gt+=tot;ht+=h;lines.push('<tr><td><b>'+esc(r.code)+'</b><br>'+esc(r.description)+'<br><span class="tag">'+esc(r.trade)+'</span></td><td><input type="number" class="qty" min="0" step="any" value="'+esc(q)+'" data-qty="'+i+'"></td><td>'+esc(r.unit)+'</td><td class="num">'+money(r.rate)+'</td><td class="num">'+money(l)+'</td><td class="num">'+money(m)+'</td><td class="num"><b>'+money(tot)+'</b></td><td><button class="tiny red" data-del="'+i+'" aria-label="Remove item">×</button></td></tr>');plans.push('<tr><td>'+esc(r.code)+' — '+esc(r.description)+' '+(r.smvMethod&&/estimated|unavailable/i.test(r.smvMethod)?'<span class="tag">Provisional SMV</span>':'')+'</td><td class="num">'+h.toFixed(2)+'</td><td class="num">'+money(m)+'</td></tr>');});
 $('boq-rows').innerHTML=lines.join('')||'<tr><td colspan="8" class="empty">No work items added yet.</td></tr>';$('plan-rows').innerHTML=plans.join('')||'<tr><td colspan="3" class="empty">Add SOR items to generate this schedule.</td></tr>';
 $('labour-total').textContent=money(lt);$('materials-total').textContent=money(mt);$('hours-total').textContent=ht.toFixed(1);$('grand-total').textContent=money(gt);
