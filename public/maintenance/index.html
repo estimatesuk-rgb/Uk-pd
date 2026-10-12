@@ -1310,7 +1310,12 @@ function safeExactMatch(line){
   const explicit=String(line).match(/\b(?:SOR|NHF|CODE)\s*[:#-]?\s*(\d{3,8})\b/i);
   if(explicit){
     const exact=codes.get(explicit[1]);
-    return exact&&acceptedUnits.includes(String(exact.unit||'').toUpperCase())?exact:null;
+    if(!exact||!acceptedUnits.includes(String(exact.unit||'').toUpperCase()))return null;
+    // Even an explicit SOR code may be mistyped. Never auto-approve it if the
+    // same work line specifies a different thickness, material or activity.
+    const descriptionKey=exactKey(line);
+    const permitted=new Set([exactKey(exact.description),exactKey(exact.medium||'')].filter(Boolean));
+    return !descriptionKey||permitted.has(descriptionKey)?exact:null;
   }
   const key=exactKey(line);
   if(!key)return null;
