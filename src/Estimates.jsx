@@ -766,7 +766,7 @@ export default function Estimates({db,project,docs=[]}){
       const dims=evidence.dimension_evidence||{};
       return <li key={i.id||n}><b>{i.description}: {i.quantity} {i.unit}</b> — {i.drawing}.
         {Object.keys(calc).length>0&&<span> Calculation: {Object.entries(calc).map(([key,val])=>key.replaceAll('_',' ')+' = '+val).join('; ')}.</span>}
-        {Object.keys(dims).filter(k=>k.endsWith('_evidence')).map(k=><span key={k}> {k.replaceAll('_',' ')}: “{dims[k]}”.</span>}
+        {Object.keys(dims).filter(k=>k.endsWith('_evidence')).map(k=><span key={k}> {k.replaceAll('_',' ')}: “{dims[k]}”.</span>)}
         {Array.isArray(dims.openings)&&dims.openings.length>0&&<span> {dims.openings.length} opening(s): verify widths/heights and the location of each on elevations.</span>}
       </li>;
     })}</ul>
