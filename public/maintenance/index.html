@@ -2334,6 +2334,31 @@ $('suggest').onclick=()=>{
   showReview(true);
 };
 const UK_EST_LOGO='/maintenance/uk-estimates-logo.png';
+
+/* Reusable report identity/footer. Customer controls the upper banner only;
+   the UK Estimates contact line is fixed in the report generator. */
+const reportIssuedRefs=new Map();
+function reportCurrentId(type){
+  const entry=reportIssuedRefs.get(type);
+  return entry&&entry.jobId===activeJobId?entry:null;
+}
+function reportHeaderHtml(title,subtitle,thirdLine='DRAFT REPORT'){
+  const customer=activeCustomerLetterhead();
+  const banner=customer?'<div class="report-client-letterhead"><img src="'+customer.dataUrl+'" alt="'+esc(clean($('client').value))+' customer letterhead"></div>':'';
+  return banner+'<div class="boq-letterhead'+(customer?' has-client-brand':'')+'"><img src="'+UK_EST_LOGO+'" alt="UK Estimates logo"><div class="boq-report-heading"><h2>'+
+    esc(title)+'</h2><span>'+esc(subtitle)+'</span><span>'+esc(thirdLine)+'</span></div></div>';
+}
+function reportUKFooterHtml(type){
+  const reference=reportCurrentId(type);
+  return '<div class="report-powered-footer" aria-label="UK Estimates compulsory report attribution">'+
+    '<img src="'+UK_EST_LOGO+'" alt="UK Estimates logo">'+
+    '<div class="powered-details"><strong>Produced using UK Estimates Ltd</strong>'+
+    '<div>www.ukestimates.com · Enquiries@ukestimates.com · 01246 203196</div>'+
+    '<div>Job: '+esc($('reference').value||activeJobId||'Draft')+' · Report: '+esc(reference?.id||'Draft — not issued')+
+    (reference?.hash?' · Issue fingerprint: '+esc(reference.hash.slice(0,16)):'')+
+    ' · This report may only be certified against the issuer’s retained record.</div></div></div>';
+}
+
 function setPercent(value){
   const n=Number(value);
   if(!Number.isFinite(n))return;
@@ -2376,7 +2401,7 @@ function renderBoqPaper(){
   $('preview-top-total').textContent=money(t.adjusted)+' ex VAT';
   const now=new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'});
   const details=[['Property / site',$('address').value],['Council / client',$('client').value],['Job reference',$('reference').value],['Surveyor',$('surveyor').value]];
-  let html='<div class="boq-letterhead"><img src="'+UK_EST_LOGO+'" alt="UK Estimates logo"><div class="boq-report-heading"><h2>BILL OF QUANTITIES</h2><span>Housing maintenance &amp; void property works · SOR V8</span><span>Prepared '+esc(now)+'</span></div></div>';
+  let html=reportHeaderHtml('BILL OF QUANTITIES','Housing maintenance & void property works · SOR V8','Prepared '+now);
   html+='<div class="boq-info-grid">'+details.map(d=>'<div><small>'+esc(d[0])+'</small><b>'+esc(clean(d[1])||'Not provided')+'</b></div>').join('')+'</div>';
   html+='<div class="boq-section-title">SCHEDULE OF MEASURED WORKS</div>';
   html+='<table class="boq-report-table"><thead><tr><th>No.</th><th>SOR code</th><th>Description of works</th><th>Unit</th><th class="n">Quantity</th><th class="n">V8 rate</th><th class="n">Labour</th><th class="n">Materials</th><th class="n">Line total</th></tr></thead><tbody>';
@@ -2393,7 +2418,7 @@ function renderBoqPaper(){
   html+='<tr><td>Materials allocation</td><td>'+money(t.materials)+'</td></tr>';
   html+='<tr><td><b>TOTAL EX VAT</b></td><td>'+money(t.adjusted)+'</td></tr></tbody></table></div>';
   html+=renderProgrammeForPrint();
-  html+='<div class="report-footer"><span>UK Estimates · Housing Maintenance &amp; Voids</span><span>Ref: '+esc($('reference').value||'Draft')+' · Draft for review prior to issue</span></div>';
+  html+=reportUKFooterHtml('boq');
   $('boq-paper').innerHTML=html;
 }
 
@@ -2420,7 +2445,7 @@ function renderSubcontractPaper(){
     ['Site supervisor',p.supervisor],['Prepared on',now]
   ];
   const costsComplete=data.unagreed===0&&data.awaitingCompletion===0&&data.reconciliationIssues.length===0;
-  let out='<div class="boq-letterhead"><img src="'+UK_EST_LOGO+'" alt="UK Estimates logo"><div class="boq-report-heading"><h2>LABOUR-ONLY SUBCONTRACT TIMESHEET</h2><span>'+signedTrade+' · Measured works / time record</span><span>DRAFT RECORD · For site signature</span></div></div>';
+  let out=reportHeaderHtml('LABOUR-ONLY SUBCONTRACT TIMESHEET',(data.viewTrade==='__all__'?'Combined work summary':data.viewTrade)+' · Measured works / time record','Draft for signature');
   out+='<div class="boq-info-grid">'+metadata.map(([label,value])=>'<div><small>'+esc(label)+'</small><b>'+esc(clean(value)||'________________')+'</b></div>').join('')+'</div>';
   out+='<div class="boq-section-title">MEASURED WORK / SITE COMPLETION RECORD</div>';
   out+='<p class="sub-print-note">Uncompleted quantities and actual hours are left blank. Labour-only prices are agreed separately from V8 client selling rates. Amounts show only confirmed subcontract rates and recorded actual work; no client OH&amp;P is applied. <b>Signature lines are blank until personally signed.</b></p>';
@@ -2452,7 +2477,7 @@ function renderSubcontractPaper(){
   out+='<div class="sub-print-signatures">'+
     '<div class="signature"><b>Subcontractor / operative signature:</b><span>_________________________________________</span><span>Printed name: ______________________________</span><span>Date: __________________</span></div>'+
     '<div class="signature"><b>Client / site supervisor signature:</b><span>_________________________________________</span><span>Printed name: '+esc(p.supervisor||'_________________________')+'</span><span>Date: __________________</span></div></div>';
-  out+='<div class="report-footer"><span>UK Estimates — Subcontractor labour-only &amp; site timesheet</span><span>Job '+esc($('reference').value||activeJobId||'Draft')+' · For signed site records</span></div>';
+  out+=reportUKFooterHtml('timesheet');
   $('sub-print-paper').innerHTML=out;
 }
 $('sub-preview').onclick=()=>{
@@ -2509,14 +2534,28 @@ async function boqLogoImage(wb){
     const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(Error('Could not read the UK Estimates logo.'));
     reader.readAsDataURL(blob);
   });
-  return wb.addImage({base64:source,extension:'png'});
+  const images={uk:wb.addImage({base64:source,extension:'png'}),customer:null};
+  const brand=activeCustomerLetterhead();
+  if(brand){images.customer=wb.addImage({base64:brand.dataUrl,extension:'png'});images.customerDetails=brand;}
+  return images;
 }
 function writeBoqBrandHeader(ws,logo,title,subtitle){
-  ws.mergeCells('D1:L2');
-  cellReportText(ws,'D1',title,{size:21,bold:true,colour:UK_EST_PALETTE.navy});
-  ws.mergeCells('D3:L3');cellReportText(ws,'D3',subtitle,{size:9,colour:UK_EST_PALETTE.muted});
-  ws.addImage(logo,{tl:{col:0.2,row:0.15},br:{col:2.9,row:2.9},editAs:'oneCell'});
-  [1,2,3].forEach(n=>ws.getRow(n).height=24);
+  const images=typeof logo==='object'?logo:{uk:logo,customer:null};
+  if(images.customer){
+    // Full-width customer banner sits above a distinct report-title row.
+    // UK Estimates remains mandatory in the protected footers.
+    ws.mergeCells('A3:L3');
+    cellReportText(ws,'A3',title+' · '+subtitle,{size:11,bold:true,colour:UK_EST_PALETTE.navy});
+    ws.addImage(images.customer,{tl:{col:0.15,row:0.10},br:{col:11.7,row:1.95},editAs:'oneCell'});
+    ws.getRow(1).height=53;ws.getRow(2).height=53;ws.getRow(3).height=29;
+  }else{
+    ws.mergeCells('D1:L2');
+    cellReportText(ws,'D1',title,{size:21,bold:true,colour:UK_EST_PALETTE.navy});
+    ws.mergeCells('D3:L3');
+    cellReportText(ws,'D3',subtitle,{size:9,colour:UK_EST_PALETTE.muted});
+    ws.addImage(images.uk,{tl:{col:0.2,row:0.15},br:{col:2.9,row:2.9},editAs:'oneCell'});
+    [1,2,3].forEach(n=>ws.getRow(n).height=24);
+  }
   ws.getRow(4).height=7;
   for(let col=1;col<=12;col++){ws.getCell(4,col).fill=boqFill(UK_EST_PALETTE.red);}
 }
