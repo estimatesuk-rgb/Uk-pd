@@ -2228,6 +2228,76 @@ function renderBoqPaper(){
   html+='<div class="report-footer"><span>UK Estimates · Housing Maintenance &amp; Voids</span><span>Ref: '+esc($('reference').value||'Draft')+' · Draft for review prior to issue</span></div>';
   $('boq-paper').innerHTML=html;
 }
+
+function subcontractCanSign(data){
+  if(!data.rows.length){status('sub-status','Add priced BoQ activities before creating the labour-only timesheet.','bad');return false;}
+  if(data.viewTrade==='__all__'){
+    status('sub-status','Choose an individual trade above before making a sign-off sheet. A subcontractor must not accidentally sign for other trades. Use Excel for the combined overview.','bad');
+    $('sub-trade').focus();return false;
+  }
+  return true;
+}
+function subPrintDate(value){
+  const p=parsePlanDate(value||'');
+  return p?planDisplayDate(p):'________________';
+}
+function renderSubcontractPaper(){
+  const data=buildSubcontractorSheet(),p=data.profile,now=new Date().toLocaleDateString('en-GB');
+  const signedTrade=esc(data.viewTrade==='__all__'?'Combined work summary':data.viewTrade);
+  const metadata=[
+    ['Project / property',$('address').value],['Client / authority',$('client').value],
+    ['Job reference',$('reference').value||activeJobId],['Trade',data.viewTrade],
+    ['Subcontractor',p.company],['Operative / gang',p.operative],
+    ['Subcontract / PO',p.po],['Week ending / completed',p.weekEnding?subPrintDate(p.weekEnding):''],
+    ['Site supervisor',p.supervisor],['Prepared on',now]
+  ];
+  const costsComplete=data.unagreed===0&&data.awaitingCompletion===0&&data.reconciliationIssues.length===0;
+  let out='<div class="boq-letterhead"><img src="'+UK_EST_LOGO+'" alt="UK Estimates logo"><div class="boq-report-heading"><h2>LABOUR-ONLY SUBCONTRACT TIMESHEET</h2><span>'+signedTrade+' · Measured works / time record</span><span>DRAFT RECORD · For site signature</span></div></div>';
+  out+='<div class="boq-info-grid">'+metadata.map(([label,value])=>'<div><small>'+esc(label)+'</small><b>'+esc(clean(value)||'________________')+'</b></div>').join('')+'</div>';
+  out+='<div class="boq-section-title">MEASURED WORK / SITE COMPLETION RECORD</div>';
+  out+='<p class="sub-print-note">Uncompleted quantities and actual hours are left blank. Labour-only prices are agreed separately from V8 client selling rates. Amounts show only confirmed subcontract rates and recorded actual work; no client OH&amp;P is applied. <b>Signature lines are blank until personally signed.</b></p>';
+  out+='<table class="boq-report-table"><thead><tr><th>SOR / Original row</th><th>Work description</th><th>BoQ qty</th><th>Actual completed</th><th>SMV ref. hours</th><th>Actual hours</th><th>Agreed labour rate</th><th>Labour value</th><th>Site notes</th></tr></thead><tbody>';
+  for(const row of data.rows){
+    const rate=row.terms.confirmed&&row.terms.amount!==null?money(row.terms.amount)+' / '+(row.terms.basis==='hour'?'hour':esc(row.rate.unit)):'RATE NOT APPROVED';
+    out+='<tr><td class="code">'+esc(row.code)+'<div style="font-size:9px;font-weight:400;color:#56657c">'+esc(row.source)+'</div></td>'+
+      '<td class="description">'+esc(row.description)+'</td>'+
+      '<td class="n">'+row.quantity+' '+esc(row.rate.unit)+'</td>'+
+      '<td class="n">'+(row.completed===null?'________':row.completed)+'</td>'+
+      '<td class="n">'+(row.standardHours===null?'—':row.standardHours.toFixed(2)+(row.smvFlag==='Provisional SMV'?' *':''))+'</td>'+
+      '<td class="n">'+(row.hours===null?'________':row.hours)+'</td>'+
+      '<td>'+rate+'</td>'+
+      '<td class="n">'+subAmountText(row.amount)+'</td>'+
+      '<td>'+esc(row.entry.note||'________________')+(row.overrun?'<div style="color:#b02235">Check above BoQ quantity</div>':'')+'</td></tr>';
+  }
+  out+='</tbody></table>';
+  out+='<div class="boq-summary"><div class="notes"><b>Sign-off checks</b><br>Trade: '+signedTrade+
+    '<br>Activities: '+data.rows.length+'; actual labour hours recorded: '+data.actualHours.toFixed(2)+
+    '<br>Rates requiring agreement: '+data.unagreed+'; activities awaiting measured completion: '+data.awaitingCompletion+
+    '<br>SMV references unavailable on '+data.referenceMissing+' item(s).'+
+    (data.reconciliationIssues.length?'<br><b>Quantity mismatch: '+esc(data.reconciliationIssues.join(', '))+' — reconcile BoQ and source before certification.</b>':'')+
+    '<br><br>Site notes: '+esc(p.notes||'None recorded')+'</div>'+
+    '<table><tbody><tr><td>Recorded labour-only value</td><td>'+money(data.certifiableValue)+'</td></tr>'+
+    '<tr><td>Recorded actual labour hours</td><td>'+data.actualHours.toFixed(2)+'</td></tr>'+
+    '<tr><td>Outstanding rate approvals</td><td>'+data.unagreed+'</td></tr>'+
+    '<tr><td><b>'+ (costsComplete?'VALUE SUBJECT TO SITE SIGNATURE':'INCOMPLETE — DO NOT AUTHORISE PAYMENT')+'</b></td><td><b>'+money(data.certifiableValue)+'</b></td></tr></tbody></table></div>';
+  out+='<p class="sub-print-note"><b>Declaration:</b> Signatures below acknowledge the work and hours actually verified on site. Any variation, overrun or additional charge requires the separate subcontract approval process. Signing alone is not an automatic payment authorisation. The amount above excludes VAT and any applicable CIS deductions, which must be assessed separately.</p>';
+  out+='<div class="sub-print-signatures">'+
+    '<div class="signature"><b>Subcontractor / operative signature:</b><span>_________________________________________</span><span>Printed name: ______________________________</span><span>Date: __________________</span></div>'+
+    '<div class="signature"><b>Client / site supervisor signature:</b><span>_________________________________________</span><span>Printed name: '+esc(p.supervisor||'_________________________')+'</span><span>Date: __________________</span></div></div>';
+  out+='<div class="report-footer"><span>UK Estimates — Subcontractor labour-only &amp; site timesheet</span><span>Job '+esc($('reference').value||activeJobId||'Draft')+' · For signed site records</span></div>';
+  $('sub-print-paper').innerHTML=out;
+}
+$('sub-preview').onclick=()=>{
+  const d=buildSubcontractorSheet();if(!subcontractCanSign(d))return;
+  renderSubcontractPaper();$('sub-preview-layer').hidden=false;document.body.style.overflow='hidden';
+  status('sub-status','Sign-off timesheet prepared for '+d.viewTrade+'. Click Print / Save PDF and have both parties sign the completed record.','ok');
+};
+$('sub-close').onclick=()=>{
+  $('sub-preview-layer').hidden=true;document.body.style.overflow='';
+};
+$('sub-print').onclick=()=>{renderSubcontractPaper();window.print();};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('sub-preview-layer').hidden)$('sub-close').click();});
+
 function previewBoq(){
   if(!job.length){alert('Add at least one V8 item to the BoQ first.');return;}
   $('boq-preview-layer').hidden=false;
