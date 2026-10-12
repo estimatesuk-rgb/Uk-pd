@@ -39,7 +39,7 @@ function makeEngine(lines=[],client='Council A',jobId='UKM-000001'){
     'const reviewAction=()=>{};',
     'const selectedMatches=new Map(),job=[];',
     'const confirm=()=>true,save=()=>{},persistReviewSelections=()=>{},renderReviewSuggestions=()=>{};',
-    'const activeJobId=state.jobId;',
+    'let activeJobId=state.jobId;',
     'const REVIEW_RANK_CACHE={clear:()=>{}};',
     'const setTimeout=fn=>{fn();return 1},clearTimeout=()=>{};',
     'const put=()=>Promise.resolve(),get=()=>Promise.resolve([]);'
@@ -52,7 +52,7 @@ function makeEngine(lines=[],client='Council A',jobId='UKM-000001'){
     'return {findQty,matchUnits,scopeConflict,rankedRateMatches,safeExactMatch,',
     'rememberHumanApproval,approvedRateForLine,verifiedRateForLine,resolveMatchingConflict,',
     'repeatWorkKey,fillIdenticalWorkLines,switchReviewRate,job,selectedMatches,matchingCustomerKey,',
-    'disableLearnedAfterUndo,approvalKey,matchRatebookSignature};'
+    'disableLearnedAfterUndo,approvalKey,matchRatebookSignature,setActiveJob:(id)=>{activeJobId=id}};'
   ].join('\n');
   const factory=new Function('rows','state',prefix+'\n'+helpers+'\n'+suffix);
   return {engine:factory(sample.map(x=>({...x})),state),state};
@@ -125,10 +125,12 @@ test('description survives room-first and quantity-first layouts',()=>{
                e.repeatWorkKey('[Bedroom 2] — 4 item Renew internal door'));
 });
 
-test('unnamed customer cannot teach a cross-job mapping',()=>{
+test('unnamed customer approvals are isolated by job ID',()=>{
   const {engine:e,state}=makeEngine(['1 item [Bedroom 1] — Renew internal door']);
   state.client='';
-  assert.equal(e.rememberHumanApproval(0,'100001'),false);
+  assert.equal(e.rememberHumanApproval(0,'100001'),true);
+  assert.equal(e.verifiedRateForLine('2 item [Bedroom 2] — Replace internal door').rate?.code,'100001');
+  e.setActiveJob('UKM-000002');
   assert.equal(e.verifiedRateForLine('2 item [Bedroom 2] — Replace internal door').rate,null);
 });
 
