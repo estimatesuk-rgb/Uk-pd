@@ -797,6 +797,232 @@ $('planner-generate').onclick=()=>{
   status('planner-status','Draft programme generated: '+current.trades.length+' trade(s), '+current.knownHours.toFixed(1)+' planned SMV hours'+(current.missing?' — '+current.missing+' missing SMV items require review.':'.')+' Stored with this job.',current.missing?'bad':'ok');
 };
 
+
+/* Labour-only subcontract report: distinct from V8 selling rate and SMV.
+   User-confirmed subcontract rates + actual work, with printable site sign-off. */
+let subcontractPage=0;
+const SUB_PER_PAGE=35;
+function normaliseSubcontractTimesheet(original){
+  const x=original&&typeof original==='object'?original:{};
+  const rates={},entries={},contractors={};
+  const ratesObj=x.rates&&typeof x.rates==='object'?x.rates:{};
+  for(const [code,v] of Object.entries(ratesObj).slice(0,12000)){
+    if(!v||typeof v!=='object')continue;
+    const value=v.value==null?'':String(v.value).trim();
+    if(value!==''&&(!Number.isFinite(Number(value))||Number(value)<0||Number(value)>1000000))continue;
+    rates[code]={basis:v.basis==='hour'?'hour':'unit',value,confirmed:!!v.confirmed&&value!==''};
+  }
+  const entriesObj=x.entries&&typeof x.entries==='object'?x.entries:{};
+  for(const [key,v] of Object.entries(entriesObj).slice(0,16000)){
+    if(!v||typeof v!=='object')continue;
+    entries[key]={completed:validSubNumberOrBlank(v.completed),hours:validSubNumberOrBlank(v.hours),note:String(v.note||'').slice(0,500)};
+  }
+  const profiles=x.contractors&&typeof x.contractors==='object'?x.contractors:{};
+  for(const [key,p] of Object.entries(profiles).slice(0,300)){
+    if(!p||typeof p!=='object')continue;
+    contractors[key]={company:String(p.company||'').slice(0,160),operative:String(p.operative||'').slice(0,160),
+      supervisor:String(p.supervisor||'').slice(0,160),weekEnding:/^\d{4}-\d{2}-\d{2}$/.test(p.weekEnding||'')?p.weekEnding:'',
+      po:String(p.po||'').slice(0,120),notes:String(p.notes||'').slice(0,1200)};
+  }
+  return {trade:typeof x.trade==='string'?x.trade:'__all__',contractors,rates,entries};
+}
+function validSubNumberOrBlank(v){
+  if(v===null||v===undefined||String(v).trim()==='')return '';
+  const n=Number(v);
+  return Number.isFinite(n)&&n>=0&&n<=1000000?String(n):'';
+}
+function subHash(text){
+  let x=2166136261>>>0;for(const char of String(text||''))x=Math.imul(x^char.charCodeAt(0),16777619)>>>0;
+  return x.toString(36);
+}
+function subEntryKey(index,code,description){
+  return index===null?'boq:'+code:'src:'+index+':'+code+':'+subHash(description);
+}
+function subTradeProfile(){
+  const key=subcontractTimesheet.trade;
+  return subcontractTimesheet.contractors[key]||{company:'',operative:'',supervisor:'',weekEnding:'',po:'',notes:''};
+}
+function subRateInfo(rate){
+  const saved=subcontractTimesheet.rates[rate.code];
+  const suggestion=Number(rate.labour)>0?Math.round(Number(rate.labour)*100)/100:null;
+  const basis=saved?.basis==='hour'?'hour':'unit';
+  const value=saved?saved.value:suggestion===null?'':String(suggestion);
+  const n=value===''?null:Number(value);
+  return {basis,value,amount:n!==null&&Number.isFinite(n)&&n>=0?n:null,
+    confirmed:!!saved?.confirmed&&n!==null&&Number.isFinite(n)&&n>=0,
+    suggestion,source:saved?'Entered subcontract rate':'V8 labour allocation reference only'};
+}
+function buildSubcontractorSheet(){
+  const rows=[],allocation=new Map(),issueCodes=[];
+  const boq=new Map();
+  for(const item of job){
+    const rate=codes.get(item.code)||item.snapshot;
+    if(!rate)continue;
+    boq.set(rate.code,{rate,quantity:Math.max(0,num(item.qty))});
+  }
+  const lines=reviewSourceLines();
+  for(const [i,chosen] of [...selectedMatches].sort((a,b)=>a[0]-b[0])){
+    if(!Number.isInteger(i)||i<0||i>=lines.length||!chosen||!boq.has(chosen.code))continue;
+    const details=boq.get(chosen.code),rate=details.rate;
+    const quantity=Number(chosen.qty);
+    if(!Number.isFinite(quantity)||quantity<=0)continue;
+    const loc=sourceMapLocation(i);
+    rows.push({key:subEntryKey(i,rate.code,lines[i]),code:rate.code,trade:clean(rate.trade)||'Maintenance',
+      description:lines[i],source:loc?loc.sheet+' · Excel row '+(loc.row+1):'Specification line '+(i+1),
+      order:i+1,quantity,rate,sourceLinked:true});
+    allocation.set(rate.code,(allocation.get(rate.code)||0)+quantity);
+  }
+  for(const [code,item] of boq){
+    const accounted=allocation.get(code)||0,difference=Math.round((item.quantity-accounted)*1000000)/1000000;
+    if(difference < -.000001)issueCodes.push(code);
+    if(difference > .000001){
+      rows.push({key:subEntryKey(null,code,''),code,trade:clean(item.rate.trade)||'Maintenance',
+        description:item.rate.description,source:accounted>0?'Extra BoQ quantity — not assigned to original row':'Added directly to job BoQ',
+        order:null,quantity:difference,rate:item.rate,sourceLinked:false});
+    }
+  }
+  const trades=[...new Set(rows.map(r=>r.trade))].sort((a,b)=>a.localeCompare(b));
+  const viewTrade=trades.includes(subcontractTimesheet.trade)?subcontractTimesheet.trade:'__all__';
+  const filtered=rows.filter(r=>viewTrade==='__all__'||r.trade===viewTrade);
+  const rateGroups=new Map();
+  let awaitingCompletion=0,unagreed=0,completedLines=0,actualHours=0,certifiableValue=0,referenceValue=0,referenceMissing=0;
+  const detailed=filtered.map(row=>{
+    const entry=subcontractTimesheet.entries[row.key]||{completed:'',hours:'',note:''};
+    const terms=subRateInfo(row.rate);
+    if(!rateGroups.has(row.code))rateGroups.set(row.code,{rate:row.rate,terms});
+    const completed=entry.completed===''?null:Number(entry.completed);
+    const hours=entry.hours===''?null:Number(entry.hours);
+    const measurement=terms.basis==='hour'?hours:completed;
+    const actualEntered=measurement!==null&&Number.isFinite(measurement)&&measurement>=0;
+    const amount=terms.confirmed&&terms.amount!==null&&actualEntered?Math.round(measurement*terms.amount*100)/100:null;
+    const smv=Number(row.rate.smv),standardHours=smv>0?row.quantity*smv/60:null;
+    const smvFlag=smv<=0?'Missing SMV':/estimated|provisional|assumed|unavailable|unverified/i.test(String(row.rate.smvMethod||''))?'Provisional SMV':'SMV reference';
+    if(standardHours===null)referenceMissing++;
+    if(terms.amount!==null&&terms.basis==='unit')referenceValue+=row.quantity*terms.amount;
+    if(amount!==null)certifiableValue+=amount;
+    if(!actualEntered)awaitingCompletion++;else completedLines++;
+    if(hours!==null)actualHours+=hours;
+    if(!terms.confirmed)unagreed++;
+    return {...row,entry,terms,completed,hours,amount,standardHours,smvFlag,
+      overrun:completed!==null&&completed>row.quantity+.000001};
+  });
+  return {rows:detailed,rateGroups:[...rateGroups.values()],trades,viewTrade,profile:subTradeProfile(),
+    awaitingCompletion,unagreed,completedLines,actualHours,referenceValue,certifiableValue,referenceMissing,
+    reconciliationIssues:issueCodes.filter(code=>filtered.some(r=>r.code===code))};
+}
+function subAmountText(n){return n===null||n===undefined?'—':money(n);}
+function subField(profileName){
+  return String(subTradeProfile()[profileName]||'');
+}
+function renderSubcontractTimesheet(){
+  if(!$('subcontract-sheet'))return;
+  const data=buildSubcontractorSheet(),list=$('sub-trade');
+  const menu=[{name:'__all__',title:'All trades — combined overview'},...data.trades.map(name=>({name,title:name}))];
+  if(list.options.length!==menu.length||[...list.options].some((o,i)=>o.value!==menu[i].name)){
+    list.innerHTML=menu.map(o=>'<option value="'+esc(o.name)+'">'+esc(o.title)+'</option>').join('');
+  }
+  list.value=data.viewTrade;
+  subcontractTimesheet.trade=data.viewTrade;
+  const profile=subTradeProfile();
+  for(const key of ['company','operative','supervisor','weekEnding','po','notes']){
+    const id='sub-'+(key==='weekEnding'?'week-ending':key);
+    const control=$(id);if(control&&document.activeElement!==control)control.value=profile[key]||'';
+  }
+  const stats=[
+    ['Work activities',data.rows.length],
+    ['Recorded actual hours',data.actualHours.toFixed(1)],
+    ['Confirmed labour-only value',money(data.certifiableValue)],
+    ['Missing actual / unagreed',data.awaitingCompletion+' / '+data.unagreed]
+  ];
+  $('sub-summary').innerHTML=stats.map(([label,value])=>'<div class="sub-stat"><span>'+esc(label)+'</span><strong>'+esc(value)+'</strong></div>').join('');
+  $('sub-rates').innerHTML=data.rateGroups.length?
+    '<table><thead><tr><th>SOR / activity</th><th>Trade</th><th>V8 labour reference</th><th>Payment basis</th><th>Agreed labour-only rate</th><th>Agreed?</th></tr></thead><tbody>'+
+    data.rateGroups.map(({rate,terms})=>'<tr><td><b>'+esc(rate.code)+'</b><div class="hint">'+esc(rate.description)+'</div></td>'+
+      '<td>'+esc(rate.trade)+'</td><td>'+ (Number(rate.labour)>0?money(rate.labour)+' / '+esc(rate.unit):'Not available')+'<div class="hint">Reference only</div></td>'+
+      '<td><select data-sub-basis="'+esc(rate.code)+'" aria-label="Payment basis for '+esc(rate.code)+'"><option value="unit" '+(terms.basis==='unit'?'selected':'')+'>£ per '+esc(rate.unit)+'</option><option value="hour" '+(terms.basis==='hour'?'selected':'')+'>£ per hour</option></select></td>'+
+      '<td><input type="number" data-sub-rate="'+esc(rate.code)+'" aria-label="Labour rate '+esc(rate.code)+'" value="'+esc(terms.value)+'" min="0" max="1000000" step="0.01"></td>'+
+      '<td><label><input type="checkbox" data-sub-confirm="'+esc(rate.code)+'" style="width:auto" '+(terms.confirmed?'checked':'')+' aria-label="Agreed subcontract rate for '+esc(rate.code)+'"> '+
+      (terms.confirmed?'<span class="sub-reviewed">Agreed</span>':'<span class="sub-pending">To review</span>')+'</label></td></tr>').join('')+'</tbody></table>':
+    '<div class="empty">The labour-only rate list will appear when you add BoQ work.</div>';
+  const pages=Math.max(1,Math.ceil(data.rows.length/SUB_PER_PAGE));
+  subcontractPage=Math.max(0,Math.min(subcontractPage,pages-1));
+  const begin=subcontractPage*SUB_PER_PAGE,shown=data.rows.slice(begin,begin+SUB_PER_PAGE);
+  const navigation=data.rows.length>SUB_PER_PAGE?
+    '<div class="row" style="justify-content:space-between;margin:8px 10px"><button type="button" class="secondary tiny" data-sub-previous '+(subcontractPage===0?'disabled':'')+'>◀ Previous</button><span class="hint">Activities '+(begin+1)+'–'+(begin+shown.length)+' / '+data.rows.length+'</span><button type="button" class="secondary tiny" data-sub-next '+(subcontractPage>=pages-1?'disabled':'')+'>Next ▶</button></div>':'';
+  $('sub-work').innerHTML=data.rows.length?navigation+
+    '<table><thead><tr><th>Original source / SOR</th><th>Work activity</th><th>BoQ qty</th><th>Completed qty</th><th>Actual hours</th><th>Agreed rate</th><th>Labour value</th><th>Site note</th></tr></thead><tbody>'+
+    shown.map(row=>{
+      const key=esc(encodeURIComponent(row.key));
+      return '<tr><td><b>'+esc(row.code)+'</b><div class="hint">'+esc(row.source)+'</div></td>'+
+        '<td>'+esc(row.description)+'<div class="hint">'+esc(row.trade)+'</div></td>'+
+        '<td class="num">'+row.quantity+' '+esc(row.rate.unit)+'</td>'+
+        '<td><input type="number" min="0" max="1000000" step="any" placeholder="On completion" data-sub-qty="'+key+'" value="'+esc(row.entry.completed)+'" aria-label="Completed quantity for '+esc(row.code)+'"></td>'+
+        '<td><input type="number" min="0" max="1000000" step="0.25" placeholder="Actual hours" data-sub-hours="'+key+'" value="'+esc(row.entry.hours)+'" aria-label="Actual hours for '+esc(row.code)+'"></td>'+
+        '<td>'+ (row.terms.amount===null?'Not priced':money(row.terms.amount)+' / '+(row.terms.basis==='hour'?'hour':esc(row.rate.unit)))+
+        '<div class="'+(row.terms.confirmed?'sub-reviewed':'sub-pending')+'">'+(row.terms.confirmed?'Agreed':'Not agreed')+'</div></td>'+
+        '<td class="num">'+subAmountText(row.amount)+(row.overrun?'<div class="sub-pending">Above BoQ qty</div>':'')+'</td>'+
+        '<td><input data-sub-note="'+key+'" value="'+esc(row.entry.note||'')+'" maxlength="500" placeholder="Defects / variations" aria-label="Site note for '+esc(row.code)+'"></td></tr>';
+    }).join('')+'</tbody></table>'+navigation:
+    '<div class="empty">No work in the selected trade. Price a BoQ or choose another trade.</div>';
+  $('sub-work').querySelectorAll('[data-sub-previous]').forEach(b=>b.onclick=()=>{subcontractPage--;renderSubcontractTimesheet();});
+  $('sub-work').querySelectorAll('[data-sub-next]').forEach(b=>b.onclick=()=>{subcontractPage++;renderSubcontractTimesheet();});
+}
+$('sub-trade').onchange=e=>{
+  subcontractTimesheet.trade=e.target.value;subcontractPage=0;save();renderSubcontractTimesheet();
+  status('sub-status',subcontractTimesheet.trade==='__all__'?'Combined labour-only overview. Choose an individual trade for a subcontractor sign-off sheet.':'Ready for '+subcontractTimesheet.trade+' subcontractor labour-only schedule.','ok');
+};
+for(const [id,field] of [['sub-company','company'],['sub-operative','operative'],['sub-week-ending','weekEnding'],
+  ['sub-supervisor','supervisor'],['sub-po','po'],['sub-notes','notes']]){
+  $(id).addEventListener('input',e=>{
+    const key=subcontractTimesheet.trade;
+    if(!subcontractTimesheet.contractors[key])subcontractTimesheet.contractors[key]={};
+    subcontractTimesheet.contractors[key][field]=e.target.value;
+    save();
+  });
+}
+$('sub-rates').addEventListener('change',event=>{
+  const t=event.target,code=t.dataset.subRate||t.dataset.subBasis||t.dataset.subConfirm;
+  if(!code)return;
+  const source=(codes.get(code)||job.find(x=>x.code===code)?.snapshot);
+  if(!source)return;
+  const old=subcontractTimesheet.rates[code]||subRateInfo(source);
+  const value=String(old.value??'');
+  const updated={basis:old.basis==='hour'?'hour':'unit',value,confirmed:!!old.confirmed};
+  if(t.dataset.subBasis){
+    updated.basis=t.value==='hour'?'hour':'unit';
+    // A V8 £/item suggestion is NEVER converted into a £/hour rate.
+    updated.value=updated.basis==='hour'?'':source.labour>0?String(Math.round(source.labour*100)/100):'';
+    updated.confirmed=false;
+  }else if(t.dataset.subRate){
+    const v=validSubNumberOrBlank(t.value);
+    if(t.value.trim()!==''&&v===''){status('sub-status','Enter a valid, non-negative labour-only rate. No change saved.','bad');renderSubcontractTimesheet();return;}
+    updated.value=v;updated.confirmed=false;
+  }else if(t.dataset.subConfirm){
+    if(t.checked&&(updated.value===''||!Number.isFinite(Number(updated.value)))){t.checked=false;status('sub-status','Enter a labour-only rate before confirming it.','bad');return;}
+    updated.confirmed=t.checked;
+  }
+  subcontractTimesheet.rates[code]=updated;
+  save();renderSubcontractTimesheet();
+  status('sub-status',updated.confirmed?'Agreed subcontract labour-only rate for SOR '+code+' saved with this job.':'SOR '+code+' is a draft subcontract rate pending approval.','ok');
+});
+$('sub-work').addEventListener('change',event=>{
+  const t=event.target;
+  const key=t.dataset.subQty||t.dataset.subHours||t.dataset.subNote;if(!key)return;
+  let decoded;
+  try{decoded=decodeURIComponent(key);}catch(e){return;}
+  const field=t.dataset.subQty?'completed':t.dataset.subHours?'hours':'note';
+  const entry=subcontractTimesheet.entries[decoded]||{completed:'',hours:'',note:''};
+  if(field==='note')entry[field]=t.value.slice(0,500);
+  else{
+    const v=validSubNumberOrBlank(t.value);
+    if(t.value.trim()!==''&&v===''){status('sub-status','Quantities and hours must be non-negative numbers.','bad');renderSubcontractTimesheet();return;}
+    entry[field]=v;
+  }
+  subcontractTimesheet.entries[decoded]=entry;
+  save();renderSubcontractTimesheet();
+  status('sub-status','Completed quantity / hours saved for this specific work activity. Timesheet remains unsigned until the paper/PDF copy is signed.','ok');
+});
+
 function calculate(){const f=1+adjustment()/100;let lt=0,mt=0,gt=0,ht=0,lines=[],plans=[];job.forEach((j,i)=>{let r=codes.get(j.code)||j.snapshot;if(!r)return;const q=Math.max(0,num(j.qty));const tot=q*r.rate*f,split=r.labour+r.materials,l=split>0?tot*r.labour/split:0,m=tot-l,h=q*r.smv/60;lt+=l;mt+=m;gt+=tot;ht+=h;lines.push('<tr><td><b>'+esc(r.code)+'</b><br>'+esc(r.description)+'<br><span class="tag">'+esc(r.trade)+'</span></td><td><input type="number" class="qty" min="0" step="any" value="'+esc(q)+'" data-qty="'+i+'"></td><td>'+esc(r.unit)+'</td><td class="num">'+money(r.rate)+'</td><td class="num">'+money(l)+'</td><td class="num">'+money(m)+'</td><td class="num"><b>'+money(tot)+'</b></td><td><button class="tiny red" data-del="'+i+'" aria-label="Remove item">×</button></td></tr>');plans.push('<tr><td>'+esc(r.code)+' — '+esc(r.description)+' '+(r.smvMethod&&/estimated|unavailable/i.test(r.smvMethod)?'<span class="tag">Provisional SMV</span>':'')+'</td><td class="num">'+h.toFixed(2)+'</td><td class="num">'+money(m)+'</td></tr>');});
 $('boq-rows').innerHTML=lines.join('')||'<tr><td colspan="8" class="empty">No work items added yet.</td></tr>';$('plan-rows').innerHTML=plans.join('')||'<tr><td colspan="3" class="empty">Add SOR items to generate this schedule.</td></tr>';
 $('labour-total').textContent=money(lt);$('materials-total').textContent=money(mt);$('hours-total').textContent=ht.toFixed(1);$('grand-total').textContent=money(gt);
