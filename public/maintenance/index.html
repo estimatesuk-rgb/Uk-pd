@@ -212,7 +212,7 @@ header .brand-logo{display:block;width:clamp(190px,26vw,300px);height:auto;max-w
 <p id="rates-status" class="status">Checking for your saved V8 ratebook…</p><details id="v8-import" open><summary style="cursor:pointer;font-weight:700;color:#182a4b">Import / replace the V8 library (only if needed)</summary><div class="row" style="margin-top:10px"><label class="file" for="ratesfile">⬆ Import V8 Excel ratebook<input id="ratesfile" type="file" accept=".xlsx,.xls,.csv"></label><button id="clear-rates" class="secondary tiny">Remove saved rates</button></div><p class="hint">First-time setup only. Clearing browser data or changing devices can remove the locally saved ratebook.</p></details></div>
 <div class="card"><h2><span class="step">2</span> Project details</h2><div class="fields"><label>Property / scheme address<input id="address" placeholder="Property address"></label><label>Local authority / client<input id="client" placeholder="Council or contractor"></label><label>Job reference<input id="reference" placeholder="UKM-000001"></label><label>Surveyor<input id="surveyor" placeholder="Surveyor name"></label></div>
 <div class="row" style="justify-content:space-between;margin-top:18px"><div><b>V8 selling-rate adjustment</b><p style="margin:2px 0">0% = agreed rate unchanged. Plus or minus changes all rates.</p></div><div class="controls"><button id="minus" type="button">−</button><input id="adjustment" inputmode="decimal" type="number" step="0.5" value="0" aria-label="V8 rate adjustment percentage"><span>%</span><button id="plus" type="button">+</button></div></div></div>
-<div class="card"><h2><span class="step">3</span> Find and add SOR items</h2><div class="row" style="margin:0 0 9px"><button id="open-review" type="button" class="review-switch">↔ Review original beside SOR rates</button><span class="hint">View the uploaded document while choosing codes.</span></div><input id="search" placeholder="Search a SOR code, work description or trade…" autocomplete="off"><div id="search-results" class="search-results"><div class="empty">Load the V8 workbook to browse the rates.</div></div></div>
+<div class="card"><h2><span class="step">3</span> Find and add SOR items</h2><div class="row" style="margin:0 0 9px"><button id="open-review" type="button" class="review-switch">↔ Review original beside SOR rates</button><span class="hint">View the uploaded document while choosing codes.</span></div><input id="search" placeholder="Search a SOR code, work description or trade…" autocomplete="off"><div id="search-feedback" role="status" aria-live="polite" class="status" style="margin-top:7px">Select an item to add its rate to the bill.</div><div id="search-results" class="search-results"><div class="empty">Load the V8 workbook to browse the rates.</div></div></div>
 <div class="card"><h2><span class="step">4</span> Written work specification</h2><p>Paste or upload Excel (.xlsx/.xls/.ods), CSV/TSV, Word (.docx), PDF, PowerPoint (.pptx), OpenDocument (.odt), RTF, TXT, Markdown, HTML, JSON, XML, ZIP or an image (JPG/PNG/WEBP/TIFF where supported). Scanned documents and images use on-device OCR. An uploaded V8 ratebook is identified and loaded into the rate library automatically. <b>Check all suggested codes and quantities before adding them.</b></p>
 <label class="file" for="specfile">⬆ Upload specification or spreadsheet<input id="specfile" type="file" accept=".txt,.text,.md,.markdown,.csv,.tsv,.xlsx,.xls,.xlsm,.ods,.docx,.doc,.pdf,.pptx,.odt,.rtf,.json,.xml,.html,.htm,.yaml,.yml,.zip,.jpg,.jpeg,.png,.webp,.bmp,.gif,.tif,.tiff,.heic,.heif"></label><span id="spec-status" class="status"></span>
 <div class="row" style="margin:12px 0 8px"><button id="review-file" class="secondary" type="button">↔ View document while selecting rates</button><span id="source-file-label" class="status">No original document loaded.</span></div>
@@ -248,7 +248,7 @@ header .brand-logo{display:block;width:clamp(190px,26vw,300px);height:auto;max-w
           <div class="review-manual-inner">
             <div class="row" style="margin-bottom:9px"><input style="flex:1;min-width:170px" id="review-search" placeholder="Search code, trade or description" aria-label="Search V8 schedule rates">
               <label class="review-hint">Quantity <input id="review-qty" type="number" value="1" min="0" step="any" style="width:84px"></label></div>
-            <div class="search-results" id="review-results"><div class="empty">Load V8 rates to search.</div></div><div style="border-top:1px solid #d5dce7;margin-top:10px;padding-top:10px"><strong>Manual / basket rate — when no suitable V8 item exists</strong><div class="review-hint">Select the original work line first. A manual rate is clearly labelled, never presented as an approved V8 SOR rate.</div><div class="row"><input id="review-manual-description" placeholder="Work / basket description (e.g. Bathroom allowance)" style="flex:2;min-width:170px"><input id="review-manual-price" type="number" min="0" step="0.01" placeholder="£ per unit" aria-label="Manual unit rate in pounds" style="flex:1;min-width:110px"><button id="review-manual-apply" type="button" class="tiny">Apply manual rate</button></div></div>
+            <div id="review-action-status" role="status" aria-live="polite" class="status">Select the source activity before applying a price.</div><div class="search-results" id="review-results"><div class="empty">Load V8 rates to search.</div></div><div style="border-top:1px solid #d5dce7;margin-top:10px;padding-top:10px"><strong>Manual / basket rate — when no suitable V8 item exists</strong><div class="review-hint">Select the original work line first. A manual rate is clearly labelled, never presented as an approved V8 SOR rate.</div><div class="row"><input id="review-manual-description" placeholder="Work / basket description (e.g. Bathroom allowance)" style="flex:2;min-width:170px"><input id="review-manual-price" type="number" min="0" step="0.01" placeholder="£ per unit" aria-label="Manual unit rate in pounds" style="flex:1;min-width:110px"><button id="review-manual-apply" type="button" class="tiny">Apply manual rate</button></div></div>
           </div>
         </details>
       </div>
@@ -466,7 +466,24 @@ $('boq-rows').innerHTML=lines.join('')||'<tr><td colspan="8" class="empty">No wo
 $('labour-total').textContent=money(lt);$('materials-total').textContent=money(mt);$('hours-total').textContent=ht.toFixed(1);$('grand-total').textContent=money(gt);
 const gap=Math.abs(gt-lt-mt);$('checks').textContent='Selling-rate adjustment: '+(adjustment()>0?'+':'')+adjustment()+'% • '+(gap<0.03?'Labour + materials reconciled':'Check split: '+money(gap)+' difference caused by unallocated V8 elements.');
 document.querySelectorAll('[data-qty]').forEach(el=>el.onchange=()=>{let i=Number(el.dataset.qty);job[i].qty=Math.max(0,num(el.value));save();calculate();});document.querySelectorAll('[data-del]').forEach(el=>el.onclick=()=>{job.splice(Number(el.dataset.del),1);save();calculate();});updateReviewTotals();}
-function add(code,qty){let r=codes.get(String(code));if(!r)return;let existing=job.find(j=>j.code===r.code);if(existing)existing.qty+=Math.max(0,num(qty||1));else job.push({code:r.code,qty:Math.max(0,num(qty||1)),snapshot:r});save();calculate();if(!$('review-layer').hidden){$('review-selected').textContent='Added '+r.code+' · '+money(r.rate);}}
+function add(code,qty){
+  const r=codes.get(String(code)),q=Number(qty);
+  const note=$('search-feedback');
+  if(!r||!Number.isFinite(q)||q<=0){
+    if(note){note.className='status bad';note.textContent=!r?'SOR '+code+' is unavailable. Reload your ratebook.':'Enter a quantity greater than zero.';}
+    return false;
+  }
+  const existing=job.find(j=>j.code===r.code);
+  if(existing)existing.qty=Math.round((existing.qty+q)*1000000)/1000000;
+  else job.push({code:r.code,qty:q,snapshot:r});
+  save();calculate();
+  const message='✓ '+(existing?'Updated':'Added')+' '+r.code+' — '+q+' '+r.unit+' — '+money(q*r.rate*(1+adjustment()/100))+' ex VAT. Now '+(existing?existing.qty:q)+' total units in the BoQ.';
+  if(note){note.className='status ok';note.textContent=message;}
+  const button=$('search-results')?.querySelector('[data-add="'+r.code+'"]');
+  if(button){button.textContent='✓ Added';button.style.background='#16865b';}
+  if(!$('review-layer').hidden)$('review-selected').textContent=message;
+  return true;
+}
 function search(){
   const query=clean($('search').value);
   const target=$('search-results');
@@ -476,7 +493,7 @@ function search(){
     '<small>'+esc(r.trade)+' · '+esc(r.unit)+' · Labour '+money(r.labour)+' / Materials '+money(r.materials)+'</small></div>'+
     '<div class="row" style="justify-content:flex-end"><b>'+money(r.rate)+'</b><button class="tiny" data-add="'+esc(r.code)+'">Add</button></div></div>').join('')||
     '<div class="empty">No close match. Search for a shorter word such as “door”, “socket” or “paint”.</div>';
-  target.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>add(b.dataset.add,1));
+  target.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{if(!add(b.dataset.add,1))b.textContent='Retry';});
 }
 function importRows(sheet){
   if(!sheet||sheet.length<2)throw Error('Workbook contains no V8 rate items.');
@@ -685,6 +702,7 @@ function renderReviewRates(){
     const qty=Number($('review-qty').value);
     if(!Number.isFinite(qty)||qty<=0){alert('Enter a measured quantity greater than zero.');return;}
     if(activeReviewLine!==null)switchReviewRate(activeReviewLine,b.dataset.reviewAdd,qty);
+    else if(reviewSourceLines().length)reviewAction('Select a numbered activity on the original before applying the rate. No line was changed.',true);
     else add(b.dataset.reviewAdd,qty);
     renderReviewRates();
   });
@@ -702,10 +720,11 @@ $('review-manual-apply').onclick=()=>{
   const unit=(findQty(lines[index]).unit||'item');
   const manual={code,description:'MANUAL BASKET — '+description,trade:'Manual allowance / provisional',unit,rate:price,labour:0,materials:price,smv:0,smvMethod:'Unavailable — manual basket rate',splitMethod:'Unallocated basket allowance',qualityFlag:'Manual, not verified V8'};
   codes.set(code,manual);
-  switchReviewRate(index,code,qty);
+  if(!switchReviewRate(index,code,qty))return;
   // Each BoQ line retains its manual snapshot for saved job reloading.
   job.filter(j=>j.code===code).forEach(j=>j.snapshot=manual);
-  save();
+  save();calculate();renderReviewSuggestions();
+  reviewAction('✓ Manual basket price '+money(price)+' per '+unit+' saved on source line '+(index+1)+' — not official V8.');
   $('review-selected').textContent='Manual rate £'+price.toFixed(2)+'/'+unit+' applied to source line '+(index+1)+' (not a V8 SOR rate).';
   renderReviewRates();
 };
@@ -771,14 +790,18 @@ function fillIdenticalWorkLines(index,code){
   });
   return count;
 }
+function reviewAction(message,bad=false){
+  const notice=$('review-action-status');if(notice){notice.textContent=message;notice.className='status '+(bad?'bad':'ok');}
+}
 function switchReviewRate(index,code,qty){
+  if(!Number.isInteger(index)||index<0||index>=reviewSourceLines().length){reviewAction('Select the numbered original source activity before adding this rate.',true);return false;}
   // Rehydrate bespoke rates from saved jobs before matching or editing.
   if(!codes.has(code)){const saved=job.find(j=>j.code===code&&j.snapshot);if(saved)codes.set(code,saved.snapshot);}
-  if(!Number.isFinite(qty)||qty<=0){alert('Please enter a measured quantity greater than zero.');return;}
+  if(!Number.isFinite(qty)||qty<=0){reviewAction('Enter a measured quantity greater than zero. Nothing added.',true);return false;}
   const rate=codes.get(code);
-  if(!rate){alert('This rate is unavailable in the active V8 ratebook.');return;}
+  if(!rate){reviewAction('SOR '+code+' is unavailable. Reload the ratebook or enter a manual price.',true);return false;}
   const prior=selectedMatches.get(index);
-  if(prior&&prior.code===code&&prior.qty===qty){focusOriginalForSelection(index).catch(console.warn);return;}
+  if(prior&&prior.code===code&&prior.qty===qty){focusOriginalForSelection(index).catch(console.warn);reviewAction('Already priced: original line '+(index+1)+' has SOR '+code+' with quantity '+qty+'. Change quantity or use alternatives to switch.');$('review-selected').textContent='Already selected · line '+(index+1)+' · '+code;return true;}
   if(prior){
     const existing=job.find(j=>j.code===prior.code);
     if(existing){existing.qty=Math.max(0,Math.round((existing.qty-prior.qty)*1000000)/1000000);if(existing.qty<=0)job=job.filter(j=>j!==existing);}
@@ -792,7 +815,8 @@ function switchReviewRate(index,code,qty){
   persistReviewSelections();save();calculate();
   renderReviewSuggestions();
   jumpToReviewLine(index);
-  $('review-selected').textContent='Selected '+code+' for work line '+(index+1)+(repeatedCount?' · auto-filled '+repeatedCount+' identical line(s)':'')+' · '+money(qty*rate.rate*(1+adjustment()/100));
+  const message='✓ Priced original line '+(index+1)+' · SOR '+code+' · '+qty+' '+rate.unit+' · '+money(qty*rate.rate*(1+adjustment()/100))+(repeatedCount?' · filled '+repeatedCount+' duplicate(s)':'');
+  $('review-selected').textContent=message;reviewAction(message);return true;
 }
 function renderReviewSuggestions(){
   const target=$('review-suggest');if(!target)return;
