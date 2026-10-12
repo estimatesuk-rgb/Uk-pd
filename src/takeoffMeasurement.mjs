@@ -1,4 +1,5 @@
-// Manually marked quantities only. No AI-estimated geometry is accepted here.
+import {measuredTrace} from './shapeGeometry.mjs';
+// Geometry is calculated from marked points against a checked drawing scale. AI-suggested outlines are provisional.
 export const canonicalUnit = unit => {
  const u=String(unit??'').trim().toLowerCase().replace(/\s+/g,'');
  return ({'m2':'m²','m²':'m²','sqm':'m²','m3':'m³','m³':'m³','cum':'m³','metre':'m','meter':'m','metres':'m','meters':'m','nr':'nr','no':'nr','number':'nr','each':'nr','ea':'nr'}[u] || u);
@@ -6,6 +7,7 @@ export const canonicalUnit = unit => {
 const valid = n => typeof n === 'number' && Number.isFinite(n) && n > 0;
 export function measuredQuantity(mark, dimensions, metresPerPixel) {
  const kind=mark?.kind||'area';
+ if(kind==='polygon'||kind==='polyline')return measuredTrace(mark,dimensions,metresPerPixel);
  if(kind==='count')return Number.isFinite(mark?.x)&&Number.isFinite(mark?.y)&&mark.x>=0&&mark.x<=1&&mark.y>=0&&mark.y<=1?{quantity:1,unit:'nr',method:'manual point count'}:null;
  if(!valid(metresPerPixel)||!Array.isArray(dimensions)||dimensions.length<2||!dimensions.every(valid))return null;
  const [width,height]=dimensions;
