@@ -240,7 +240,7 @@ header .brand-logo{display:block;width:clamp(190px,26vw,300px);height:auto;max-w
     <section class="review-rates" aria-label="Rate matching">
       <div class="review-pane-head"><b>V8 schedule of rates</b><span class="review-hint">Check description · unit · rate</span></div>
       <div class="review-workarea review-match-workspace">
-        <div class="review-suggestion-title"><b>Suggested V8 rates — select the correct item</b><button id="review-refresh" class="secondary tiny" type="button">Refresh suggestions</button></div>
+        <div class="review-suggestion-title"><b>Suggested V8 rates — select the correct item</b><div class="row"><button id="review-exact" class="secondary tiny" type="button">✓ Auto-fill exact matches</button><button id="review-refresh" class="secondary tiny" type="button">Refresh suggestions</button></div></div>
         <p class="review-hint" style="margin:0">Keep the original specification in view on the left. Compare each suggestion with the work description, unit and quantity before selecting it.</p>
         <div class="review-suggest" id="review-suggest" aria-label="Suggested V8 rates beside source document"><div class="empty">Upload or paste a specification for suggestions.</div></div>
         <details id="review-manual" class="review-manual">
@@ -290,7 +290,7 @@ async function put(key,val){db=db||await indexed();return new Promise((ok,no)=>{
 async function get(key){db=db||await indexed();return new Promise((ok,no)=>{const t=db.transaction('settings'),r=t.objectStore('settings').get(key);r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error);});}
 async function drop(key){db=db||await indexed();return new Promise((ok,no)=>{const t=db.transaction('settings','readwrite');t.objectStore('settings').delete(key);t.oncomplete=()=>ok();t.onerror=()=>no(t.error);});}
 function setupRates(rows){
-  rates=rows;codes=new Map(rows.map(r=>[r.code,r]));REVIEW_RANK_CACHE.clear();
+  rates=rows;codes=new Map(rows.map(r=>[r.code,r]));REVIEW_RANK_CACHE.clear();rebuildExactRateIndex();
   for(const r of rows){r._shortTokens=new Set(matchWords(r.description));r._extraTokens=new Set(matchWords([r.medium,r.long,r.trade,r.section,r.subsection].join(' ')));}
   const provisional=rows.filter(r=>r.qualityFlag&&r.qualityFlag!=='V7 split verified').length;
   status('rates-status','✓ '+rates.length.toLocaleString('en-GB')+' V8 selling rates loaded. '+(provisional?'⚠ '+provisional+' labour/material splits need review.':'All supplied allocations loaded.') ,'ok');
@@ -757,6 +757,8 @@ function fillIdenticalWorkLines(index,code){
     if(i===index||selectedMatches.has(i)||repeatWorkKey(line)!==key)return;
     const measurement=findQty(line);
     const qty=Number(measurement.qty);
+    // Never infer one unit for an unmeasured duplicate: require a recorded quantity.
+    if(!measurement.explicit)return;
     // Do not copy between explicitly conflicting measurement units.
     const firstUnit=findQty(lines[index]).unit;
     if(firstUnit&&measurement.unit&&firstUnit!==measurement.unit)return;
@@ -1180,11 +1182,11 @@ function findQty(line){
     if(['sqm','sq m','sm'].includes(unit))unit='m2';if(['cum','cm'].includes(unit))unit='m3';
     if(['items','it'].includes(unit))unit='item';if(['hours','hrs','hour'].includes(unit))unit='hr';
     if(['days'].includes(unit))unit='day';if(['weeks','wks','week'].includes(unit))unit='wk';
-    return{qty:Number(match[1].replace(',','.')),unit};
+    return{qty:Number(match[1].replace(',','.')),unit,explicit:true};
   }
   const leading=source.match(/^\s*(?:qty\s*[:=]?\s*)?(\d+(?:[.,]\d+)?)\s+(?!mm\b|cm\b|x\d)/i);
-  if(leading)return{qty:Number(leading[1].replace(',','.')),unit:''};
-  return{qty:1,unit:''};
+  if(leading)return{qty:Number(leading[1].replace(',','.')),unit:'',explicit:true};
+  return{qty:1,unit:'',explicit:false};
 }
 const STOP_MATCH_WORDS=new Set(['with','into','then','shall','from','them','this','that','work','works','item','items','unit','allow','include','measure','area','quantity','total','section','sheet','required','require','thereof','complete','existing','specification','property','notes','where','under','over','from','and','the','for','per','all','any','each','type']);
 const ACTION_MATCH_WORDS=new Set(['renew','repair','remove','install','paint','clean','replace','rebed','seal','supply','service','test']);
@@ -1281,6 +1283,58 @@ function rankedRateMatches(query,limit=8,ignoreUnit=false){
   matches.sort((a,b)=>b.score-a.score||String(a.r.code).localeCompare(String(b.r.code)));
   return matches.slice(0,limit);
 }
+const EXACT_RATE_INDEX=new Map();
+function exactKey(text){
+  const cleaned=repeatWorkKey(text).replace(/\b(?:sor|nhf|code)\s*[:#-]?\s*\d{3,8}\b/gi,'');
+  const tokens=matchWords(cleaned).sort();
+  // One-word baskets such as "bathroom" and "kitchen" are not exact scopes.
+  return tokens.length>=2?tokens.join('|'):'';
+}
+function rebuildExactRateIndex(){
+  EXACT_RATE_INDEX.clear();
+  for(const r of rates){
+    const keys=new Set([exactKey(r.description),exactKey(r.medium||'')]);
+    for(const key of keys){
+      if(!key)continue;
+      if(!EXACT_RATE_INDEX.has(key))EXACT_RATE_INDEX.set(key,[]);
+      const group=EXACT_RATE_INDEX.get(key);
+      if(!group.some(item=>item.code===r.code))group.push(r);
+    }
+  }
+}
+function safeExactMatch(line){
+  const measured=findQty(line);
+  if(!measured.explicit||!Number.isFinite(measured.qty)||measured.qty<=0||!measured.unit)return null;
+  const acceptedUnits=matchUnits(measured.unit);
+  if(!acceptedUnits)return null;
+  const explicit=String(line).match(/\b(?:SOR|NHF|CODE)\s*[:#-]?\s*(\d{3,8})\b/i);
+  if(explicit){
+    const exact=codes.get(explicit[1]);
+    return exact&&acceptedUnits.includes(String(exact.unit||'').toUpperCase())?exact:null;
+  }
+  const key=exactKey(line);
+  if(!key)return null;
+  const matches=(EXACT_RATE_INDEX.get(key)||[]).filter(r=>acceptedUnits.includes(String(r.unit||'').toUpperCase()));
+  return matches.length===1?matches[0]:null;
+}
+function applyExactMatches(){
+  if(!rates.length){alert('Import V8 before auto-matching.');return;}
+  const lines=reviewSourceLines();
+  let added=0,unchecked=0;
+  for(let i=0;i<lines.length;i++){
+    if(selectedMatches.has(i))continue;
+    const rate=safeExactMatch(lines[i]);
+    if(!rate){unchecked++;continue;}
+    const qty=findQty(lines[i]).qty,existing=job.find(j=>j.code===rate.code);
+    if(existing)existing.qty=Math.round((existing.qty+qty)*1000000)/1000000;
+    else job.push({code:rate.code,qty,snapshot:rate});
+    selectedMatches.set(i,{code:rate.code,qty,auto:true,exact:true});
+    added++;
+  }
+  if(added){persistReviewSelections();save();calculate();renderReviewSuggestions();markOriginalHighlights(activeReviewLine);}
+  $('review-selected').textContent=added+' unique-source rows auto-matched by exact wording/code and measured UOM; '+unchecked+' remain for estimator review. No fuzzy matches auto-approved.';
+}
+$('review-exact').onclick=applyExactMatches;
 const REVIEW_RANK_CACHE=new Map();
 function topMatch(line){
   const key=repeatWorkKey(line)+'|'+(findQty(line).unit||'');
