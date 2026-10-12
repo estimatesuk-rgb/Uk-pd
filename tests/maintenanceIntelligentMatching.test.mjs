@@ -15,7 +15,8 @@ const helpers=[
   section('function scopeConflict(source,rate){','const APPROVED_MATCH_STORE='),
   section('const APPROVED_MATCH_STORE=','const EXACT_RATE_INDEX=new Map();'),
   section('const EXACT_RATE_INDEX=new Map();','function applyExactMatches(){'),
-  section('function repeatWorkKey(line){','function fillIdenticalWorkLines(index,code){')
+  section('function repeatWorkKey(line){','function reviewAction(message,bad=false){'),
+  section('function switchReviewRate(index,code,qty){','function renderReviewSuggestions(){')
 ].join('\n');
 
 const sample=[
@@ -28,14 +29,17 @@ const sample=[
   {code:'120002',description:'Repair upvc door',unit:'IT',trade:'Joinery',rate:75},
   {code:'130001',description:'Renew internal door',unit:'SM',trade:'Joinery',rate:120}
 ];
-function makeEngine(lines=[],client='Council A'){
-  const state={lines,client};
+function makeEngine(lines=[],client='Council A',jobId='UKM-000001'){
+  const state={lines,client,jobId};
   const prefix=[
     'const rates=rows,codes=new Map(rows.map(r=>[r.code,r]));',
     "const $=()=>({value:state.client,textContent:''});",
     'const reviewSourceLines=()=>state.lines;',
     'const clean=x=>String(x==null?\'\':x).trim();',
     'const reviewAction=()=>{};',
+    'const selectedMatches=new Map(),job=[];',
+    'const confirm=()=>true,save=()=>{},persistReviewSelections=()=>{},renderReviewSuggestions=()=>{};',
+    'const activeJobId=state.jobId;',
     'const REVIEW_RANK_CACHE={clear:()=>{}};',
     'const setTimeout=fn=>{fn();return 1},clearTimeout=()=>{};',
     'const put=()=>Promise.resolve(),get=()=>Promise.resolve([]);'
@@ -46,8 +50,9 @@ function makeEngine(lines=[],client='Council A'){
     'rebuildExactRateIndex();',
     'activeLibrarySignature=matchRatebookSignature(rates);',
     'return {findQty,matchUnits,scopeConflict,rankedRateMatches,safeExactMatch,',
-    'rememberHumanApproval,approvedRateForLine,verifiedRateForLine,',
-    'repeatWorkKey,disableLearnedAfterUndo,approvalKey,matchRatebookSignature};'
+    'rememberHumanApproval,approvedRateForLine,verifiedRateForLine,resolveMatchingConflict,',
+    'repeatWorkKey,fillIdenticalWorkLines,switchReviewRate,job,selectedMatches,matchingCustomerKey,',
+    'disableLearnedAfterUndo,approvalKey,matchRatebookSignature};'
   ].join('\n');
   const factory=new Function('rows','state',prefix+'\n'+helpers+'\n'+suffix);
   return {engine:factory(sample.map(x=>({...x})),state),state};
@@ -140,4 +145,61 @@ test('price changes do not invalidate approval memory fingerprint',()=>{
   const {engine:e}=makeEngine();
   const edited=sample.map(r=>({...r,rate:r.rate*1.1}));
   assert.equal(e.matchRatebookSignature(sample),e.matchRatebookSignature(edited));
+});
+
+test('repeated activities populate across different room and quantity layouts without wrong units',()=>{
+  const lines=[
+    '1 item [Bedroom 1] — Renew internal door',
+    '[Bedroom 2] 2 item Renew internal door',
+    'Bedroom 3: 4 item Renew internal door',
+    '1 item [Bedroom 4] — Renew FD30 fire door',
+    '3 m2 [Bedroom 5] — Renew internal door'
+  ];
+  const {engine:e}=makeEngine(lines);
+  assert.equal(e.repeatWorkKey(lines[0]),e.repeatWorkKey(lines[1]));
+  assert.equal(e.repeatWorkKey(lines[0]),e.repeatWorkKey(lines[2]));
+  assert.notEqual(e.repeatWorkKey(lines[0]),e.repeatWorkKey(lines[3]));
+  e.job.push({code:'100001',qty:1});
+  e.selectedMatches.set(0,{code:'100001',qty:1});
+  const repeated=e.fillIdenticalWorkLines(0,'100001');
+  assert.equal(repeated,2);
+  assert.equal(e.job[0].qty,7); // 1 + 2 + 4, never includes m2 or fire-rated door.
+  assert.equal(e.selectedMatches.size,3);
+  assert.equal(e.selectedMatches.get(1).qty,2);
+  assert.equal(e.selectedMatches.get(2).qty,4);
+  assert.ok(!e.selectedMatches.has(3)&&!e.selectedMatches.has(4));
+});
+
+test('manual choice cannot silently force incorrect SOR unit or dangerous scope',()=>{
+  const lines=['2 item [Bedroom 1] — Renew internal door','1 item [Bedroom 2] — Renew FD30 fire door'];
+  const {engine:e,state}=makeEngine(lines);
+  assert.equal(e.switchReviewRate(0,'130001',2),false); // IT vs SM
+  assert.equal(e.switchReviewRate(1,'100001',1),false); // fire-rated vs ordinary
+  assert.equal(e.job.length,0);
+  assert.equal(e.selectedMatches.size,0);
+});
+
+test('previously conflicting approved codes can only be reused after explicit human resolution',()=>{
+  const {engine:e}=makeEngine(['1 item [Bedroom 1] — Renew internal door']);
+  assert.equal(e.rememberHumanApproval(0,'100001'),true);
+  assert.equal(e.rememberHumanApproval(0,'100003'),true);
+  assert.equal(e.verifiedRateForLine('5 item [Bedroom 2] — Renew internal door').kind,'conflict');
+  e.selectedMatches.set(0,{code:'100003',qty:1});
+  assert.equal(e.resolveMatchingConflict(0),true);
+  assert.equal(e.verifiedRateForLine('5 item [Bedroom 2] — Renew internal door').rate?.code,'100003');
+});
+
+test('when client is blank, learned mappings stay job-specific',()=>{
+  const one=makeEngine(['1 item [Bedroom 1] — Renew internal door'],'','UKM-000010');
+  const two=makeEngine(['1 item [Bedroom 1] — Renew internal door'],'','UKM-000011');
+  assert.notEqual(one.engine.matchingCustomerKey(),two.engine.matchingCustomerKey());
+  assert.ok(one.engine.matchingCustomerKey().includes('UKM-000010'));
+  assert.ok(two.engine.matchingCustomerKey().includes('UKM-000011'));
+});
+
+test('conflict resolution and safeguards are visible in maintenance matching controls',()=>{
+  assert.match(html,/data-resolve-conflict/);
+  assert.match(html,/function resolveMatchingConflict\(/);
+  assert.match(html,/priced in.*but this work item is measured/);
+  assert.match(html,/function matchingCustomerKey\(\)/);
 });
