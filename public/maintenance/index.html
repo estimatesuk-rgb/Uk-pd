@@ -220,6 +220,34 @@ header .brand-logo{display:block;width:clamp(190px,26vw,300px);height:auto;max-w
 .smv-plan .smv-gantt-bar.uncertain{background:#d0871b}
 .smv-plan .smv-footnote{font-size:12px;color:#6d7582}
 @media(max-width:800px){.smv-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.smv-plan .planner-controls{grid-template-columns:1fr}}
+
+/* Labour-only subcontract rates and site completion / signature sheets. */
+.sub-timesheet{border-top:4px solid #1c2b45;margin-top:18px}
+.sub-timesheet h2{font-size:22px}
+.sub-timesheet .sub-fields{display:grid;grid-template-columns:repeat(3,minmax(150px,1fr));gap:10px}
+.sub-timesheet .sub-fields label{font-size:12px;font-weight:700;color:#233653}
+.sub-timesheet .sub-fields input,.sub-timesheet .sub-fields select{margin-top:5px}
+.sub-timesheet .sub-data{max-height:580px;overflow:auto;border:1px solid #d8dfeb;border-radius:9px;margin:10px 0 17px}
+.sub-timesheet .sub-data table{min-width:970px}
+.sub-timesheet .sub-data th{position:sticky;top:0;z-index:1}
+.sub-timesheet .sub-data input,.sub-timesheet .sub-data select{width:100%;min-width:70px;padding:6px;font-size:12px}
+.sub-timesheet .sub-data input[data-sub-rate]{max-width:125px}
+.sub-timesheet .sub-data input[data-sub-qty],.sub-timesheet .sub-data input[data-sub-hours]{max-width:95px}
+.sub-timesheet .sub-data input[data-sub-note]{min-width:160px}
+.sub-timesheet .sub-summary{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:10px;margin:12px 0}
+.sub-timesheet .sub-stat{background:#f4f6fb;border:1px solid #dce3ed;border-radius:8px;padding:11px}
+.sub-timesheet .sub-stat span{display:block;color:#67758a;font-size:11px;font-weight:700}
+.sub-timesheet .sub-stat strong{font-size:20px;color:#172c49}
+.sub-timesheet .sub-info{border:1px solid #e3d3aa;background:#fff9ec;padding:10px;border-radius:8px;color:#704d1b;font-size:12px}
+.sub-timesheet .sub-reviewed{color:#0d7656;font-size:11px;font-weight:800}
+.sub-timesheet .sub-pending{color:#ad2535;font-size:11px;font-weight:800}
+.sub-print-signatures{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:24px;break-inside:avoid}
+.sub-print-signatures .signature{border-top:1px solid #8996aa;padding-top:8px;font-size:11px;min-height:60px}
+.sub-print-signatures .signature span{display:block;margin-top:7px}
+.sub-print-note{font-size:11px;background:#fff6e6;padding:11px;margin:13px 0;color:#7a4f1c}
+@media(max-width:800px){.sub-timesheet .sub-fields{grid-template-columns:1fr 1fr}.sub-timesheet .sub-summary{grid-template-columns:1fr 1fr}}
+@media(max-width:540px){.sub-timesheet .sub-fields{grid-template-columns:1fr}}
+@media print{.sub-print-signatures{break-inside:avoid}.sub-timesheet .sub-info{color:#66431a}}
 </style>
 </head>
 <body><header><div class="brand-identity"><img class="brand-logo" src="/maintenance/uk-estimates-logo.png" alt="UK Estimates — Fast Accurate Building Costings" width="350" height="95"></div><div class="kind">HOUSING MAINTENANCE &amp; VOIDS<br><b>Standalone SOR V8 estimating app</b></div></header>
@@ -277,6 +305,32 @@ header .brand-logo{display:block;width:clamp(190px,26vw,300px);height:auto;max-w
   <div id="planner-detail" class="plan-table"></div>
   <div class="status" id="planner-status" role="status" aria-live="polite" style="margin-top:12px">No programme calculated yet.</div>
 </div>
+
+<section class="card sub-timesheet" id="subcontract-sheet" aria-label="Subcontractor labour-only rates and completion timesheets">
+  <div class="row" style="justify-content:space-between;align-items:flex-start">
+    <div><h2>Subcontractor Labour-Only &amp; Signed Timesheets</h2>
+      <p>Prepare separate labour-only work schedules, record completed quantities and actual hours, then print a site timesheet for subcontractor and supervisor signatures.</p></div>
+    <div class="row"><button type="button" id="sub-preview" class="secondary">Preview / Sign-Off Sheet</button><button type="button" id="sub-export">Download Labour-Only Excel</button></div>
+  </div>
+  <div class="sub-info"><strong>Rate separation:</strong> Your V8 labour allocation is only an <b>editable reference</b>, not an agreed subcontract price. No client V8 selling-rate percentage or OH&amp;P adjustment is added. Check and confirm the subcontractor's own labour-only rate before payment. Signing is done on the printed/PDF sheet; this is not an electronic-signature service.</div>
+  <div class="sub-fields" style="margin-top:13px">
+    <label>Timesheet trade <select id="sub-trade" aria-label="Choose subcontractor trade"><option value="__all__">All trades (summary only)</option></select></label>
+    <label>Subcontractor company <input id="sub-company" placeholder="Subcontractor / firm name" autocomplete="organization"></label>
+    <label>Operative / gang <input id="sub-operative" placeholder="Name(s) of operatives"></label>
+    <label>Week ending / completed <input id="sub-week-ending" type="date"></label>
+    <label>Site supervisor <input id="sub-supervisor" placeholder="Approving supervisor"></label>
+    <label>Subcontract order / PO number <input id="sub-po" placeholder="Purchase order or subcontract reference"></label>
+  </div>
+  <div class="row" style="margin-top:12px"><label style="width:100%;font-weight:700;font-size:12px">Site notes and variations<textarea id="sub-notes" placeholder="Work completed, variations awaiting authorisation, defects and site comments" style="min-height:58px"></textarea></label></div>
+  <div id="sub-summary" class="sub-summary" aria-live="polite"></div>
+  <h3 style="font-size:16px">1. Agree labour-only subcontract rates</h3>
+  <p class="hint">Enter an agreed £/unit for measured works, or switch an activity to £/hour and specify the agreed hourly rate. Tick <b>Agreed?</b> individually to confirm the rate; changing it automatically removes that confirmation.</p>
+  <div id="sub-rates" class="sub-data"><div class="empty">Add items to the BoQ to create labour-only rates.</div></div>
+  <h3 style="font-size:16px">2. Record completed work &amp; actual hours</h3>
+  <p class="hint">Original Excel sheet/row references are retained where available. Completed quantities and actual time are initially blank, never treated as completed automatically. Printed forms provide spaces for site completion and signatures.</p>
+  <div id="sub-work" class="sub-data"><div class="empty">The completion timesheet will appear here.</div></div>
+  <p id="sub-status" role="status" aria-live="polite" class="status">Subcontractor labour-only rates and timesheets are saved with the selected job.</p>
+</section>
 </main>
 <div id="review-layer" class="review-layer" hidden role="dialog" aria-modal="true" aria-label="Review specification beside schedule of rates">
   <div class="review-top">
@@ -328,6 +382,16 @@ header .brand-logo{display:block;width:clamp(190px,26vw,300px);height:auto;max-w
   </div>
   <div class="boq-preview-scroll"><div class="boq-paper" id="boq-paper"></div></div>
 </div>
+
+<div id="sub-preview-layer" class="boq-preview-layer" hidden role="dialog" aria-modal="true" aria-label="Subcontractor completion and signature timesheet">
+  <div class="boq-preview-tools">
+    <div class="boq-preview-heading"><b>UK Estimates | Subcontractor labour-only timesheet</b><small>Printable work completion and handwritten-signature record</small></div>
+    <button id="sub-print" type="button">Print / Save PDF</button>
+    <button id="sub-preview-excel" type="button" class="secondary">Download Excel</button>
+    <button id="sub-close" type="button" class="secondary">Close</button>
+  </div>
+  <div class="boq-preview-scroll"><div class="boq-paper" id="sub-print-paper"></div></div>
+</div>
 <footer>© UK Estimates • Housing Maintenance &amp; Voids • Designed for UK council and housing-association maintenance estimating</footer>
 <script>
 (function(){
@@ -337,6 +401,7 @@ const clean=s=>String(s==null?'':s).trim(), num=v=>Number(String(v==null?'':v).r
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let rates=[],codes=new Map(),job=[],db=null;
 let planner={startDate:'',dailyHours:7,trades:{},overrides:{}};
+let subcontractTimesheet={trade:'__all__',contractors:{},rates:{},entries:{}};
 
 const RATE_KEY='uk-estimates-v8-rates-v1', JOB_KEY='uk-estimates-voids-job-v1', SOURCE_KEY='uk-estimates-source-document-v1';
 function status(id,msg,type){$(id).textContent=msg;$(id).className='status'+(type?' '+type:'');}
@@ -379,6 +444,7 @@ function jobSnapshot(){
     surveyor:$('surveyor').value,adjustment:$('adjustment').value,
     specification:$('specification').value,
     planner:JSON.parse(JSON.stringify(planner)),
+    subcontractTimesheet:JSON.parse(JSON.stringify(subcontractTimesheet)),
     matches:typeof selectedMatches==='undefined'?[]:[...selectedMatches],
     sourceName:sourceFile?sourceFile.name:'',updatedAt:new Date().toISOString()};
 }
@@ -424,7 +490,7 @@ function save(){
 }
 function restore(){
   try{const d=JSON.parse(localStorage.getItem(JOB_KEY)||'{}');
-    job=Array.isArray(d.job)?d.job:[];planner=normalisePlanner(d.planner);
+    job=Array.isArray(d.job)?d.job:[];planner=normalisePlanner(d.planner);subcontractTimesheet=normaliseSubcontractTimesheet(d.subcontractTimesheet);
     for(const k of ['address','client','reference','surveyor','adjustment','specification'])if(d[k]!=null)$(k).value=d[k];
   }catch(e){job=[];}
 }
@@ -433,6 +499,7 @@ function installJobSnapshot(snapshot){
   try{
     job=Array.isArray(snapshot.job)?snapshot.job:[];
     planner=normalisePlanner(snapshot.planner);
+    subcontractTimesheet=normaliseSubcontractTimesheet(snapshot.subcontractTimesheet);
     for(const k of ['address','client','reference','surveyor','adjustment','specification'])$(k).value=snapshot[k]??(k==='adjustment'?'0':'');
     selectedMatches=new Map((snapshot.matches||[]).map(([i,v])=>[Number(i),v]));
     activeReviewLine=null;reviewPage=0;
@@ -734,7 +801,7 @@ function calculate(){const f=1+adjustment()/100;let lt=0,mt=0,gt=0,ht=0,lines=[]
 $('boq-rows').innerHTML=lines.join('')||'<tr><td colspan="8" class="empty">No work items added yet.</td></tr>';$('plan-rows').innerHTML=plans.join('')||'<tr><td colspan="3" class="empty">Add SOR items to generate this schedule.</td></tr>';
 $('labour-total').textContent=money(lt);$('materials-total').textContent=money(mt);$('hours-total').textContent=ht.toFixed(1);$('grand-total').textContent=money(gt);
 const gap=Math.abs(gt-lt-mt);$('checks').textContent='Selling-rate adjustment: '+(adjustment()>0?'+':'')+adjustment()+'% • '+(gap<0.03?'Labour + materials reconciled':'Check split: '+money(gap)+' difference caused by unallocated V8 elements.');
-renderJobPlanning();
+renderJobPlanning();renderSubcontractTimesheet();
 document.querySelectorAll('[data-qty]').forEach(el=>el.onchange=()=>{let i=Number(el.dataset.qty);job[i].qty=Math.max(0,num(el.value));save();calculate();});document.querySelectorAll('[data-del]').forEach(el=>el.onclick=()=>{job.splice(Number(el.dataset.del),1);save();calculate();});updateReviewTotals();}
 function add(code,qty){
   const r=codes.get(String(code)),q=Number(qty);
