@@ -67,6 +67,29 @@
 .review-bottom{padding:7px 8px}
 }
 
+/* Source file on left, suggested rates immediately alongside on right. */
+.review-match-workspace{display:flex;flex-direction:column;gap:10px;overflow:hidden}
+.review-suggestion-title{display:flex;align-items:center;justify-content:space-between;gap:9px;flex-wrap:wrap}
+.review-suggestion-title b{font-size:15px;color:var(--navy)}
+.review-match-workspace .review-suggest{flex:1;min-height:130px;max-height:none;overflow-y:auto;background:#f7f9fe;border:1px solid #d8e0ee;padding:9px}
+.review-match-workspace .spec{background:#fff;border:1px solid #dce4f0;border-radius:10px;padding:12px;margin:0 0 9px;scroll-margin-top:12px}
+.review-match-workspace .spec.is-focused{border:2px solid var(--blue);padding:11px}
+.review-match-workspace .spec.is-picked{border-left:4px solid var(--ok)}
+.review-match-workspace .spec .source{display:block;font-size:13px;margin-bottom:8px;overflow-wrap:anywhere}
+.review-match-workspace .spec .suggest{display:flex;justify-content:space-between;align-items:center;gap:10px;background:#f1f5fc;border:1px solid #e0e7f2;padding:9px;border-radius:8px;margin:7px 0;color:#203049}
+.review-match-workspace .suggest-detail{min-width:0;flex:1;font-size:12px;overflow-wrap:anywhere}
+.review-match-workspace .suggest-detail small{display:block;color:#66758a;margin-top:3px}
+.review-match-workspace .suggest button{flex:none}
+.review-match-workspace .suggest-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;color:#627086}
+.review-match-workspace .suggest-controls input{width:85px;padding:5px}
+.review-match-workspace .picked-label{color:#138055;font-size:12px;font-weight:700}
+.review-manual{border:1px solid #cbd7e7;border-radius:9px;background:#fff;flex:none}
+.review-manual summary{cursor:pointer;padding:9px 12px;color:#253b65;font-weight:700}
+.review-manual[open]{max-height:45%;min-height:120px;display:flex;flex-direction:column}
+.review-manual-inner{padding:0 9px 9px;display:flex;flex-direction:column;min-height:0}
+.review-match-workspace .review-manual .search-results{max-height:210px;min-height:70px;overflow-y:auto}
+@media(max-width:760px){.review-match-workspace .review-suggest{min-height:90px}.review-match-workspace .suggest{flex-direction:column;align-items:stretch}.review-match-workspace .suggest button{align-self:flex-end}.review-manual[open]{max-height:50%}}
+
 </style>
 </head>
 <body><header><div><div class="brand">UK<span>▰</span>Estimates</div><small>FAST ACCURATE BUILDING COSTINGS</small></div><div class="kind">HOUSING MAINTENANCE &amp; VOIDS<br><b>Standalone SOR V8 estimating app</b></div></header>
@@ -105,13 +128,18 @@
     </section>
     <section class="review-rates" aria-label="Rate matching">
       <div class="review-pane-head"><b>V8 schedule of rates</b><span class="review-hint">Check description · unit · rate</span></div>
-      <div class="review-workarea">
-        <div class="row" style="margin-bottom:9px"><input style="flex:1;min-width:170px" id="review-search" placeholder="Search code, trade or description" aria-label="Search V8 schedule rates">
-        <label class="review-hint">Quantity <input id="review-qty" type="number" value="1" min="0" step="any" style="width:84px"></label></div>
-        <div class="review-hint" style="margin-bottom:8px">Click a line or spreadsheet row on the left to find matching items. Confirm the correct SOR code before adding.</div>
-        <div class="search-results" id="review-results"><div class="empty">Load V8 rates to search.</div></div>
-        <div class="row" style="margin:16px 0 7px"><b>Suggested matches from specification</b><button id="review-refresh" class="secondary tiny" type="button">Refresh suggestions</button></div>
-        <div class="review-suggest" id="review-suggest"><div class="empty">Upload or paste a specification for suggestions.</div></div>
+      <div class="review-workarea review-match-workspace">
+        <div class="review-suggestion-title"><b>Suggested V8 rates — select the correct item</b><button id="review-refresh" class="secondary tiny" type="button">Refresh suggestions</button></div>
+        <p class="review-hint" style="margin:0">Keep the original specification in view on the left. Compare each suggestion with the work description, unit and quantity before selecting it.</p>
+        <div class="review-suggest" id="review-suggest" aria-label="Suggested V8 rates beside source document"><div class="empty">Upload or paste a specification for suggestions.</div></div>
+        <details id="review-manual" class="review-manual">
+          <summary>Search the full V8 rate library if a suggested item is wrong</summary>
+          <div class="review-manual-inner">
+            <div class="row" style="margin-bottom:9px"><input style="flex:1;min-width:170px" id="review-search" placeholder="Search code, trade or description" aria-label="Search V8 schedule rates">
+              <label class="review-hint">Quantity <input id="review-qty" type="number" value="1" min="0" step="any" style="width:84px"></label></div>
+            <div class="search-results" id="review-results"><div class="empty">Load V8 rates to search.</div></div>
+          </div>
+        </details>
       </div>
       <div class="review-bottom"><strong id="review-total">0 items · £0.00 ex VAT</strong><span class="review-selected" id="review-selected"></span><div class="review-hint">All prices use agreed V8 selling rates with your chosen ±% adjustment. Changes update the main BoQ immediately.</div></div>
     </section>
@@ -166,7 +194,6 @@ function showReview(isOpen){
     renderReviewRates();
     renderReviewSuggestions();
     updateReviewTotals();
-    setTimeout(()=>$('review-search').focus(),50);
   }
 }
 $('open-review').onclick=()=>showReview(true);
@@ -205,16 +232,35 @@ function updateReviewTotals(){
 function renderReviewSuggestions(){
   const target=$('review-suggest');if(!target)return;
   const text=clean($('specification').value);
-  if(!text){target.innerHTML='<div class="empty">No specification text yet.</div>';return;}
-  if(!rates.length){target.innerHTML='<div class="empty">Import the V8 ratebook before matching.</div>';return;}
-  const lines=text.split(/[\r\n]+/).map(x=>x.trim()).filter(x=>x.length>7).slice(0,40);
+  if(!text){target.innerHTML='<div class="empty">Upload or paste a specification to review suggested V8 items next to the original.</div>';return;}
+  if(!rates.length){target.innerHTML='<div class="empty">Import your V8 rate library first to see suggested rates.</div>';return;}
+  const lines=text.split(/[\r\n]+/).map(x=>x.trim()).filter(x=>x.length>7).slice(0,60);
   target.innerHTML=lines.map((line,i)=>{
     const ranked=topMatch(line),q=findQty(line);
-    return '<div class="spec"><button type="button" class="secondary tiny" data-source-search="'+i+'">Search</button> <span class="source">'+esc(line.slice(0,180))+'</span>'+
-    (ranked.length?ranked.map(x=>'<div class="suggest">'+esc(x.r.code)+' '+esc(x.r.description)+' • '+money(x.r.rate)+'/'+esc(x.r.unit)+' <button type="button" class="tiny secondary" data-source-add="'+esc(x.r.code)+'" data-source-qty="'+q.qty+'">Add '+q.qty+'</button></div>').join(''):'<div class="suggest">No confident text match. Search manually using the item above.</div>')+'</div>';
-  }).join('')||'<div class="empty">No description lines found.</div>';
-  target.querySelectorAll('[data-source-search]').forEach(b=>b.onclick=()=>sourceSelect(lines[Number(b.dataset.sourceSearch)]));
-  target.querySelectorAll('[data-source-add]').forEach(b=>b.onclick=()=>{add(b.dataset.sourceAdd,Number(b.dataset.sourceQty));b.disabled=true;b.textContent='Added';});
+    return '<div class="spec" data-review-line="'+i+'"><div class="source"><span class="tag">Line '+(i+1)+'</span> '+esc(line.slice(0,260))+'</div>'+
+      '<div class="suggest-controls"><label>Measured quantity <input data-suggest-qty="'+i+'" type="number" min="0" step="any" value="'+q.qty+'"></label>'+
+      (q.unit?'<span>Source unit: '+esc(q.unit)+'</span>':'<span>Check quantity on original</span>')+
+      '<button type="button" class="secondary tiny" data-source-search="'+i+'">Find alternatives</button></div>'+
+      (ranked.length?ranked.map(x=>'<div class="suggest"><div class="suggest-detail"><strong>'+esc(x.r.code)+'</strong> — '+esc(x.r.description)+
+        '<small>'+esc(x.r.unit)+' · '+money(x.r.rate)+'/unit · Labour '+money(x.r.labour)+' · Materials '+money(x.r.materials)+'</small></div>'+
+        '<button type="button" class="tiny" data-source-add="'+esc(x.r.code)+'">Add to BoQ</button></div>').join(''):'<div class="review-hint">No suitable match found. Click Find alternatives to check the full rate library.</div>')+'</div>';
+  }).join('')||'<div class="empty">No specification lines found.</div>';
+  target.querySelectorAll('[data-source-search]').forEach(b=>b.onclick=()=>{
+    const card=b.closest('.spec'),i=Number(b.dataset.sourceSearch),best=topMatch(lines[i])[0];
+    target.querySelectorAll('.is-focused').forEach(e=>e.classList.remove('is-focused'));
+    card.classList.add('is-focused');
+    $('review-search').value=best?best.r.code:'';
+    $('review-qty').value=card.querySelector('[data-suggest-qty]')?.value||1;
+    $('review-manual').open=true;renderReviewRates();
+  });
+  target.querySelectorAll('[data-source-add]').forEach(b=>b.onclick=()=>{
+    const card=b.closest('.spec'),q=Number(card.querySelector('[data-suggest-qty]').value);
+    if(!Number.isFinite(q)||q<=0){alert('Please enter a quantity greater than zero.');return;}
+    add(b.dataset.sourceAdd,q);card.classList.add('is-picked');
+    card.querySelectorAll('[data-source-add]').forEach(e=>{e.disabled=true;e.textContent='Selected';});
+    card.querySelector('[data-suggest-qty]').disabled=true;
+    const label=document.createElement('span');label.className='picked-label';label.textContent='Added '+b.dataset.sourceAdd+' to the BoQ. Edit or remove it in the BoQ table.';card.appendChild(label);
+  });
 }
 $('review-refresh').onclick=renderReviewSuggestions;
 function pager(html){$('review-pager').innerHTML=html;}
@@ -477,7 +523,7 @@ $('clear-spec').onclick=async()=>{$('specification').value='';$('suggestions').s
 function findQty(line){const match=line.match(/(\d+(?:[.,]\d+)?)\s*(m²|m2|sqm|sq\.?\s*m|lm|lin\.?\s*m|m³|m3|nr|no\.?|each|item|ea)\b/i);if(match)return{qty:num(match[1]),unit:match[2].toLowerCase().replace(/[. ]/g,'')};return{qty:1,unit:''};}
 const stop=new Set(['with','into','then','shall','from','them','this','that','work','item','unit','allow','provide','renew','remove','prepare','install','include','measure','area','quantity','repair','making','complete','existing','supply','and','the','for']);
 function topMatch(line){const words=line.toLowerCase().replace(/[^a-z0-9 ]/g,' ').split(/\s+/).filter(w=>w.length>=3&&!stop.has(w));const q=findQty(line);const lineLow=line.toLowerCase();let ranked=rates.map(r=>{let d=r.description.toLowerCase(),score=0;for(const w of words){if(d.includes(w))score+=w.length>5?3:2;}if(new RegExp('\\b'+r.code+'\\b').test(lineLow))score+=20;const uu=r.unit.toLowerCase();if(q.unit&&(uu.includes(q.unit)||q.unit==='m2'&&uu==='m²'||q.unit==='no'&&uu==='nr'))score+=2;return{r,score};}).filter(x=>x.score>1).sort((a,b)=>b.score-a.score);return ranked.slice(0,2);}
-$('suggest').onclick=()=>{if(!rates.length){status('spec-status','Load the V8 ratebook before requesting suggestions.','bad');return;}const txt=$('specification').value.trim();if(!txt){status('spec-status','Please enter or upload a specification.','bad');return;}let lines=txt.split(/[\r\n]+/).map(s=>s.trim()).filter(s=>s.length>7).slice(0,35);let all=lines.map((line,i)=>{let matches=topMatch(line),q=findQty(line);return '<div class="spec"><div class="source">'+esc(line)+'</div>'+(matches.length?matches.map(x=>'<div class="suggest">'+esc(x.r.code)+' '+esc(x.r.description)+' • '+money(x.r.rate)+'/'+esc(x.r.unit)+' <button class="tiny secondary" data-confirm="'+i+'" data-code="'+esc(x.r.code)+'" data-q="'+q.qty+'">Add '+q.qty+' '+esc(x.r.unit)+'</button></div>').join(''):'<div class="suggest">No reliable match. Search the SOR manually.</div>')+'</div>';});$('suggestions').innerHTML='<p class="notice">These are text-similarity suggestions, NOT AI-verified take-offs. Check code, units and quantities before adding.</p>'+all.join('');$('suggestions').style.display='block';document.querySelectorAll('[data-confirm]').forEach(b=>b.onclick=()=>{add(b.dataset.code,Number(b.dataset.q));b.disabled=true;b.textContent='Added — review BoQ';});status('spec-status',lines.length+' specification lines reviewed. Select only correct work items.','ok');};
+$('suggest').onclick=()=>{if(!rates.length){status('spec-status','Load the V8 ratebook before requesting suggestions.','bad');return;}const txt=$('specification').value.trim();if(!txt){status('spec-status','Please enter or upload a specification.','bad');return;}let lines=txt.split(/[\r\n]+/).map(s=>s.trim()).filter(s=>s.length>7).slice(0,35);let all=lines.map((line,i)=>{let matches=topMatch(line),q=findQty(line);return '<div class="spec"><div class="source">'+esc(line)+'</div>'+(matches.length?matches.map(x=>'<div class="suggest">'+esc(x.r.code)+' '+esc(x.r.description)+' • '+money(x.r.rate)+'/'+esc(x.r.unit)+' <button class="tiny secondary" data-confirm="'+i+'" data-code="'+esc(x.r.code)+'" data-q="'+q.qty+'">Add '+q.qty+' '+esc(x.r.unit)+'</button></div>').join(''):'<div class="suggest">No reliable match. Search the SOR manually.</div>')+'</div>';});$('suggestions').innerHTML='<p class="notice">These are text-similarity suggestions, NOT AI-verified take-offs. Check code, units and quantities before adding.</p>'+all.join('');$('suggestions').style.display='block';document.querySelectorAll('[data-confirm]').forEach(b=>b.onclick=()=>{add(b.dataset.code,Number(b.dataset.q));b.disabled=true;b.textContent='Added — review BoQ';});status('spec-status',lines.length+' specification lines ready to verify against the original.','ok');showReview(true);};
 function exportData(){const f=1+adjustment()/100;return job.map(j=>{let r=codes.get(j.code)||j.snapshot,q=Math.max(0,num(j.qty));return{'SOR Code':r.code,Description:r.description,Trade:r.trade,UOM:r.unit,Quantity:q,'V8 Selling Rate £':r.rate,'Labour £':q*r.labour*f,'Materials £':q*r.materials*f,'Adjustment %':adjustment(),'Extended Selling £':q*r.rate*f,'SMV min/unit':r.smv,'Labour Hours':q*r.smv/60,'SMV Method':r.smvMethod||''};});}
 function filename(ext){return 'UK_Estimates_'+(clean($('reference').value).replace(/[^a-z0-9_-]+/gi,'_')||'Void_Estimate')+'.'+ext;}
 function download(blob,name){const a=document.createElement('a'),u=URL.createObjectURL(blob);a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),2000);}
