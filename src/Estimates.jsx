@@ -807,7 +807,7 @@ export default function Estimates({db,project,docs=[]}){
      {p.unresolved_questions>0?' '+p.unresolved_questions+' question(s).':''}
     </li>)}</ul>
    </details>
- </div>
+ </div>}
   {estimate.ai_auto_measurement_review&&<div className="notice" role="status">
    <b>AI automatic measurement preview:</b> {estimate.ai_auto_measurement_review.accepted||0} provisional measured outline(s)
    across {estimate.ai_auto_measurement_review.checked_pages||0} reviewed page(s).
