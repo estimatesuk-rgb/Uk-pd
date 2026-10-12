@@ -210,8 +210,18 @@ async function activateSource(file,extracted,remember=true){
 function sourceSelect(text){
   const line=String(text||'').replace(/\s+/g,' ').trim().slice(0,220);
   if(!line)return;
-  $('review-search').value=line.replace(/^\d+(?:\.\d+)?\s*(?:m2|m²|lm|m3|m³|no\.?|nr|each)\s+/i,'').slice(0,110);
   const q=findQty(line);if(q.qty&&q.qty>0)$('review-qty').value=q.qty;
+  const sourceLines=$('specification').value.split(/[\r\n]+/).map(s=>s.trim()).filter(s=>s.length>7).slice(0,60);
+  const normalized=line.toLowerCase();
+  const index=sourceLines.findIndex(s=>s.toLowerCase().includes(normalized)||normalized.includes(s.toLowerCase()));
+  const suggestions=$('review-suggest');
+  suggestions.querySelectorAll('.is-focused').forEach(el=>el.classList.remove('is-focused'));
+  if(index>=0){
+    const card=suggestions.querySelector('[data-review-line="'+index+'"]');
+    if(card){card.classList.add('is-focused');card.scrollIntoView({block:'nearest',behavior:'smooth'});return;}
+  }
+  $('review-search').value=topMatch(line)[0]?.r.code||line.slice(0,60);
+  $('review-manual').open=true;
   renderReviewRates();
 }
 function renderReviewRates(){
