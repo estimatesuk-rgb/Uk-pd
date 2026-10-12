@@ -317,7 +317,8 @@ function importRows(sheet){
 }
 $('ratesfile').onchange=async function(){const file=this.files[0];if(!file)return;status('rates-status','Reading '+file.name+'…');try{if(!window.XLSX)throw Error('Excel reader did not load. Please reconnect to the internet and refresh.');const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:false});let name=wb.SheetNames.find(n=>n.toLowerCase()==='v8_rates')||wb.SheetNames[0];const rows=XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,defval:'',raw:true});const parsed=importRows(rows);await put(RATE_KEY,parsed);setupRates(parsed);calculate();if(navigator.storage&&navigator.storage.persist){navigator.storage.persist().catch(()=>{});}}catch(e){status('rates-status','Could not import file: '+e.message,'bad');}this.value='';};
 $('clear-rates').onclick=async()=>{if(!confirm('Remove locally saved ratebook on this device?'))return;await drop(RATE_KEY);rates=[];codes.clear();status('rates-status','No rates are saved on this device. Import the enriched V8 schedule once.','bad');$('v8-library-state').textContent='V8 not loaded on this device';$('v8-import').open=true;search();renderReviewRates();};
-for(const id of ['address','client','reference','surveyor','specification'])$(id).oninput=save;
+for(const id of ['address','client','reference','surveyor'])$(id).oninput=save;
+$('specification').oninput=()=>{clearReviewSelections();save();};
 $('adjustment').oninput=()=>{save();calculate();if(!$('boq-preview-layer').hidden)renderBoqPaper();};$('plus').onclick=()=>setPercent(adjustment()+1);$('minus').onclick=()=>setPercent(adjustment()-1);$('search').oninput=search;
 
 
@@ -342,7 +343,7 @@ $('review-close').onclick=()=>showReview(false);
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('review-layer').hidden)showReview(false);});
 function releaseSource(){sourceRenderId++;sourcePdf=null;sourceWorkbook=null;sourceFile=null;sourceText='';sourcePage=1;sourceSheet=0;sourceRowPage=0;sourceZoom=1;if(sourceBlobUrl)URL.revokeObjectURL(sourceBlobUrl);sourceBlobUrl=null;}
 async function activateSource(file,extracted,remember=true){
-  releaseSource();clearReviewSelections();sourceFile=file;sourceText=extracted||'';sourceKind='text';
+  releaseSource();clearReviewSelections();activeReviewLine=null;sourceFile=file;sourceText=extracted||'';sourceKind='text';
   $('source-file-label').textContent='Original ready: '+file.name;
   if(remember){try{await put(SOURCE_KEY,{name:file.name,type:file.type,blob:file,lastModified:file.lastModified||0});}catch(e){status('spec-status','File loaded, but the browser could not save a copy for next time: '+e.message,'bad');}}
   showReview(true);
@@ -1089,7 +1090,7 @@ async function exportProfessionalBoq(){
 $('export-excel').onclick=exportProfessionalBoq;
 $('preview-download').onclick=exportProfessionalBoq;
 $('preview-boq').onclick=previewBoq;
-$('clear-job').onclick=()=>{if(!confirm('Delete this local project and all BoQ items?'))return;job=[];['address','client','reference','surveyor','specification'].forEach(id=>$(id).value='');$('adjustment').value=0;localStorage.removeItem(JOB_KEY);calculate();};
+$('clear-job').onclick=()=>{if(!confirm('Delete this local project and all BoQ items?'))return;clearReviewSelections();activeReviewLine=null;job=[];['address','client','reference','surveyor','specification'].forEach(id=>$(id).value='');$('adjustment').value=0;localStorage.removeItem(JOB_KEY);calculate();};
 (async()=>{restore();restoreReviewSelections();calculate();try{const r=await get(RATE_KEY);if(r&&r.length){setupRates(r);calculate();}else{status('rates-status','No V8 ratebook saved yet on this device. Import the enriched V8 Excel file once to enable automatic loading.','bad');$('v8-library-state').textContent='First visit: import V8 just once';$('v8-import').open=true;}const stored=await get(SOURCE_KEY);if(stored&&stored.blob){sourceFile=new File([stored.blob],stored.name,{type:stored.type||'',lastModified:stored.lastModified||Date.now()});sourceText=$('specification').value;$('source-file-label').textContent='Original ready: '+sourceFile.name;}}catch(e){status('rates-status','Local storage is blocked or unavailable: '+e.message+'. Check private browsing or storage settings.','bad');$('v8-library-state').textContent='Saved V8 rates unavailable';$('v8-import').open=true;}})();
 })();
 </script></body></html>
