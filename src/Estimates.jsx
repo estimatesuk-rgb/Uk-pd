@@ -10,6 +10,7 @@ import {prepareMasterRateImport,rateMatchKey} from './rateImport.mjs';
 import {measuredQuantity,findUniqueRate} from './takeoffMeasurement.mjs';
 import {applySavedRate,applySavedRates,rateLibraryCoverage,rateComponents} from './ratePricing.mjs';
 import {measureAutoPage} from './autoMeasurement.mjs';
+import {summariseAiCoverage} from './aiCoverage.mjs';
 pdfjs.GlobalWorkerOptions.workerSrc=new URL('pdfjs-dist/build/pdf.worker.min.mjs',import.meta.url).toString();
 const fresh={items:[],highlights:[],builder_id:'',takeoff_review_status:'Draft',takeoff_reviewer:'',takeoff_reviewed_at:'',measurement_standard:'NRM2',drawing_stages:{},supplier_price_date:'',supplier_price_source:'',global_adjustment:0,overheads:15,profit:10,vat:20,pc_sums:[],provisional_sums:[],dayworks:[],contingency_mode:'percent',contingency_value:0,quote_intro:'We are pleased to provide our quotation for the works described below.',quote_scope:'',quote_validity:'30 days',quote_payment_terms:'Payment schedule to be agreed before commencement.',quote_exclusions:'Items not expressly included are excluded.',quote_terms:'Subject to agreed contract terms.',quote_ref:'',quote_revisions:[]};
 const initialItem={ref_no:'',work_section:'Measured Works',description:'',trade:'General',drawing:'',quantity:0,unit:'m²',material_rate:0,plant_rate:0,labour_hours:0,labour_rate:0,supplier:'',price_url:'',status:'Needs verification'};
@@ -265,7 +266,7 @@ export default function Estimates({db,project,docs=[]}){
        setNotice('Before AI take-off, '+unchecked.length+' drawing page(s) need scale calibration or a construction-notes/no-scale decision. No AI request has been sent.');
        return;
      }
-     const reviewed=[],autoCandidates=[],autoRejections=[];let complete=0;
+     const reviewed=[],autoCandidates=[],autoRejections=[],pageCoverage=[];let complete=0;
      for(const source of sources){
        for(let pageNumber=1;pageNumber<=source.numPages;pageNumber++){
          setAiProgress({processed:complete,total:count,stage:'Analysing page '+(complete+1)+' of '+count});
@@ -286,6 +287,14 @@ export default function Estimates({db,project,docs=[]}){
          for(const measurement of measured)autoCandidates.push({...measurement,document_id:source.d.id,
            filename:source.filename,page:pageNumber,metresPerPixel:savedScale.metresPerPixel});
          for(const problem of rejected)autoRejections.push({...problem,filename:source.filename,page:pageNumber});
+         pageCoverage.push({
+           document_id:source.d.id,filename:source.filename,page:pageNumber,
+           classification:result.page.classification,
+           calibration_status:calibrationStatus(sheetEntry),
+           provisional_measured:measured.length,held_shapes:rejected.length,
+           scope_items:result.page.takeoff_draft.length,
+           unresolved_questions:result.page.unresolved?.length||0
+         });
          reviewed.push(result.page);complete++;
          setAiProgress({processed:complete,total:count,stage:'Analysed '+complete+' of '+count+' pages'});
        }
@@ -377,6 +386,7 @@ export default function Estimates({db,project,docs=[]}){
        highlights:[...(estimate.highlights||[]),...newHighlights],
        ai_auto_measurement_review:{accepted:autoAdded.length,rejected:autoRejections.slice(0,100),
          checked_pages:count,analysed_at:new Date().toISOString()},
+       ai_page_coverage:summariseAiCoverage(pageCoverage),
        ai_drawing_review:comparison.drawing_review,ai_last_analysed_at:new Date().toISOString(),
        takeoff_review_status:'AI draft — QS review required'};
      const {error:saveError}=await db.from('projects').update({estimate_data:next}).eq('id',project.id);
@@ -784,6 +794,20 @@ export default function Estimates({db,project,docs=[]}){
  </svg>}{currentHighlights.filter(h=>!['length','count','polygon','polyline'].includes(h.kind)).map(h=><div key={h.id} className="estimateMark" style={{left:h.x*100+'%',top:h.y*100+'%',width:h.w*100+'%',height:h.h*100+'%',background:pricedBoq(h).length?"rgba(35,156,82,.34)":linkedBoq(h).length?"rgba(234,172,37,.3)":"rgba(205,57,57,.2)",borderColor:pricedBoq(h).length?"#239c52":linkedBoq(h).length?"#eaaa25":"#cd3939"}} title={h.name+" — "+(pricedBoq(h).length?"Priced: "+pricedBoq(h).map(i=>i.ref_no||i.description).join(", "):linkedBoq(h).length?"Linked but unpriced":"Not linked to BOQ")}/>) }{drag&&hover&&!calibrate&&<div className="estimateMark drawingNew" style={{left:Math.min(drag.x,hover.x)*100+'%',top:Math.min(drag.y,hover.y)*100+'%',width:Math.abs(drag.x-hover.x)*100+'%',height:Math.abs(drag.y-hover.y)*100+'%'}}/>}</div></div></div><p className="muted">Drawing key: 🟢 Green = linked to a priced BOQ item; 🟡 Amber = linked but unpriced; 🔴 Red = not linked to BOQ. Drawings must be calibrated and measured quantities reviewed before issue.</p>
  {currentHighlights.map(h=>{const m=regionMeasures(h);return <div key={h.id} className="estimateHighlightRow">{h.stage}: {h.name} — {h.kind||'area'} (page {h.page}) {m?m.quantity+' '+m.unit:''}{m?.openings_count?' (gross '+m.gross_area_m2+' m² less '+m.deductions_area_m2+' m² for '+m.openings_count+' opening(s))':''} — {pricedBoq(h).length?'PRICED':linkedBoq(h).length?'LINKED / UNPRICED':'NOT LINKED'} <button type="button" disabled={selectedCalibrationStatus==='reference-only'||(h.kind!=='count'&&!metresPerPixel)} onClick={()=>addMeasured(h)}>Add measured {h.kind||'area'} to BOQ</button> <button type="button" className="outline" onClick={()=>patch('highlights',estimate.highlights.filter(x=>x.id!==h.id))}>Remove</button></div>})}
  <h3>2. Build measured BOQ items</h3>
+ {estimate.ai_page_coverage&&<div className="notice" aria-label="Project-wide AI drawing coverage">
+   <b>Automatic take-off coverage by drawing:</b>
+   <p>{estimate.ai_page_coverage.total_pages||0} drawing page(s) analysed; {estimate.ai_page_coverage.provisional_shapes||0} candidate quantity mark(s);
+   {estimate.ai_page_coverage.held_shapes||0} held for review; {estimate.ai_page_coverage.unresolved_questions||0} outstanding page question(s).
+   This is a coverage register of AI observations, <strong>not certification that every building element was found.</strong></p>
+   <details><summary>Review every sheet and outstanding measurements</summary>
+    <ul>{(estimate.ai_page_coverage.pages||[]).map((p,i)=><li key={p.document_id+'#'+p.page+'-'+i}>
+     <b>{p.filename} — page {p.page} ({p.classification})</b>: {p.status}.
+     {p.provisional_measured>0?' '+p.provisional_measured+' provisional mark(s).':''}
+     {p.held_shapes>0?' '+p.held_shapes+' candidate(s) held.':''}
+     {p.unresolved_questions>0?' '+p.unresolved_questions+' question(s).':''}
+    </li>)}</ul>
+   </details>
+ </div>}
   {estimate.ai_auto_measurement_review&&<div className="notice" role="status">
    <b>AI automatic measurement preview:</b> {estimate.ai_auto_measurement_review.accepted||0} provisional measured outline(s)
    across {estimate.ai_auto_measurement_review.checked_pages||0} reviewed page(s).
