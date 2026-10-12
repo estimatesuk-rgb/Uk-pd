@@ -303,6 +303,17 @@ header .brand-logo{display:block;width:clamp(190px,26vw,300px);height:auto;max-w
   <div id="client-letterhead-preview" class="client-brand-preview"><span class="hint">No customer header selected — UK Estimates branding will be shown at the top and bottom of reports.</span></div>
   <div class="client-brand-status" id="client-letterhead-status" role="status" aria-live="polite">Enter the exact customer name above, then upload a PNG, JPG, WebP or first-page PDF letterhead.</div>
   <div class="client-brand-caption"><b>UK Estimates report attribution (fixed):</b> www.ukestimates.com · Enquiries@ukestimates.com · 01246 203196</div>
+<details id="report-proof-panel" style="margin-top:10px">
+  <summary style="cursor:pointer;font-weight:800;color:#25354d">Issued report references &amp; verification</summary>
+  <p class="client-brand-caption">Every exported Excel file receives a unique reference, an issued job snapshot fingerprint and an exact file SHA-256 checksum. You can check a copy against the original retained in <b>this browser</b>. Printed/PDF documents have an issue reference but cannot be file-hash verified without the original PDF; organisation-wide online verification requires the enterprise backend.</p>
+  <div id="report-proof-list" class="client-brand-caption">No issued report records loaded.</div>
+  <div class="client-brand-row" style="margin-top:9px">
+    <label class="file" for="verify-excel-file">Choose Excel file to verify <input id="verify-excel-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
+    <button id="verify-excel-button" type="button" class="secondary tiny">Verify original issue</button>
+  </div>
+  <p id="report-proof-status" role="status" aria-live="polite" class="client-brand-status">Verification is matched against issued records for the current job on this device.</p>
+</details>
+
 </div>
 </div>
 <div class="card"><h2><span class="step">3</span> Find and add SOR items</h2><div class="row" style="margin:0 0 9px"><button id="open-review" type="button" class="review-switch">↔ Review original beside SOR rates</button><span class="hint">View the uploaded document while choosing codes.</span></div><input id="search" placeholder="Search a SOR code, work description or trade…" autocomplete="off"><div id="search-feedback" role="status" aria-live="polite" class="status" style="margin-top:7px">Select an item to add its rate to the bill.</div><div id="search-results" class="search-results"><div class="empty">Load the V8 workbook to browse the rates.</div></div></div>
@@ -672,6 +683,7 @@ function installJobSnapshot(snapshot){
     selectedMatches=new Map((snapshot.matches||[]).map(([i,v])=>[Number(i),v]));
     activeReviewLine=null;reviewPage=0;
     activeJobId=snapshot.id;
+    reportIssuedRefs.clear();renderIssuedReportHistory().catch(console.warn);
     localStorage.setItem(JOBS_ACTIVE_KEY,activeJobId);
     $('suggestions').innerHTML='';$('source-file-label').textContent='No original document loaded.';
     releaseSource();showReview(false);
@@ -2334,6 +2346,88 @@ $('suggest').onclick=()=>{
   showReview(true);
 };
 const UK_EST_LOGO='/maintenance/uk-estimates-logo.png';
+
+
+function reportLedgerKey(jobId){
+  return 'uk-estimates-issued-report-ledger-v1:'+String(jobId||'unassigned');
+}
+function reportKindLabel(kind){
+  return {boq:'Bill of Quantities',programme:'SMV Job Programme',timesheet:'Subcontractor Labour Timesheet'}[kind]||kind;
+}
+async function reportDigest(bytes){
+  if(!crypto?.subtle)throw Error('Secure-browser hashing is unavailable. Use HTTPS.');
+  const input=typeof bytes==='string'?new TextEncoder().encode(bytes):bytes;
+  const result=await crypto.subtle.digest('SHA-256',input);
+  return Array.from(new Uint8Array(result),b=>b.toString(16).padStart(2,'0')).join('');
+}
+function reportIssueData(kind){
+  // Canonical record covers customer, full BoQ scope, planner and actual
+  // completion terms. It intentionally excludes changing "updatedAt" fields.
+  const customer=activeCustomerLetterhead();
+  return {
+    kind,jobId:activeJobId||'',customer:clean($('client').value),address:clean($('address').value),
+    reference:clean($('reference').value),surveyor:clean($('surveyor').value),
+    adjustment:adjustment(),
+    activities:job.map(v=>({code:v.code,qty:v.qty,rate:v.snapshot})),
+    approvedMatches:[...selectedMatches].sort((a,b)=>a[0]-b[0]),
+    specification:String($('specification').value||''),
+    planner,subcontractTimesheet,
+    customerLetterhead:customer?{name:customer.name,encoding:customer.dataUrl}:null
+  };
+}
+async function prepareReportIssue(kind){
+  if(!activeJobId)throw Error('Save the job before issuing a report.');
+  const idPart=Array.from(crypto.getRandomValues(new Uint8Array(5)),v=>v.toString(16).padStart(2,'0')).join('').toUpperCase();
+  const time=new Date();
+  const id='UKE-'+activeJobId+'-'+kind.toUpperCase()+'-'+time.toISOString().slice(0,10).replace(/-/g,'')+'-'+idPart;
+  const hash=await reportDigest(JSON.stringify(reportIssueData(kind)));
+  const entry={id,kind,jobId:activeJobId,client:clean($('client').value),createdAt:time.toISOString(),
+    hash,customer:customerBrandKey(),fileHash:null};
+  reportIssuedRefs.set(kind,entry);
+  return entry;
+}
+async function retainIssuedReport(kind,bytes=null){
+  const entry=reportCurrentId(kind);
+  if(!entry)throw Error('Could not identify this issued '+reportKindLabel(kind)+' report.');
+  const record={...entry,fileHash:bytes?await reportDigest(bytes):null};
+  const ledger=await get(reportLedgerKey(entry.jobId)).catch(()=>[])||[];
+  const entries=Array.isArray(ledger)?ledger:[];
+  entries.unshift(record);
+  await put(reportLedgerKey(entry.jobId),entries.slice(0,100));
+  reportIssuedRefs.set(kind,record);
+  await renderIssuedReportHistory();
+  return record;
+}
+async function renderIssuedReportHistory(){
+  const target=$('report-proof-list');
+  if(!target)return;
+  if(!activeJobId){target.textContent='Save a job to enable report verification.';return;}
+  try{
+    const raw=await get(reportLedgerKey(activeJobId)),items=Array.isArray(raw)?raw:[];
+    target.innerHTML=items.length?
+      '<b>Last issued reports (this job):</b>'+
+      items.slice(0,8).map(item=>'<div style="padding:6px 0;border-bottom:1px solid #d5dfea">'+
+        '<b>'+esc(item.id)+'</b> · '+esc(reportKindLabel(item.kind))+' · '+
+        esc(new Date(item.createdAt).toLocaleString('en-GB'))+
+        ' · '+(item.fileHash?'Excel file checksum saved':'Print/snapshot record only')+
+        '</div>').join(''):
+      'No reports issued for this job on this device.';
+  }catch(e){target.textContent='Cannot load local issuer verification records: '+e.message;}
+}
+$('verify-excel-button').onclick=async()=>{
+  const file=$('verify-excel-file').files?.[0],result=$('report-proof-status');
+  if(!file){result.textContent='Choose the Excel report you want to verify.';return;}
+  if(!file.name.toLowerCase().endsWith('.xlsx')||file.size>50*1024*1024){result.textContent='Choose a UK Estimates .xlsx file of 50 MB or less.';return;}
+  const button=$('verify-excel-button');button.disabled=true;button.textContent='Checking…';
+  try{
+    const hash=await reportDigest(await file.arrayBuffer()),ledger=await get(reportLedgerKey(activeJobId));
+    const issue=(Array.isArray(ledger)?ledger:[]).find(entry=>entry.fileHash===hash);
+    result.textContent=issue?'✓ VERIFIED: File exactly matches the issued '+reportKindLabel(issue.kind)+' report '+issue.id+'.':
+      'NOT VERIFIED: This Excel file does not match any stored issued report for this job on this device. It may have been changed, exported elsewhere or issued on another device.';
+    result.className='client-brand-status '+(issue?'sub-reviewed':'sub-pending');
+  }catch(e){result.textContent='Verification failed: '+(e.message||e);result.className='client-brand-status sub-pending';}
+  finally{button.disabled=false;button.textContent='Verify original issue';}
+};
 
 /* Reusable report identity/footer. Customer controls the upper banner only;
    the UK Estimates contact line is fixed in the report generator. */
