@@ -13,7 +13,7 @@
 
 | # | Feature | Current status | What must be delivered | Commercial benefit |
 |---|---|---|---|---|
-| **1** | **Intelligent SOR matching that learns** | **IN PROGRESS — ACTIVE FOCUS** | Confidence labelling; learn from user-approved SOR mappings, separately by customer/ratebook; accurately propagate truly identical activities regardless of room/sheet/page with individual quantities; flag incompatible unit/thickness/scope; bulk exact match; review unresolved and ambiguous lines; track measured matching accuracy/time | Core pay-per-job value |
+| **1** | **Intelligent SOR matching that learns** | **IN PROGRESS — pilot memory, source trace and tests implemented; real-job sign-off outstanding** | Confidence labelling; learn from user-approved SOR mappings, separately by customer/ratebook; accurately propagate truly identical activities regardless of room/sheet/page with individual quantities; flag incompatible unit/thickness/scope; bulk exact match; review unresolved and ambiguous lines; track measured matching accuracy/time | Core pay-per-job value |
 | 2 | Batch pricing of multiple properties | Planned | Import property-level job packs, retain source address, consolidated pricing, separated BoQs | Paid bulk add-on |
 | 3 | Advanced SMV workforce scheduling | Pilot in place (basic SMV, trade crew/day programming live) | Named teams, bank holidays, true dependencies and downtime, critical path, historical SMV v actual | Pro add-on |
 | 4 | Materials take-off and merchant purchasing | Planned (cost allowances already present) | Verified recipes, units and pack sizes, vendor links/prices, POs, trade delivery scheduling | Paid materials add-on |
@@ -38,13 +38,16 @@
 ## Item 1 implementation log
 
 - **12 Oct 2026 (prior):** Review paginated to 25 rows, removed old 160-line view limit; source-row audit Excel worksheet; safe exact-match action; manual/basket rates; improved Add feedback; SMV programme live.
-- **12 Oct 2026 (now):** Focus on reliably remembering approved SOR selections, safe propagation to duplicates and reviewer confidence/ambiguous-match controls. Pilot app stores private uploaded ratebooks locally; do not commit proprietary rate data.
+- **12 Oct 2026 (item 1 implementation):** Persist estimator-approved mappings in local private IndexedDB scoped by V8 ratebook and client; unnamed clients isolated by job ID. Safe bulk-filling uses ratebook exact or previously approved codes only, not merely similar keywords. Repeated activities across rooms/sections can share the approved SOR with separate quantities; material/fire-rating/thickness/work-action mismatches and conflicting prior approvals are blocked. Review pages show confidence/provenance labels, unmatched quantities, next-unpriced navigation and source-row audit. Automatic tests cover these cases.
+- **12 Oct 2026 (test evidence):** GitHub build on commit 51ab157 passed 131 automated tests, 0 failures; app release and verification passed. Synthetic 3,580-rate performance comparison improved source matching speed after caching (not a device SLA).
+- **12 Oct 2026 (real private ratebook review):** Previously uploaded validated V8 workbook contains 3,580 rates. The SMV data has approximately 1,372 missing/non-positive entries; these must remain flagged for job planning rather than being invented. No real council job-sheet acceptance run has yet been completed.
 - Next: end-to-end test on representative real maintenance and void workbooks; measure time to price (including review), correction count, missed/unpriced line count and full-source tracing.
 
 ## Proposed charging model — testing, not final prices
 
-- Current concept: **£20 + VAT per completed pricing-only job**; **£25 + VAT with basic SMV programme**.
-- Price review: test £29–£39 per stand-alone completed estimate; volume/contract bands £19–£29; Pro jobs with approved SMV/advanced job planning £35–£49; larger contract pricing negotiated.
+- **Pilot offer:** £20 + VAT per completed job while proving timing, accuracy and willingness to pay. No charge for failed drafts/re-exports.
+- **Standard target:** £29 + VAT per completed pricing/BoQ job; **Pro target:** £39 + VAT including SMV programme; volume/contract price bands approximately £19–£29 subject to commitments and support requirements. These are proposed sales tests, not enabled billing.
+- **Future optional module experiments:** SMV workforce programme +£10/job; multi-property batch £5–£10/property; verified materials/purchasing +£10/job; mobile surveys +£5–£10/job; completion/variations +£10/job; reviewed RAMS/compliance +£15/job; enterprise reporting/integrations under negotiated monthly licence. Avoid double-billing the same property or revisions.
 - Optional add-ons may be billed per completed job or as a separate monthly licence: advanced scheduling, multi-property batch jobs, verified materials orders, field app, variations/valuations, compliance, analytics, integrations.
 - Credit rules: approval/export as billing event, **one charge per source job**, revisions and re-exports free, no bill for drafts or failed jobs; discounts based on verified volumes.
 - Validate procurement budgets, licensing, enterprise hosting/support and supplier security before publishing prices.
