@@ -38,10 +38,10 @@
 .review-document table td{border:1px solid #d8dfe9;white-space:pre-wrap;max-width:350px;min-width:70px}
 .review-document table tbody tr{cursor:pointer}
 .review-document table tbody tr:hover{background:#e5f1ff}
-.review-document table tbody tr.source-selected{background:#ffe8e9!important;box-shadow:inset 4px 0 #c8192a}
+.review-document table tbody tr.source-selected:not(.source-approved){background:#e5f1ff!important;box-shadow:inset 4px 0 #325bbb}
 .review-document .source-line{display:block;padding:5px 4px;border-bottom:1px solid #e8edf5;cursor:pointer}
 .review-document .source-line:hover{background:#e7edff}
-.review-document .source-line.source-selected{background:#ffe8e9!important;border-left:4px solid #c8192a}
+.review-document .source-line.source-selected:not(.source-approved){background:#e7edff!important;border-left:4px solid #325bbb}
 .review-document .source-line small{display:block;color:#8190a2}
 .review-document .source-paper{background:white;max-width:930px;margin:auto;padding:18px;min-height:90%;box-shadow:0 3px 15px #152b4818;overflow-wrap:anywhere}
 .review-control{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -331,7 +331,7 @@ function importRows(sheet){
 $('ratesfile').onchange=async function(){const file=this.files[0];if(!file)return;status('rates-status','Reading '+file.name+'…');try{if(!window.XLSX)throw Error('Excel reader did not load. Please reconnect to the internet and refresh.');const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:false});let name=wb.SheetNames.find(n=>n.toLowerCase()==='v8_rates')||wb.SheetNames[0];const rows=XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,defval:'',raw:true});const parsed=importRows(rows);await put(RATE_KEY,parsed);setupRates(parsed);calculate();if(navigator.storage&&navigator.storage.persist){navigator.storage.persist().catch(()=>{});}}catch(e){status('rates-status','Could not import file: '+e.message,'bad');}this.value='';};
 $('clear-rates').onclick=async()=>{if(!confirm('Remove locally saved ratebook on this device?'))return;await drop(RATE_KEY);rates=[];codes.clear();status('rates-status','No rates are saved on this device. Import the enriched V8 schedule once.','bad');$('v8-library-state').textContent='V8 not loaded on this device';$('v8-import').open=true;search();renderReviewRates();};
 for(const id of ['address','client','reference','surveyor'])$(id).oninput=save;
-$('specification').oninput=()=>{clearReviewSelections();save();};
+$('specification').oninput=()=>{clearReviewSelections();sourceLineMap=[];save();};
 $('adjustment').oninput=()=>{save();calculate();if(!$('boq-preview-layer').hidden)renderBoqPaper();};$('plus').onclick=()=>setPercent(adjustment()+1);$('minus').onclick=()=>setPercent(adjustment()-1);$('search').oninput=search;
 
 
@@ -447,13 +447,14 @@ async function focusOriginalForSelection(index){
   if(sourceFile&&(['pdf','png','jpg','jpeg','webp','bmp','gif','tif','tiff','heic','heif'].includes(sourceExt())))
     showSourceSelectionNotice(index);
 }
-function sourceSelect(text){
+function sourceSelect(text,knownIndex=null){
   const line=String(text||'').replace(/\s+/g,' ').trim().slice(0,220);
   if(!line)return;
   const q=findQty(line);if(q.qty&&q.qty>0)$('review-qty').value=q.qty;
   const sourceLines=reviewSourceLines();
   const normalized=line.toLowerCase();
-  const index=sourceLines.findIndex(s=>s.toLowerCase().includes(normalized)||normalized.includes(s.toLowerCase()));
+  const index=Number.isInteger(knownIndex)&&knownIndex>=0&&knownIndex<sourceLines.length?knownIndex:
+    sourceLines.findIndex(s=>s.toLowerCase().includes(normalized)||normalized.includes(s.toLowerCase()));
   const suggestions=$('review-suggest');
   suggestions.querySelectorAll('.is-focused').forEach(el=>el.classList.remove('is-focused'));
   if(index>=0){
@@ -509,7 +510,7 @@ function restoreReviewSelections(){
   }catch(e){selectedMatches.clear();}
 }
 function clearReviewSelections(){
-  selectedMatches.clear();
+  selectedMatches.clear();activeReviewLine=null;
   try{localStorage.removeItem(REVIEW_SELECTION_KEY)}catch(e){}
 }
 function switchReviewRate(index,code,qty){
@@ -663,7 +664,8 @@ async function renderSource(){
       const words=values.filter(v=>/[a-z]{3,}/i.test(v)).sort((a,b)=>b.length-a.length);
       const qty=values.find(v=>/^\d+(?:\.\d+)?\s*(?:m²|m2|lm|m³|m3|no|nr|ea)?$/i.test(v));
       if(qty)$('review-qty').value=num(qty)||1;
-      sourceSelect(words[0]||values.join(' '));
+      const exactLine=sourceLineMap.findIndex(loc=>loc.sheet===names[sourceSheet]&&loc.row===Number(row.dataset.sourceRow));
+      sourceSelect(words[0]||values.join(' '),exactLine>=0?exactLine:null);
     });
     markOriginalHighlights(activeReviewLine,false);
     return;
