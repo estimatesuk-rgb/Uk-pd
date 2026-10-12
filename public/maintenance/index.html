@@ -90,6 +90,65 @@
 .review-match-workspace .review-manual .search-results{max-height:210px;min-height:70px;overflow-y:auto}
 @media(max-width:760px){.review-match-workspace .review-suggest{min-height:90px}.review-match-workspace .suggest{flex-direction:column;align-items:stretch}.review-match-workspace .suggest button{align-self:flex-end}.review-manual[open]{max-height:50%}}
 
+/* Professionally branded, printable review-ready Bill of Quantities. */
+.boq-card{border-top:4px solid var(--red)}
+.boq-card h2{font-size:21px}
+.boq-preview-layer[hidden]{display:none!important}
+.boq-preview-layer{position:fixed;inset:0;z-index:2500;background:#e7eaf1;display:flex;flex-direction:column;overflow:hidden}
+.boq-preview-tools{background:#172c49;border-bottom:4px solid var(--red);padding:12px 18px;color:#fff;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.boq-preview-tools .boq-preview-heading{min-width:190px;flex:1}
+.boq-preview-heading b{display:block;font-size:16px}
+.boq-preview-heading small{color:#ced9ed;font-size:11px}
+.boq-preview-tools button{white-space:nowrap}
+.boq-preview-tools #preview-print{background:#fff;color:#1e3157}
+.boq-preview-tools .boq-percent-tools{display:flex;align-items:center;gap:5px;border:1px solid #70809e;border-radius:9px;padding:5px 7px}
+.boq-percent-tools label{font-size:12px;margin-right:3px}
+.boq-percent-tools button{background:#fff;color:#14294d;padding:5px 9px}
+.boq-percent-tools input{width:73px;text-align:center;border:0;padding:5px;color:#162b4a}
+.boq-preview-total{font-size:15px;white-space:nowrap;font-weight:800}
+.boq-preview-scroll{overflow:auto;padding:24px 18px 42px;flex:1}
+.boq-paper{background:#fff;width:min(1100px,100%);margin:auto;padding:35px 38px;box-shadow:0 12px 45px #172c4926;font-size:12px;color:#223048}
+.boq-paper .boq-letterhead{display:flex;justify-content:space-between;gap:24px;align-items:center;padding-bottom:20px;border-bottom:4px solid #ed1017}
+.boq-paper .boq-letterhead img{width:295px;max-width:55%;height:auto;object-fit:contain}
+.boq-paper .boq-report-heading{text-align:right}
+.boq-report-heading h2{margin:0;color:#162b4a;font-size:23px;line-height:1.2}
+.boq-report-heading span{display:block;color:#69758a;margin-top:5px;letter-spacing:.7px;text-transform:uppercase;font-size:10px}
+.boq-info-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0 22px}
+.boq-info-grid div{background:#f2f5fa;padding:10px;border-radius:6px;overflow-wrap:anywhere}
+.boq-info-grid small{color:#67758b;display:block;text-transform:uppercase;letter-spacing:.5px;font-size:10px}
+.boq-info-grid b{display:block;font-size:12px;margin-top:3px}
+.boq-paper .boq-section-title{margin:20px 0 0;padding:9px 12px;background:#172c49;color:white;font-weight:800;font-size:12px}
+.boq-paper .boq-report-table{width:100%;border-collapse:collapse;font-size:11px}
+.boq-report-table thead th{background:#e9eef7;padding:8px 6px;border-bottom:2px solid #bbc7da;color:#162b4a;font-size:10px;text-align:left;white-space:normal}
+.boq-report-table tbody td{padding:9px 6px;border-bottom:1px solid #e2e8f1;overflow-wrap:anywhere}
+.boq-report-table tbody tr:nth-child(even){background:#fafbfe}
+.boq-report-table .n{text-align:right;white-space:nowrap}
+.boq-report-table .description{min-width:160px;max-width:280px}
+.boq-report-table .code{color:#2a41a2;font-weight:800;white-space:nowrap}
+.boq-summary{display:grid;grid-template-columns:1fr 320px;gap:24px;margin:26px 0 8px}
+.boq-summary .notes{background:#f5f7fb;border-left:3px solid var(--blue);padding:12px 15px;color:#4c5b72;font-size:11px}
+.boq-summary table{width:100%;font-size:12px}
+.boq-summary table td{padding:7px 9px}
+.boq-summary table td:last-child{text-align:right;white-space:nowrap}
+.boq-summary table tr:last-child{background:#172c49;color:#fff;font-weight:800;font-size:16px}
+.boq-summary table tr.adjusted td{color:#ab2025}
+.boq-paper .report-footer{border-top:1px solid #dfe4ee;margin-top:23px;padding-top:9px;display:flex;justify-content:space-between;color:#6b7990;font-size:10px}
+@media(max-width:760px){.boq-preview-tools{padding:8px}.boq-preview-tools .boq-preview-heading{flex-basis:100%}.boq-preview-scroll{padding:8px}.boq-paper{padding:16px;width:970px;max-width:none}.boq-preview-tools #preview-print,.boq-preview-tools #preview-download{font-size:12px;padding:8px}.boq-percent-tools label{font-size:11px}}
+@media print{
+ @page{size:A4 landscape;margin:11mm}
+ body{background:white!important}
+ body>header,body>main,body>footer,#review-layer{display:none!important}
+ .boq-preview-layer{position:static!important;display:block!important;inset:auto!important;background:white!important;overflow:visible!important}
+ .boq-preview-tools{display:none!important}
+ .boq-preview-scroll{overflow:visible!important;padding:0!important}
+ .boq-paper{width:100%!important;max-width:none!important;padding:0!important;margin:0!important;box-shadow:none!important;font-size:10px!important}
+ .boq-report-table{font-size:9px!important}
+ .boq-report-table thead{display:table-header-group}
+ .boq-report-table tr{break-inside:avoid}
+ .boq-info-grid div{break-inside:avoid}
+ .boq-summary{break-inside:avoid}
+}
+
 </style>
 </head>
 <body><header><div><div class="brand">UK<span>▰</span>Estimates</div><small>FAST ACCURATE BUILDING COSTINGS</small></div><div class="kind">HOUSING MAINTENANCE &amp; VOIDS<br><b>Standalone SOR V8 estimating app</b></div></header>
@@ -108,8 +167,8 @@
 <textarea id="specification" placeholder="Example: Prepare and decorate 42 m2 of walls&#10;Renew 12 lm of skirting&#10;Replace 3 no internal doors"></textarea><div class="row"><button id="suggest" type="button">Suggest SOR matches</button><button id="clear-spec" class="secondary" type="button">Clear specification</button></div><div id="suggestions" class="specs"></div></div>
 </section><section>
 <div class="card"><h2>Project summary</h2><div id="totals"><div class="kpi"><div class="caption">Labour</div><b id="labour-total">£0.00</b></div><div class="kpi"><div class="caption">Materials</div><b id="materials-total">£0.00</b></div><div class="kpi"><div class="caption">Labour hours</div><b id="hours-total">0.0</b></div><div class="kpi feature"><div class="caption">Total ex VAT</div><b id="grand-total">£0.00</b></div></div><div id="checks" class="status">Totals reconcile to the adjusted V8 selling rates.</div>
-<div class="row" style="margin-top:18px"><button id="export-excel">Download BoQ (Excel)</button><button id="export-csv" class="secondary">Download CSV</button><button id="clear-job" class="red">Clear job</button></div></div>
-<div class="card"><h2>Bill of Quantities</h2><p>Every item is split into materials and labour. Change quantities or remove items as needed.</p><div class="tablewrap"><table><thead><tr><th>SOR / description</th><th class="num">Qty</th><th>UOM</th><th class="num">V8 rate</th><th class="num">Labour</th><th class="num">Materials</th><th class="num">Total</th><th></th></tr></thead><tbody id="boq-rows"><tr><td colspan="8" class="empty">No work items added yet.</td></tr></tbody></table></div></div>
+<div class="row" style="margin-top:18px"><button id="export-excel">Review &amp; produce BoQ</button><button id="export-csv" class="secondary">Download CSV</button><button id="clear-job" class="red">Clear job</button></div></div>
+<div class="card boq-card"><h2>Bill of Quantities</h2><p>Every item is split into materials and labour. Change quantities or remove items as needed.</p><div class="tablewrap"><table><thead><tr><th>SOR / description</th><th class="num">Qty</th><th>UOM</th><th class="num">V8 rate</th><th class="num">Labour</th><th class="num">Materials</th><th class="num">Total</th><th></th></tr></thead><tbody id="boq-rows"><tr><td colspan="8" class="empty">No work items added yet.</td></tr></tbody></table></div></div>
 <div class="card"><h2>Labour time &amp; material plan</h2><div class="tablewrap"><table><thead><tr><th>Work item</th><th class="num">Hours</th><th class="num">Material value</th></tr></thead><tbody id="plan-rows"><tr><td colspan="3" class="empty">Add SOR items to generate this schedule.</td></tr></tbody></table></div><p class="notice">The material figures are cost allowances split from V8—not product quantities. A true purchasing list requires approved material recipes and pack sizes. Estimated SMVs are labelled as provisional.</p></div>
 <div class="card"><h2>How the pricing works</h2><p><b>V8 is the agreed selling rate.</b> At 0%, the total is exactly quantity × V8 rate. Adjustment ±% is applied to V8, and its labour/material portions, only once. SMV minutes × quantity / 60 gives labour hours.</p><p><span class="safe">✓</span> Separate app and private on-device data. <b>Note:</b> this pilot does not yet provide cloud project sharing, multi-user logins, genuine AI interpretation or automatic material product recipes.</p></div></section></div>
 </main>
@@ -145,6 +204,23 @@
     </section>
   </div>
 </div>
+<div id="boq-preview-layer" class="boq-preview-layer" hidden role="dialog" aria-modal="true" aria-label="Preview and approve Bill of Quantities">
+  <div class="boq-preview-tools">
+    <div class="boq-preview-heading"><b>UK Estimates | Bill of Quantities review</b><small>Check the pricing and report before producing it.</small></div>
+    <div class="boq-percent-tools" aria-label="Selling-rate percentage adjustment">
+      <label for="preview-adjustment">V8 rate adjustment</label>
+      <button type="button" id="preview-minus" aria-label="Decrease adjustment by one percent">−</button>
+      <input id="preview-adjustment" type="number" inputmode="decimal" step="0.5" min="-100" max="1000" value="0" aria-label="Rate adjustment percentage">
+      <span>%</span>
+      <button type="button" id="preview-plus" aria-label="Increase adjustment by one percent">+</button>
+    </div>
+    <span class="boq-preview-total" id="preview-top-total">£0.00 ex VAT</span>
+    <button type="button" id="preview-print">Print / Save PDF</button>
+    <button type="button" id="preview-download">Download formatted Excel</button>
+    <button type="button" id="preview-close" class="secondary">Close</button>
+  </div>
+  <div class="boq-preview-scroll"><div class="boq-paper" id="boq-paper"></div></div>
+</div>
 <footer>© UK Estimates • Housing Maintenance &amp; Voids • Designed for UK council and housing-association maintenance estimating</footer>
 <script>
 (function(){
@@ -153,6 +229,7 @@ const $=id=>document.getElementById(id), money=n=>'£'+Number(n||0).toLocaleStri
 const clean=s=>String(s==null?'':s).trim(), num=v=>Number(String(v==null?'':v).replace(/[£,]/g,''))||0;
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let rates=[],codes=new Map(),job=[],db=null;
+
 const RATE_KEY='uk-estimates-v8-rates-v1', JOB_KEY='uk-estimates-voids-job-v1', SOURCE_KEY='uk-estimates-source-document-v1';
 function status(id,msg,type){$(id).textContent=msg;$(id).className='status'+(type?' '+type:'');}
 function indexed(){return new Promise((ok,no)=>{if(!window.indexedDB){no(new Error('This browser does not support local data storage.'));return;}const r=indexedDB.open('uk-estimates-voids-v1',1);r.onupgradeneeded=()=>{if(!r.result.objectStoreNames.contains('settings'))r.result.createObjectStore('settings');};r.onerror=()=>no(r.error);r.onsuccess=()=>ok(r.result);});}
@@ -178,7 +255,7 @@ if(!out.length)throw Error('No valid V8 rate items found.');return out;}
 $('ratesfile').onchange=async function(){const file=this.files[0];if(!file)return;status('rates-status','Reading '+file.name+'…');try{if(!window.XLSX)throw Error('Excel reader did not load. Please reconnect to the internet and refresh.');const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:false});let name=wb.SheetNames.find(n=>n.toLowerCase()==='v8_rates')||wb.SheetNames[0];const rows=XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,defval:'',raw:true});const parsed=importRows(rows);await put(RATE_KEY,parsed);setupRates(parsed);calculate();if(navigator.storage&&navigator.storage.persist){navigator.storage.persist().catch(()=>{});}}catch(e){status('rates-status','Could not import file: '+e.message,'bad');}this.value='';};
 $('clear-rates').onclick=async()=>{if(!confirm('Remove locally saved ratebook on this device?'))return;await drop(RATE_KEY);rates=[];codes.clear();status('rates-status','No rates are saved on this device. Import the enriched V8 schedule once.','bad');$('v8-library-state').textContent='V8 not loaded on this device';$('v8-import').open=true;search();renderReviewRates();};
 for(const id of ['address','client','reference','surveyor','specification'])$(id).oninput=save;
-$('adjustment').oninput=()=>{save();calculate();};$('plus').onclick=()=>{$('adjustment').value=Math.min(1000,adjustment()+1);save();calculate();};$('minus').onclick=()=>{$('adjustment').value=Math.max(-100,adjustment()-1);save();calculate();};$('search').oninput=search;
+$('adjustment').oninput=()=>{save();calculate();if(!$('boq-preview-layer').hidden)renderBoqPaper();};$('plus').onclick=()=>setPercent(adjustment()+1);$('minus').onclick=()=>setPercent(adjustment()-1);$('search').oninput=search;
 
 
 
@@ -534,6 +611,70 @@ function findQty(line){const match=line.match(/(\d+(?:[.,]\d+)?)\s*(m²|m2|sqm|s
 const stop=new Set(['with','into','then','shall','from','them','this','that','work','item','unit','allow','provide','renew','remove','prepare','install','include','measure','area','quantity','repair','making','complete','existing','supply','and','the','for']);
 function topMatch(line){const words=line.toLowerCase().replace(/[^a-z0-9 ]/g,' ').split(/\s+/).filter(w=>w.length>=3&&!stop.has(w));const q=findQty(line);const lineLow=line.toLowerCase();let ranked=rates.map(r=>{let d=r.description.toLowerCase(),score=0;for(const w of words){if(d.includes(w))score+=w.length>5?3:2;}if(new RegExp('\\b'+r.code+'\\b').test(lineLow))score+=20;const uu=r.unit.toLowerCase();if(q.unit&&(uu.includes(q.unit)||q.unit==='m2'&&uu==='m²'||q.unit==='no'&&uu==='nr'))score+=2;return{r,score};}).filter(x=>x.score>1).sort((a,b)=>b.score-a.score);return ranked.slice(0,2);}
 $('suggest').onclick=()=>{if(!rates.length){status('spec-status','Load the V8 ratebook before requesting suggestions.','bad');return;}const txt=$('specification').value.trim();if(!txt){status('spec-status','Please enter or upload a specification.','bad');return;}let lines=txt.split(/[\r\n]+/).map(s=>s.trim()).filter(s=>s.length>7).slice(0,35);let all=lines.map((line,i)=>{let matches=topMatch(line),q=findQty(line);return '<div class="spec"><div class="source">'+esc(line)+'</div>'+(matches.length?matches.map(x=>'<div class="suggest">'+esc(x.r.code)+' '+esc(x.r.description)+' • '+money(x.r.rate)+'/'+esc(x.r.unit)+' <button class="tiny secondary" data-confirm="'+i+'" data-code="'+esc(x.r.code)+'" data-q="'+q.qty+'">Add '+q.qty+' '+esc(x.r.unit)+'</button></div>').join(''):'<div class="suggest">No reliable match. Search the SOR manually.</div>')+'</div>';});$('suggestions').innerHTML='<p class="notice">These are text-similarity suggestions, NOT AI-verified take-offs. Check code, units and quantities before adding.</p>'+all.join('');$('suggestions').style.display='block';document.querySelectorAll('[data-confirm]').forEach(b=>b.onclick=()=>{add(b.dataset.code,Number(b.dataset.q));b.disabled=true;b.textContent='Added — review BoQ';});status('spec-status',lines.length+' specification lines ready to verify against the original.','ok');showReview(true);};
+const UK_EST_LOGO='/maintenance/uk-estimates-logo.png';
+function setPercent(value){
+  const n=Number(value);
+  if(!Number.isFinite(n))return;
+  $('adjustment').value=String(Math.max(-100,Math.min(1000,n)));
+  save();calculate();
+  if(!$('boq-preview-layer').hidden)renderBoqPaper();
+}
+function reportLines(){
+  const f=1+adjustment()/100;
+  return job.map((j,i)=>{
+    const r=codes.get(j.code)||j.snapshot;if(!r)return null;
+    const qty=Math.max(0,num(j.qty));
+    const sum=r.labour+r.materials,labourShare=sum>0?r.labour/sum:0;
+    const total=qty*r.rate*f,labour=total*labourShare,materials=total-labour;
+    return {index:i+1,code:r.code,description:r.description,trade:r.trade||'Maintenance',unit:r.unit,qty,rate:r.rate,labourShare,labour,materials,total,hours:qty*r.smv/60,smv:r.smv,smvMethod:r.smvMethod||'',splitMissing:sum<=0&&total>0};
+  }).filter(Boolean);
+}
+function reportTotals(lines){
+  const base=lines.reduce((s,r)=>s+r.qty*r.rate,0);
+  const adjusted=lines.reduce((s,r)=>s+r.total,0);
+  return {base,adjustment:adjusted-base,adjusted,labour:lines.reduce((s,r)=>s+r.labour,0),materials:lines.reduce((s,r)=>s+r.materials,0),hours:lines.reduce((s,r)=>s+r.hours,0)};
+}
+function renderBoqPaper(){
+  const rows=reportLines(),t=reportTotals(rows),pct=adjustment();
+  $('preview-adjustment').value=String(pct);
+  $('preview-top-total').textContent=money(t.adjusted)+' ex VAT';
+  const now=new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'});
+  const details=[['Property / site',$('address').value],['Council / client',$('client').value],['Job reference',$('reference').value],['Surveyor',$('surveyor').value]];
+  let html='<div class="boq-letterhead"><img src="'+UK_EST_LOGO+'" alt="UK Estimates logo"><div class="boq-report-heading"><h2>BILL OF QUANTITIES</h2><span>Housing maintenance &amp; void property works · SOR V8</span><span>Prepared '+esc(now)+'</span></div></div>';
+  html+='<div class="boq-info-grid">'+details.map(d=>'<div><small>'+esc(d[0])+'</small><b>'+esc(clean(d[1])||'Not provided')+'</b></div>').join('')+'</div>';
+  html+='<div class="boq-section-title">SCHEDULE OF MEASURED WORKS</div>';
+  html+='<table class="boq-report-table"><thead><tr><th>No.</th><th>SOR code</th><th>Description of works</th><th>Unit</th><th class="n">Quantity</th><th class="n">V8 rate</th><th class="n">Labour</th><th class="n">Materials</th><th class="n">Line total</th></tr></thead><tbody>';
+  let lastTrade='';
+  for(const r of rows){
+    if(lastTrade!==r.trade){lastTrade=r.trade;html+='<tr><td colspan="9" style="background:#f2f5fb;color:#253d6b;font-weight:800;padding:7px 8px">'+esc(r.trade)+'</td></tr>';}
+    html+='<tr><td>'+r.index+'</td><td class="code">'+esc(r.code)+'</td><td class="description">'+esc(r.description)+'</td><td>'+esc(r.unit)+'</td><td class="n">'+r.qty.toLocaleString('en-GB')+'</td><td class="n">'+money(r.rate)+'</td><td class="n">'+money(r.labour)+'</td><td class="n">'+money(r.materials)+'</td><td class="n"><b>'+money(r.total)+'</b></td></tr>';
+  }
+  html+='</tbody></table>';
+  html+='<div class="boq-summary"><div class="notes"><b>Pricing basis</b><br>Agreed V8 selling rates, adjusted by '+(pct>0?'+':'')+pct+'%. This is a change to the agreed selling rate, not a second OH&amp;P markup.<br><br>Labour and materials are allocations of the line selling amount; verify provisional or missing splits before purchasing. Prices exclude VAT. Labour duration: '+t.hours.toFixed(1)+' hours.'+(rows.some(r=>r.splitMissing)?'<br><b>Review required:</b> Some rows lack a verified labour/material split.':'')+'</div><table><tbody>';
+  html+='<tr><td>Agreed V8 selling total</td><td>'+money(t.base)+'</td></tr>';
+  html+='<tr class="adjusted"><td>Rate adjustment ('+(pct>0?'+':'')+pct+'%)</td><td>'+money(t.adjustment)+'</td></tr>';
+  html+='<tr><td>Labour allocation</td><td>'+money(t.labour)+'</td></tr>';
+  html+='<tr><td>Materials allocation</td><td>'+money(t.materials)+'</td></tr>';
+  html+='<tr><td><b>TOTAL EX VAT</b></td><td>'+money(t.adjusted)+'</td></tr></tbody></table></div>';
+  html+='<div class="report-footer"><span>UK Estimates · Housing Maintenance &amp; Voids</span><span>Ref: '+esc($('reference').value||'Draft')+' · Draft for review prior to issue</span></div>';
+  $('boq-paper').innerHTML=html;
+}
+function previewBoq(){
+  if(!job.length){alert('Add at least one V8 item to the BoQ first.');return;}
+  $('boq-preview-layer').hidden=false;
+  document.body.style.overflow='hidden';
+  renderBoqPaper();
+}
+function closeBoqPreview(){
+  $('boq-preview-layer').hidden=true;
+  document.body.style.overflow='';
+}
+$('preview-close').onclick=closeBoqPreview;
+$('preview-print').onclick=()=>{renderBoqPaper();window.print();};
+$('preview-plus').onclick=()=>setPercent(adjustment()+1);
+$('preview-minus').onclick=()=>setPercent(adjustment()-1);
+$('preview-adjustment').oninput=e=>{if(e.target.value==='')return;setPercent(e.target.value);};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('boq-preview-layer').hidden)closeBoqPreview();});
 function exportData(){const f=1+adjustment()/100;return job.map(j=>{let r=codes.get(j.code)||j.snapshot,q=Math.max(0,num(j.qty));return{'SOR Code':r.code,Description:r.description,Trade:r.trade,UOM:r.unit,Quantity:q,'V8 Selling Rate £':r.rate,'Labour £':q*r.labour*f,'Materials £':q*r.materials*f,'Adjustment %':adjustment(),'Extended Selling £':q*r.rate*f,'SMV min/unit':r.smv,'Labour Hours':q*r.smv/60,'SMV Method':r.smvMethod||''};});}
 function filename(ext){return 'UK_Estimates_'+(clean($('reference').value).replace(/[^a-z0-9_-]+/gi,'_')||'Void_Estimate')+'.'+ext;}
 function download(blob,name){const a=document.createElement('a'),u=URL.createObjectURL(blob);a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),2000);}
