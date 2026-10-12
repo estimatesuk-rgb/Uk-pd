@@ -1,5 +1,6 @@
 import {measuredQuantity} from './takeoffMeasurement.mjs';
 import {validateTrace,validatedPolygonWithOpenings,polygonBounds} from './shapeGeometry.mjs';
+import {measureDimensionedCandidate} from './dimensionedMeasurements.mjs';
 
 // AI suggests outlines; all quantities are calculated deterministically against
 // a revision-matched scale. Never infer a scale from the picture or from a label.
@@ -44,21 +45,27 @@ export function measureAutoCandidate(c,context){
     return {error:'Work stage is not established'};
   const description=safeText(c.description),evidence=safeText(c.evidence);
   if(description.length<5||evidence.length<8)return {error:'Missing work or drawing evidence'};
-  const region=candidateMark(c);
+  const isDerived=['wall_face','trench','slab_volume'].includes(c?.kind);
+  const geometryKind=c.kind==='slab_volume'?'polygon':isDerived?'polyline':c.kind;
+  const region=candidateMark({...c,kind:geometryKind});
   if(!region)return {error:'Unsupported or invalid visible outline'};
   const calibration=Number(context?.metresPerPixel);
   const dimensions=context?.dimensions;
-  const measured=measuredQuantity(region,dimensions,calibration);
-  if(!measured||!Number.isFinite(measured.quantity)||measured.quantity<=0)return {error:'Could not calculate a scaled quantity'};
+  const measured=isDerived?measureDimensionedCandidate(c,region,dimensions,calibration):
+    measuredQuantity(region,dimensions,calibration);
+  if(!measured||!Number.isFinite(measured.quantity)||measured.quantity<=0)
+    return {error:isDerived?'Cited metric height/width/depth or valid derived geometry missing':'Could not calculate a scaled quantity'};
   const coords=['length','polyline','polygon'].includes(region.kind)
     ?[...region.points.flatMap(p=>[p.x,p.y]),...(region.openings||[]).flatMap(h=>h.flatMap(p=>[p.x,p.y]))]
     :region.kind==='count'?[region.x,region.y]:[region.x,region.y,region.w,region.h];
-  const key=[context.document_id,context.page,region.kind,description.toLowerCase(),
+  const key=[context.document_id,context.page,c.kind,description.toLowerCase(),
     ...coords.map(round)].join('|');
   return {key,mark:{...region,name:description,stage:c.stage,source:'AI proposed markup',
-    evidence},quantity:measured.quantity,unit:measured.unit,method:measured.method,
+    evidence,measurement_kind:c.kind},quantity:measured.quantity,unit:measured.unit,method:measured.method,
     gross_area_m2:measured.gross_area_m2??null,deductions_area_m2:measured.deductions_area_m2??null,
     openings_count:measured.openings_count||0,
+    dimension_evidence:measured.dimension_evidence||null,
+    calculation:measured.calculation||null,
     evidence,work_section:safeText(c.work_section)||'AI assisted take-off'};
 }
 export function measureAutoPage(candidates,context){
