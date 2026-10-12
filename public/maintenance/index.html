@@ -75,7 +75,16 @@
 .review-match-workspace .review-suggest{flex:1;min-height:130px;max-height:none;overflow-y:auto;background:#f7f9fe;border:1px solid #d8e0ee;padding:9px}
 .review-match-workspace .spec{background:#fff;border:1px solid #dce4f0;border-radius:10px;padding:12px;margin:0 0 9px;scroll-margin-top:12px}
 .review-match-workspace .spec.is-focused{border:2px solid var(--blue);padding:11px}
-.review-match-workspace .spec.is-picked{border-left:4px solid var(--ok)}
+
+/* Selection is RED only on the selected rate, while alternatives stay readable. */
+.review-match-workspace .spec.is-picked{border-left:4px solid #cb1023;background:#fffafa}
+.review-match-workspace .spec.is-picked .source{color:#a91322;font-weight:700}
+.review-match-workspace .spec .suggest.chosen-rate{border:2px solid #c9182a;background:#fff0f1;color:#a91425}
+.review-match-workspace .spec .suggest.chosen-rate strong{color:#a91425}
+.review-match-workspace .spec .suggest button.chosen-button{background:#c8192a!important;color:#fff!important;border-color:#c8192a!important}
+.review-match-workspace .review-chosen-label{color:#ae1926;font-weight:800;font-size:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px}
+.review-match-workspace .review-match-counter{position:sticky;top:0;z-index:2;background:#fffaee;border-bottom:1px solid #e9d5a8;color:#45536b;font-size:12px;padding:8px}
+
 .review-match-workspace .spec .source{display:block;font-size:13px;margin-bottom:8px;overflow-wrap:anywhere}
 .review-match-workspace .spec .suggest{display:flex;justify-content:space-between;align-items:center;gap:10px;background:#f1f5fc;border:1px solid #e0e7f2;padding:9px;border-radius:8px;margin:7px 0;color:#203049}
 .review-match-workspace .suggest-detail{min-width:0;flex:1;font-size:12px;overflow-wrap:anywhere}
@@ -317,7 +326,7 @@ $('review-close').onclick=()=>showReview(false);
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('review-layer').hidden)showReview(false);});
 function releaseSource(){sourceRenderId++;sourcePdf=null;sourceWorkbook=null;sourceFile=null;sourceText='';sourcePage=1;sourceSheet=0;sourceRowPage=0;sourceZoom=1;if(sourceBlobUrl)URL.revokeObjectURL(sourceBlobUrl);sourceBlobUrl=null;}
 async function activateSource(file,extracted,remember=true){
-  releaseSource();sourceFile=file;sourceText=extracted||'';sourceKind='text';
+  releaseSource();clearReviewSelections();sourceFile=file;sourceText=extracted||'';sourceKind='text';
   $('source-file-label').textContent='Original ready: '+file.name;
   if(remember){try{await put(SOURCE_KEY,{name:file.name,type:file.type,blob:file,lastModified:file.lastModified||0});}catch(e){status('spec-status','File loaded, but the browser could not save a copy for next time: '+e.message,'bad');}}
   showReview(true);
@@ -354,37 +363,87 @@ function updateReviewTotals(){
   let total=0;for(const j of job){const r=codes.get(j.code)||j.snapshot;if(r)total+=Math.max(0,num(j.qty))*r.rate*f;}
   elt.textContent=job.length+' SOR items · '+money(total)+' ex VAT';
 }
+const REVIEW_SELECTION_KEY='UK_EST_V8_APPROVED_MATCHES_20261012';
+let selectedMatches=new Map();
+function reviewSourceLines(){
+  return String($('specification').value||'').split(/[\r\n]+/).map(s=>s.trim()).filter(s=>s.length>5).slice(0,160);
+}
+function persistReviewSelections(){
+  try{localStorage.setItem(REVIEW_SELECTION_KEY,JSON.stringify({reference:$('reference').value,source:$('specification').value.slice(0,1000),length:$('specification').value.length,matches:[...selectedMatches]}));}catch(e){console.warn(e);}
+}
+function restoreReviewSelections(){
+  try{
+    const state=JSON.parse(localStorage.getItem(REVIEW_SELECTION_KEY)||'{}');
+    if(state.reference===$('reference').value&&state.source===$('specification').value.slice(0,1000)&&state.length===$('specification').value.length)
+      selectedMatches=new Map((state.matches||[]).map(([line,v])=>[Number(line),v]));
+    else selectedMatches.clear();
+  }catch(e){selectedMatches.clear();}
+}
+function clearReviewSelections(){
+  selectedMatches.clear();
+  try{localStorage.removeItem(REVIEW_SELECTION_KEY)}catch(e){}
+}
+function switchReviewRate(index,code,qty){
+  if(!Number.isFinite(qty)||qty<=0){alert('Please enter a measured quantity greater than zero.');return;}
+  const rate=codes.get(code);
+  if(!rate){alert('This rate is unavailable in the active V8 ratebook.');return;}
+  const prior=selectedMatches.get(index);
+  if(prior&&prior.code===code&&prior.qty===qty)return;
+  if(prior){
+    const existing=job.find(j=>j.code===prior.code);
+    if(existing){existing.qty=Math.max(0,Math.round((existing.qty-prior.qty)*1000000)/1000000);if(existing.qty<=0)job=job.filter(j=>j!==existing);}
+  }
+  const entry=job.find(j=>j.code===code);
+  if(entry)entry.qty=Math.round((entry.qty+qty)*1000000)/1000000;
+  else job.push({code,qty,snapshot:rate});
+  selectedMatches.set(index,{code,qty});
+  persistReviewSelections();save();calculate();
+  renderReviewSuggestions();
+  const card=$('review-suggest').querySelector('[data-review-line="'+index+'"]');
+  if(card){card.classList.add('is-focused');card.scrollIntoView({block:'nearest'});}
+  $('review-selected').textContent='Selected '+code+' for work line '+(index+1)+' · '+money(qty*rate.rate*(1+adjustment()/100));
+}
 function renderReviewSuggestions(){
   const target=$('review-suggest');if(!target)return;
   const text=clean($('specification').value);
-  if(!text){target.innerHTML='<div class="empty">Upload or paste a specification to review suggested V8 items next to the original.</div>';return;}
-  if(!rates.length){target.innerHTML='<div class="empty">Import your V8 rate library first to see suggested rates.</div>';return;}
-  const lines=text.split(/[\r\n]+/).map(x=>x.trim()).filter(x=>x.length>7).slice(0,60);
-  target.innerHTML=lines.map((line,i)=>{
-    const ranked=topMatch(line),q=findQty(line);
-    return '<div class="spec" data-review-line="'+i+'"><div class="source"><span class="tag">Line '+(i+1)+'</span> '+esc(line.slice(0,260))+'</div>'+
-      '<div class="suggest-controls"><label>Measured quantity <input data-suggest-qty="'+i+'" type="number" min="0" step="any" value="'+q.qty+'"></label>'+
-      (q.unit?'<span>Source unit: '+esc(q.unit)+'</span>':'<span>Check quantity on original</span>')+
-      '<button type="button" class="secondary tiny" data-source-search="'+i+'">Find alternatives</button></div>'+
-      (ranked.length?ranked.map(x=>'<div class="suggest"><div class="suggest-detail"><strong>'+esc(x.r.code)+'</strong> — '+esc(x.r.description)+
-        '<small>'+esc(x.r.unit)+' · '+money(x.r.rate)+'/unit · Labour '+money(x.r.labour)+' · Materials '+money(x.r.materials)+'</small></div>'+
-        '<button type="button" class="tiny" data-source-add="'+esc(x.r.code)+'">Add to BoQ</button></div>').join(''):'<div class="review-hint">No suitable match found. Click Find alternatives to check the full rate library.</div>')+'</div>';
-  }).join('')||'<div class="empty">No specification lines found.</div>';
+  if(!text){target.innerHTML='<div class="empty">Upload or paste a specification to see V8 suggestions.</div>';return;}
+  if(!rates.length){target.innerHTML='<div class="empty">Load the checked V8 ratebook to see suggested rates.</div>';return;}
+  const lines=reviewSourceLines();
+  const selected=lines.filter((_,i)=>selectedMatches.has(i)).length;
+  target.innerHTML='<div class="review-match-counter">'+selected+' of '+lines.length+' specification lines selected · The chosen item turns red. Other options remain available.</div>'+
+    lines.map((line,i)=>{
+      const ranked=topMatch(line),measure=findQty(line),chosen=selectedMatches.get(i),quantity=chosen?chosen.qty:measure.qty;
+      return '<article class="spec'+(chosen?' is-picked':'')+'" data-review-line="'+i+'">'+
+        '<div class="source"><span class="tag">Line '+(i+1)+'</span> '+esc(line.slice(0,350))+'</div>'+
+        '<div class="suggest-controls"><label>Quantity <input data-suggest-qty="'+i+'" type="number" min="0" step="any" value="'+quantity+'"></label>'+
+        (measure.unit?'<span>Spec unit: '+esc(measure.unit)+'</span>':'<span>Confirm unit and measured quantity</span>')+
+        '<button type="button" class="secondary tiny" data-source-search="'+i+'">Search alternatives</button></div>'+
+        (ranked.length?ranked.map(({r,score})=>{
+          const active=chosen&&chosen.code===r.code;
+          return '<div class="suggest'+(active?' chosen-rate':'')+'" data-rate-choice="'+esc(r.code)+'">'+
+            '<div class="suggest-detail"><strong>'+esc(r.code)+'</strong> — '+esc(r.description)+
+            '<small>'+esc(r.unit)+' · '+money(r.rate)+'/unit · Labour '+money(r.labour)+' · Materials '+money(r.materials)+'</small></div>'+
+            '<button type="button" class="tiny'+(active?' chosen-button':'')+'" data-source-add="'+esc(r.code)+'" data-source-line="'+i+'">'+(active?'✓ Selected':'Choose this')+'</button></div>';
+        }).join(''):'<div class="review-hint">No confident match. Search by keyword or SOR code; do not guess.</div>')+
+        (chosen?'<div class="review-chosen-label">✓ Selected SOR '+esc(chosen.code)+' (quantity '+esc(chosen.qty)+')'+
+          '<button class="tiny secondary" type="button" data-undo-line="'+i+'">Undo</button></div>':'')+'</article>';
+    }).join('');
   target.querySelectorAll('[data-source-search]').forEach(b=>b.onclick=()=>{
-    const card=b.closest('.spec'),i=Number(b.dataset.sourceSearch),best=topMatch(lines[i])[0];
+    const i=Number(b.dataset.sourceSearch),card=b.closest('.spec'),best=topMatch(lines[i])[0];
     target.querySelectorAll('.is-focused').forEach(e=>e.classList.remove('is-focused'));
-    card.classList.add('is-focused');
-    $('review-search').value=best?best.r.code:'';
-    $('review-qty').value=card.querySelector('[data-suggest-qty]')?.value||1;
+    card.classList.add('is-focused');$('review-search').value=best?best.r.code:'';
+    $('review-qty').value=card.querySelector('[data-suggest-qty]').value||1;
     $('review-manual').open=true;renderReviewRates();
   });
   target.querySelectorAll('[data-source-add]').forEach(b=>b.onclick=()=>{
-    const card=b.closest('.spec'),q=Number(card.querySelector('[data-suggest-qty]').value);
-    if(!Number.isFinite(q)||q<=0){alert('Please enter a quantity greater than zero.');return;}
-    add(b.dataset.sourceAdd,q);card.classList.add('is-picked');
-    card.querySelectorAll('[data-source-add]').forEach(e=>{e.disabled=true;e.textContent='Selected';});
-    card.querySelector('[data-suggest-qty]').disabled=true;
-    const label=document.createElement('span');label.className='picked-label';label.textContent='Added '+b.dataset.sourceAdd+' to the BoQ. Edit or remove it in the BoQ table.';card.appendChild(label);
+    const card=b.closest('.spec'),i=Number(b.dataset.sourceLine);
+    switchReviewRate(i,b.dataset.sourceAdd,Number(card.querySelector('[data-suggest-qty]').value));
+  });
+  target.querySelectorAll('[data-undo-line]').forEach(b=>b.onclick=()=>{
+    const i=Number(b.dataset.undoLine),prior=selectedMatches.get(i);if(!prior)return;
+    const entry=job.find(j=>j.code===prior.code);
+    if(entry){entry.qty=Math.max(0,Math.round((entry.qty-prior.qty)*1000000)/1000000);if(entry.qty<=0)job=job.filter(j=>j!==entry);}
+    selectedMatches.delete(i);persistReviewSelections();save();calculate();renderReviewSuggestions();
   });
 }
 $('review-refresh').onclick=renderReviewSuggestions;
@@ -661,7 +720,7 @@ $('specfile').onchange=async function(){
   }catch(e){status('spec-status','Upload failed: '+e.message,'bad');}
   finally{this.value='';}
 };
-$('clear-spec').onclick=async()=>{$('specification').value='';$('suggestions').style.display='none';status('spec-status','Specification cleared.');$('source-file-label').textContent='No original document loaded.';releaseSource();showReview(false);try{await drop(SOURCE_KEY)}catch(e){console.warn(e)}save();};
+$('clear-spec').onclick=async()=>{clearReviewSelections();$('specification').value='';$('suggestions').style.display='none';status('spec-status','Specification cleared.');$('source-file-label').textContent='No original document loaded.';releaseSource();showReview(false);try{await drop(SOURCE_KEY)}catch(e){console.warn(e)}save();};
 function findQty(line){const match=line.match(/(\d+(?:[.,]\d+)?)\s*(m²|m2|sqm|sq\.?\s*m|lm|lin\.?\s*m|m³|m3|nr|no\.?|each|item|ea)\b/i);if(match)return{qty:num(match[1]),unit:match[2].toLowerCase().replace(/[. ]/g,'')};return{qty:1,unit:''};}
 const stop=new Set(['with','into','then','shall','from','them','this','that','work','item','unit','allow','provide','renew','remove','prepare','install','include','measure','area','quantity','repair','making','complete','existing','supply','and','the','for']);
 function topMatch(line){const words=line.toLowerCase().replace(/[^a-z0-9 ]/g,' ').split(/\s+/).filter(w=>w.length>=3&&!stop.has(w));const q=findQty(line);const lineLow=line.toLowerCase();let ranked=rates.map(r=>{let d=r.description.toLowerCase(),score=0;for(const w of words){if(d.includes(w))score+=w.length>5?3:2;}if(new RegExp('\\b'+r.code+'\\b').test(lineLow))score+=20;const uu=r.unit.toLowerCase();if(q.unit&&(uu.includes(q.unit)||q.unit==='m2'&&uu==='m²'||q.unit==='no'&&uu==='nr'))score+=2;return{r,score};}).filter(x=>x.score>1).sort((a,b)=>b.score-a.score);return ranked.slice(0,2);}
@@ -891,6 +950,6 @@ $('export-excel').onclick=exportProfessionalBoq;
 $('preview-download').onclick=exportProfessionalBoq;
 $('preview-boq').onclick=previewBoq;
 $('clear-job').onclick=()=>{if(!confirm('Delete this local project and all BoQ items?'))return;job=[];['address','client','reference','surveyor','specification'].forEach(id=>$(id).value='');$('adjustment').value=0;localStorage.removeItem(JOB_KEY);calculate();};
-(async()=>{restore();calculate();try{const r=await get(RATE_KEY);if(r&&r.length){setupRates(r);calculate();}else{status('rates-status','No V8 ratebook saved yet on this device. Import the enriched V8 Excel file once to enable automatic loading.','bad');$('v8-library-state').textContent='First visit: import V8 just once';$('v8-import').open=true;}const stored=await get(SOURCE_KEY);if(stored&&stored.blob){sourceFile=new File([stored.blob],stored.name,{type:stored.type||'',lastModified:stored.lastModified||Date.now()});sourceText=$('specification').value;$('source-file-label').textContent='Original ready: '+sourceFile.name;}}catch(e){status('rates-status','Local storage is blocked or unavailable: '+e.message+'. Check private browsing or storage settings.','bad');$('v8-library-state').textContent='Saved V8 rates unavailable';$('v8-import').open=true;}})();
+(async()=>{restore();restoreReviewSelections();calculate();try{const r=await get(RATE_KEY);if(r&&r.length){setupRates(r);calculate();}else{status('rates-status','No V8 ratebook saved yet on this device. Import the enriched V8 Excel file once to enable automatic loading.','bad');$('v8-library-state').textContent='First visit: import V8 just once';$('v8-import').open=true;}const stored=await get(SOURCE_KEY);if(stored&&stored.blob){sourceFile=new File([stored.blob],stored.name,{type:stored.type||'',lastModified:stored.lastModified||Date.now()});sourceText=$('specification').value;$('source-file-label').textContent='Original ready: '+sourceFile.name;}}catch(e){status('rates-status','Local storage is blocked or unavailable: '+e.message+'. Check private browsing or storage settings.','bad');$('v8-library-state').textContent='Saved V8 rates unavailable';$('v8-import').open=true;}})();
 })();
 </script></body></html>
