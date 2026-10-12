@@ -806,7 +806,7 @@ function importRows(sheet){
 $('ratesfile').onchange=async function(){const file=this.files[0];if(!file)return;status('rates-status','Reading '+file.name+'…');try{if(!window.XLSX)throw Error('Excel reader did not load. Please reconnect to the internet and refresh.');const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:false});let name=wb.SheetNames.find(n=>n.toLowerCase()==='v8_rates')||wb.SheetNames[0];const rows=XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,defval:'',raw:true});const parsed=importRows(rows);await put(RATE_KEY,parsed);setupRates(parsed);calculate();if(navigator.storage&&navigator.storage.persist){navigator.storage.persist().catch(()=>{});}}catch(e){status('rates-status','Could not import file: '+e.message,'bad');}this.value='';};
 $('clear-rates').onclick=async()=>{if(!confirm('Remove locally saved ratebook on this device?'))return;await drop(RATE_KEY);rates=[];codes.clear();status('rates-status','No rates are saved on this device. Import the enriched V8 schedule once.','bad');$('v8-library-state').textContent='V8 not loaded on this device';$('v8-import').open=true;search();renderReviewRates();};
 for(const id of ['address','client','reference','surveyor'])$(id).oninput=save;
-$('client').addEventListener('change',()=>{updateMatchLearningStatus();REVIEW_RANK_CACHE.clear();if(!$('review-layer').hidden)renderReviewSuggestions();});
+$('client').addEventListener('change',()=>{updateMatchLearningStatus();if(!$('review-layer').hidden)renderReviewSuggestions();});
 $('specification').oninput=()=>{clearReviewSelections();sourceLineMap=[];save();};
 $('adjustment').oninput=()=>{save();calculate();if(!$('boq-preview-layer').hidden)renderBoqPaper();};$('plus').onclick=()=>setPercent(adjustment()+1);$('minus').onclick=()=>setPercent(adjustment()-1);$('search').oninput=search;
 
@@ -1552,31 +1552,38 @@ function matchUnits(unit){
   return map[u]||null;
 }
 
+
+const SCOPE_RATE_INFO=new WeakMap(),SCOPE_SOURCE_INFO=new Map();
+function compileScopeInfo(text){
+  const value=String(text||'').toLowerCase();
+  const words=new Set(matchWords(value));
+  const dimensions=[...new Set([...value.matchAll(/\b(\d+(?:[.,]\d+)?)\s*(mm|cm)\b/g)].map(x=>Number(x[1].replace(',','.'))+x[2]))];
+  const fireRating=value.match(/\bfd[\s-]?(30|60|90|120)\b/i)?.[1]||null;
+  return {
+    words,dimensions,fire:/\b(?:fd[\s-]?(?:30|60|90|120)|fire[\s-]?(?:door|rated|resistant))\b/i.test(value),
+    fireRating,materials:['timber','steel','upvc','aluminium','copper','plastic'].filter(x=>words.has(x)),
+    actions:[...words].filter(x=>ACTION_MATCH_WORDS.has(x))
+  };
+}
 function scopeConflict(source,rate){
-  // Disqualify wrong material, thickness and fire-rating proposals before
-  // scoring; these are never safe to auto-learn from a similar description.
-  const text=repeatWorkKey(source).toLowerCase();
-  const target=[rate.description||'',rate.medium||''].join(' ').toLowerCase();
-  const values=t=>[...new Set([...t.matchAll(/\b(\d+(?:[.,]\d+)?)\s*(mm|cm)\b/g)].map(x=>Number(x[1].replace(',','.'))+x[2]))];
-  const inputDims=values(text),rateDims=values(target);
-  if(inputDims.length&&rateDims.length&&inputDims.some(x=>!rateDims.includes(x)))return true;
-  const words=new Set(matchWords(text)),candidate=new Set(matchWords(target));
-  if(words.has('door')&&candidate.has('door')){
-    const fire=t=>/\b(?:fd[\s-]?(?:30|60|90|120)|fire[\s-]?(?:door|rated|resistant))\b/i.test(t);
-    if(fire(text)!==fire(target))return true;
-    const fireNum=t=>t.match(/\bfd[\s-]?(30|60|90|120)\b/i)?.[1]||null;
-    if(fireNum(text)&&fireNum(target)&&fireNum(text)!==fireNum(target))return true;
+  // Memorise the safe scope features: rerunning several thousand regular
+  // expressions for every one of 25 on-screen work lines slowed mobile review.
+  const key=repeatWorkKey(source).toLowerCase();
+  let src=SCOPE_SOURCE_INFO.get(key);
+  if(!src){src=compileScopeInfo(key);if(SCOPE_SOURCE_INFO.size>2500)SCOPE_SOURCE_INFO.clear();SCOPE_SOURCE_INFO.set(key,src);}
+  let target=SCOPE_RATE_INFO.get(rate);
+  if(!target){target=compileScopeInfo([rate.description||'',rate.medium||''].join(' '));SCOPE_RATE_INFO.set(rate,target);}
+  if(src.dimensions.length&&target.dimensions.length&&src.dimensions.some(x=>!target.dimensions.includes(x)))return true;
+  if(src.words.has('door')&&target.words.has('door')){
+    if(src.fire!==target.fire)return true;
+    if(src.fireRating&&target.fireRating&&src.fireRating!==target.fireRating)return true;
   }
-  if(words.has('ceiling')&&candidate.has('wall')&&!candidate.has('ceiling'))return true;
-  if(words.has('wall')&&candidate.has('ceiling')&&!candidate.has('wall'))return true;
-  const exclusive=['timber','steel','upvc','aluminium','copper','plastic'];
-  const required=exclusive.filter(x=>words.has(x)),offered=exclusive.filter(x=>candidate.has(x));
-  if(required.length&&offered.length&&!required.some(x=>offered.includes(x)))return true;
-  const requested=[...words].filter(x=>ACTION_MATCH_WORDS.has(x)),actions=[...candidate].filter(x=>ACTION_MATCH_WORDS.has(x));
-  if(requested.length&&actions.length&&!requested.some(x=>actions.includes(x)))return true;
+  if(src.words.has('ceiling')&&target.words.has('wall')&&!target.words.has('ceiling'))return true;
+  if(src.words.has('wall')&&target.words.has('ceiling')&&!target.words.has('wall'))return true;
+  if(src.materials.length&&target.materials.length&&!src.materials.some(x=>target.materials.includes(x)))return true;
+  if(src.actions.length&&target.actions.length&&!src.actions.some(x=>target.actions.includes(x)))return true;
   return false;
 }
-
 function rankedRateMatches(query,limit=8,ignoreUnit=false){
   const source=String(query||'').trim();
   const explicit=source.match(/(?:SOR|NHF|CODE)\s*[:#-]?\s*(\d{3,8})\b/i);
@@ -1705,7 +1712,7 @@ function rememberHumanApproval(index,code){
     approvedMatchMemory.set(key,{code:null,conflict:true,priorCodes:[earlier.code,rate.code],updatedAt:new Date().toISOString()});
   else approvedMatchMemory.set(key,{code:rate.code,conflict:false,confirmations:Math.min(9999,(earlier?.confirmations||0)+1),updatedAt:new Date().toISOString()});
   if(approvedMatchMemory.size>12000)approvedMatchMemory.delete(approvedMatchMemory.keys().next().value);
-  updateMatchLearningStatus();queueLearningSave();REVIEW_RANK_CACHE.clear();
+  updateMatchLearningStatus();queueLearningSave();
   return true;
 }
 
@@ -1733,7 +1740,7 @@ function disableLearnedAfterUndo(line,code){
   const remembered=approvedMatchMemory.get(key);
   if(!remembered||remembered.code!==String(code))return;
   approvedMatchMemory.set(key,{code:null,conflict:true,priorCodes:[String(code)],updatedAt:new Date().toISOString(),reason:'Estimator reversed the approval'});
-  updateMatchLearningStatus();queueLearningSave();REVIEW_RANK_CACHE.clear();
+  updateMatchLearningStatus();queueLearningSave();
 }
 
 function verifiedRateForLine(line){
