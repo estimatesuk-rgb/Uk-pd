@@ -57,3 +57,29 @@ test('unknown candidate, missing geometry, and invalid action are rejected',()=>
  assert.equal(decideAiSuggestion({...saved,ai_pending_takeoff:[{id:'x',kind:'measured',item:newItem}]},'x','add').error.includes('missing drawing mark'),true);
  assert.equal(decideAiSuggestion(saved,'x','overwrite').error,'Unsupported decision');
 });
+
+test('first run holds flagged elevation quantities instead of immediately entering BOQ',()=>{
+ const flagged={...newItem,id:'suspicious',description:'proposed right elevation',quantity:296,
+  takeoff_evidence:{...newItem.takeoff_evidence,highlight_id:'risk-mark',
+   quality_flags:['Elevation view label is not billable work']}};
+ const pendingMark={...mark,id:'risk-mark'};
+ const result=stageAiTakeoff({items:[],highlights:[]},[],[flagged],[pendingMark]);
+ assert.equal(result.items.length,0);
+ assert.equal(result.highlights.length,0);
+ assert.equal(result.ai_pending_takeoff.length,1);
+ assert.equal(result.ai_pending_takeoff[0].item.description,'proposed right elevation');
+ assert.deepEqual(result.ai_pending_takeoff[0].item.takeoff_evidence.quality_flags,
+  ['Elevation view label is not billable work']);
+});
+test('a first run with both sound and suspicious marks saves only sound draft lines',()=>{
+ const suspicious={...newItem,id:'suspect',takeoff_evidence:{...newItem.takeoff_evidence,
+ quality_flags:['Review boundary']}};
+ const clean={...newItem,id:'legit',ai_auto_key:'legit-key',quantity:6,
+ takeoff_evidence:{...newItem.takeoff_evidence,highlight_id:'legit-mark',quality_flags:[]}};
+ const result=stageAiTakeoff({items:[],highlights:[]},[],[suspicious,clean],
+ [mark,{...mark,id:'legit-mark'}]);
+ assert.equal(result.items.length,1);
+ assert.equal(result.items[0].id,'legit');
+ assert.deepEqual(result.highlights.map(h=>h.id),['legit-mark']);
+ assert.equal(result.ai_pending_takeoff.length,1);
+});
