@@ -290,7 +290,7 @@ async function put(key,val){db=db||await indexed();return new Promise((ok,no)=>{
 async function get(key){db=db||await indexed();return new Promise((ok,no)=>{const t=db.transaction('settings'),r=t.objectStore('settings').get(key);r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error);});}
 async function drop(key){db=db||await indexed();return new Promise((ok,no)=>{const t=db.transaction('settings','readwrite');t.objectStore('settings').delete(key);t.oncomplete=()=>ok();t.onerror=()=>no(t.error);});}
 function setupRates(rows){
-  rates=rows;codes=new Map(rows.map(r=>[r.code,r]));
+  rates=rows;codes=new Map(rows.map(r=>[r.code,r]));REVIEW_RANK_CACHE.clear();
   for(const r of rows){r._shortTokens=new Set(matchWords(r.description));r._extraTokens=new Set(matchWords([r.medium,r.long,r.trade,r.section,r.subsection].join(' ')));}
   const provisional=rows.filter(r=>r.qualityFlag&&r.qualityFlag!=='V7 split verified').length;
   status('rates-status','✓ '+rates.length.toLocaleString('en-GB')+' V8 selling rates loaded. '+(provisional?'⚠ '+provisional+' labour/material splits need review.':'All supplied allocations loaded.') ,'ok');
@@ -376,7 +376,7 @@ function installJobSnapshot(snapshot){
     job=Array.isArray(snapshot.job)?snapshot.job:[];
     for(const k of ['address','client','reference','surveyor','adjustment','specification'])$(k).value=snapshot[k]??(k==='adjustment'?'0':'');
     selectedMatches=new Map((snapshot.matches||[]).map(([i,v])=>[Number(i),v]));
-    activeReviewLine=null;
+    activeReviewLine=null;reviewPage=0;
     activeJobId=snapshot.id;
     localStorage.setItem(JOBS_ACTIVE_KEY,activeJobId);
     $('suggestions').innerHTML='';$('source-file-label').textContent='No original document loaded.';
@@ -544,7 +544,7 @@ $('review-close').onclick=()=>showReview(false);
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('review-layer').hidden)showReview(false);});
 function releaseSource(){sourceRenderId++;sourcePdf=null;sourceWorkbook=null;sourceFile=null;sourceText='';sourceLineMap=[];sourcePage=1;sourceSheet=0;sourceRowPage=0;sourceZoom=1;if(sourceBlobUrl)URL.revokeObjectURL(sourceBlobUrl);sourceBlobUrl=null;}
 async function activateSource(file,extracted,remember=true,locations=[]){
-  releaseSource();clearReviewSelections();activeReviewLine=null;sourceFile=file;sourceText=extracted||'';sourceLineMap=Array.isArray(locations)?locations:[];sourceKind='text';
+  releaseSource();clearReviewSelections();activeReviewLine=null;reviewPage=0;sourceFile=file;sourceText=extracted||'';sourceLineMap=Array.isArray(locations)?locations:[];sourceKind='text';
   $('source-file-label').textContent='Original ready: '+file.name;
   if(remember){try{await put(jobSourceKey(activeJobId),{name:file.name,type:file.type,blob:file,lastModified:file.lastModified||0,sourceMap:sourceLineMap});save();}catch(e){status('spec-status','File loaded, but the browser could not save a copy for next time: '+e.message,'bad');}}
   showReview(true);
@@ -651,8 +651,8 @@ function sourceSelect(text,knownIndex=null){
   suggestions.querySelectorAll('.is-focused').forEach(el=>el.classList.remove('is-focused'));
   if(index>=0){
     activeReviewLine=index;
-    const card=suggestions.querySelector('[data-review-line="'+index+'"]');
-    if(card){card.classList.add('is-focused');card.scrollIntoView({block:'nearest',behavior:'smooth'});return;}
+    jumpToReviewLine(index);
+    return;
   }
   activeReviewLine=null;
   $('review-search').value=matchWords(line).slice(0,3).join(' ')||line.slice(0,60);
@@ -661,6 +661,15 @@ function sourceSelect(text,knownIndex=null){
   renderReviewRates();
 }
 let activeReviewLine=null;
+let reviewPage=0;
+const REVIEW_PAGE_SIZE=25;
+function jumpToReviewLine(index){
+  if(!Number.isInteger(index)||index<0)return;
+  reviewPage=Math.floor(index/REVIEW_PAGE_SIZE);
+  renderReviewSuggestions();
+  const card=$('review-suggest').querySelector('[data-review-line="'+index+'"]');
+  if(card){card.classList.add('is-focused');card.scrollIntoView({block:'nearest',behavior:'smooth'});}
+}
 function renderReviewRates(){
   const root=$('review-results');if(!root)return;
   if(!rates.length){root.innerHTML='<div class="empty">Import the V8 ratebook first.</div>';return;}
@@ -710,7 +719,8 @@ function updateReviewTotals(){
 const REVIEW_SELECTION_KEY='UK_EST_V8_APPROVED_MATCHES_20261012';
 let selectedMatches=new Map();
 function reviewSourceLines(){
-  return String($('specification').value||'').split(/[\r\n]+/).map(s=>s.trim()).filter(s=>s.length>=3).slice(0,160);
+  // Review every extracted activity. The UI is paginated; data must never be silently cut at 160.
+  return String($('specification').value||'').split(/[\r\n]+/).map(s=>s.trim()).filter(s=>s.length>=3);
 }
 function persistReviewSelections(){
   try{localStorage.setItem(REVIEW_SELECTION_KEY,JSON.stringify({reference:$('reference').value,source:$('specification').value.slice(0,1000),length:$('specification').value.length,matches:[...selectedMatches]}));}catch(e){console.warn(e);}
@@ -779,8 +789,7 @@ function switchReviewRate(index,code,qty){
   focusOriginalForSelection(index).catch(e=>console.warn('Original source highlight unavailable',e));
   persistReviewSelections();save();calculate();
   renderReviewSuggestions();
-  const card=$('review-suggest').querySelector('[data-review-line="'+index+'"]');
-  if(card){card.classList.add('is-focused');card.scrollIntoView({block:'nearest'});}
+  jumpToReviewLine(index);
   $('review-selected').textContent='Selected '+code+' for work line '+(index+1)+(repeatedCount?' · auto-filled '+repeatedCount+' identical line(s)':'')+' · '+money(qty*rate.rate*(1+adjustment()/100));
 }
 function renderReviewSuggestions(){
@@ -790,8 +799,12 @@ function renderReviewSuggestions(){
   if(!rates.length){target.innerHTML='<div class="empty">Load the checked V8 ratebook to see suggested rates.</div>';return;}
   const lines=reviewSourceLines();
   const selected=lines.filter((_,i)=>selectedMatches.has(i)).length;
-  target.innerHTML='<div class="review-match-counter">'+selected+' of '+lines.length+' specification lines selected · The chosen item turns red. Other options remain available.</div>'+
-    lines.map((line,i)=>{
+  const pages=Math.max(1,Math.ceil(lines.length/REVIEW_PAGE_SIZE));
+  reviewPage=Math.max(0,Math.min(reviewPage,pages-1));
+  const start=reviewPage*REVIEW_PAGE_SIZE,end=Math.min(lines.length,start+REVIEW_PAGE_SIZE);
+  const navigation='<div class="row" style="justify-content:space-between;margin:8px 0"><button type="button" class="secondary tiny" data-review-prev '+(reviewPage===0?'disabled':'')+'>◀ Previous</button><span class="review-hint">Items '+(start+1)+'–'+end+' of '+lines.length+' · Page '+(reviewPage+1)+'/'+pages+'</span><button type="button" class="secondary tiny" data-review-next '+(reviewPage>=pages-1?'disabled':'')+'>Next ▶</button></div>';
+  target.innerHTML='<div class="review-match-counter">'+selected+' of '+lines.length+' work lines approved · All items retained, shown '+REVIEW_PAGE_SIZE+' per page. Selected lines remain red.</div>'+navigation+
+    lines.slice(start,end).map((line,local)=>{const i=start+local;
       const ranked=topMatch(line),measure=findQty(line),chosen=selectedMatches.get(i),quantity=chosen?chosen.qty:measure.qty;
       return '<article class="spec'+(chosen?' is-picked':'')+'" data-review-line="'+i+'">'+
         '<div class="source"><span class="tag">'+(sourceMapLocation(i)?esc(sourceMapLocation(i).sheet)+' · Excel row '+(sourceMapLocation(i).row+1):'Line '+(i+1))+'</span> '+esc(line.slice(0,350))+'</div>'+
@@ -807,7 +820,9 @@ function renderReviewSuggestions(){
         }).join(''):'<div class="review-hint">No confident match. Search by keyword or SOR code; do not guess.</div>')+
         (chosen?'<div class="review-chosen-label">✓ '+(chosen.auto?'Auto-filled from identical work · ':'Selected ')+'SOR '+esc(chosen.code)+' (quantity '+esc(chosen.qty)+')'+
           '<button class="tiny secondary" type="button" data-undo-line="'+i+'">Undo</button></div>':'')+'</article>';
-    }).join('');
+    }).join('')+navigation;
+  target.querySelectorAll('[data-review-prev]').forEach(b=>b.onclick=()=>{reviewPage=Math.max(0,reviewPage-1);renderReviewSuggestions();target.scrollTop=0;});
+  target.querySelectorAll('[data-review-next]').forEach(b=>b.onclick=()=>{reviewPage=Math.min(pages-1,reviewPage+1);renderReviewSuggestions();target.scrollTop=0;});
   target.querySelectorAll('[data-source-search]').forEach(b=>b.onclick=()=>{
     const i=Number(b.dataset.sourceSearch),card=b.closest('.spec'),best=topMatch(lines[i])[0];
     target.querySelectorAll('.is-focused').forEach(e=>e.classList.remove('is-focused'));
@@ -951,7 +966,7 @@ function decodeRtf(t){
 function sheetContent(book){
   // Council schedules vary: headings may be buried, split across columns, or absent.
   // Extract readable work, never infer a SOR match or silently price it.
-  const work=[],unclassified=[],workLocations=[],unclassifiedLocations=[],sheetsReviewed=[],MAX=1200;
+  const work=[],unclassified=[],workLocations=[],unclassifiedLocations=[],sheetsReviewed=[],MAX=5000;
   const normal=x=>clean(x).toLowerCase().replace(/[\r\n_\-:]+/g,' ').replace(/[^\w\s²³]/g,' ').replace(/\s+/g,' ').trim();
   const descHeader=x=>/^(description(?: of (?:work|works|repair|repairs))?|work(?:s)? (?:required|description|details|item|to be done|to be carried out)|repair(?:s| required| description| details| item)|required (?:work|works|repairs)|job (?:details|description|instructions)|item (?:details|description|text)|details of (?:work|works|repairs)|scope of (?:work|works)|specification(?: of works)?|defect(?:s| description| details)?|fault(?:s| description)?|remedial (?:action|works)|action(?: required)?|task(?: description)?|activity|trade description|work order|instructions?|comments on repair|job sheet details|short description)$/.test(x)||/^(?:works?|repairs?|defects?)\s+(?:to\s+)?(?:be\s+)?(?:completed|undertaken|carried\s+out)$/.test(x);
   const qtyHeader=x=>/^(qty|qty required|quantity|quantity required|no|no of|nr|number|measured quantity|measure|measurement|units required|count|length|area|volume|take off)$/.test(x);
@@ -966,10 +981,10 @@ function sheetContent(book){
   const generalWork=/\b(?:renew|repair|replace|replac|install|fit|fix|paint|decorat|plaster|strip|clean|service|test|remove|rebed|seal|repoint|render|tile|tiling|board|making good|make good|damaged|broken|fault|leak|blockage|treat|prepare|loose|defective|adjust|reconfigure|maintain|inspect|door|window|skirting|architrave|wall|ceiling|floor|tap|basin|toilet|bath|kitchen|roof|gutter|pipe|radiator|socket|light|carpet|lock|hinge|fence|gate|drain|plinth|switch|cistern|shower|stair|brick|mortar|grout)\w*/i;
   const texty=x=>{const t=clean(x);return t.length>=3&&/[a-z]{3,}/i.test(t)&&!skipText(t)&&!/^[-\d£.,/:\s]+$/.test(t)};
   const skipSheet=/^(?:instructions?|read me|lookup|lookups|data quality|material recipes|deleted items.*|m3central service codes|v8 responsive data|nhf 7\.0)$/i;
-  const pushLine=(arr,line,name,row)=>{const v=clean(line).replace(/\s+/g,' ');if(v&&arr.length<MAX){arr.push(v);(arr===work?workLocations:unclassifiedLocations).push({sheet:name,row});}};
-  for(const name of book.SheetNames.slice(0,35)){
+  const pushLine=(arr,line,name,row)=>{const v=clean(line).replace(/\s+/g,' ');if(!v)return;if(arr.length>=MAX)throw Error('This bill contains more than '+MAX+' work lines. Split it into smaller jobs; nothing has been silently omitted.');arr.push(v);(arr===work?workLocations:unclassifiedLocations).push({sheet:name,row});};
+  for(const name of book.SheetNames){
     if(skipSheet.test(name.trim()))continue;
-    const matrix=XLSX.utils.sheet_to_json(book.Sheets[name],{header:1,defval:'',raw:false,blankrows:true,sheetRows:6000});
+    const matrix=XLSX.utils.sheet_to_json(book.Sheets[name],{header:1,defval:'',raw:false,blankrows:true,sheetRows:100000});
     const sheetStart=XLSX.utils.decode_range(book.Sheets[name]['!ref']||'A1').s.r;
     if(!matrix.length)continue;
     sheetsReviewed.push(name);
@@ -986,7 +1001,7 @@ function sheetContent(book){
     }
     if(best){
       let kept=0;
-      for(let i=best.rowNo+1;i<matrix.length&&work.length<MAX;i++){
+      for(let i=best.rowNo+1;i<matrix.length;i++){
         const row=matrix[i]||[],desc=clean(row[best.d]);
         if(!texty(desc)||descHeader(normal(desc))||/^(?:total|sub total|subtotal|carried forward|brought forward|grand total)\b/i.test(desc))continue;
         const qty=best.q<0?null:isNumber(row[best.q]),unit=best.u<0?'':clean(row[best.u]),
@@ -1001,7 +1016,7 @@ function sheetContent(book){
     }
     // Headerless or irregular tables: score cell contents, not only whole-sheet shape.
     // Short repair descriptions such as "Door" remain usable for manual review.
-    for(let i=0;i<matrix.length&&work.length<MAX;i++){
+    for(let i=0;i<matrix.length;i++){
       const row=matrix[i]||[];
       const textCells=row.map((v,j)=>({text:clean(v),j})).filter(v=>texty(v.text)&&!descHeader(normal(v.text)));
       if(!textCells.length)continue;
@@ -1026,7 +1041,7 @@ function sheetContent(book){
     }
   }
   if(work.length)return{text:specLimit(work.join('\n')),sourceMap:workLocations,detail:'Found '+work.length+' work descriptions in '+sheetsReviewed.length+' sheet(s). Check any unmeasured quantities.',mode:'work'};
-  if(unclassified.length)return{text:specLimit(unclassified.slice(0,160).join('\n')),sourceMap:unclassifiedLocations.slice(0,160),detail:'Excel layout not recognised; '+Math.min(unclassified.length,160)+' readable lines opened for manual review. No quantities or SOR matches have been approved.',mode:'review'};
+  if(unclassified.length)return{text:specLimit(unclassified.join('\n')),sourceMap:unclassifiedLocations,detail:'Excel layout not recognised; '+unclassified.length+' readable lines opened for manual review. No quantities or SOR matches have been approved.',mode:'review'};
   throw Error('No readable work descriptions found in '+(sheetsReviewed.join(', ')||'the selected workbook')+'. Check that the job sheet contains text cells rather than only images or formulas with no saved values.');
 }
 function isRateBook(book){
@@ -1266,7 +1281,15 @@ function rankedRateMatches(query,limit=8,ignoreUnit=false){
   matches.sort((a,b)=>b.score-a.score||String(a.r.code).localeCompare(String(b.r.code)));
   return matches.slice(0,limit);
 }
-function topMatch(line){return rankedRateMatches(line,6);}
+const REVIEW_RANK_CACHE=new Map();
+function topMatch(line){
+  const key=repeatWorkKey(line)+'|'+(findQty(line).unit||'');
+  if(REVIEW_RANK_CACHE.has(key))return REVIEW_RANK_CACHE.get(key);
+  const result=rankedRateMatches(line,6);
+  if(REVIEW_RANK_CACHE.size>8000)REVIEW_RANK_CACHE.clear();
+  REVIEW_RANK_CACHE.set(key,result);
+  return result;
+}
 $('suggest').onclick=()=>{
   if(!rates.length){status('spec-status','Load the checked V8 rates before matching.','bad');return;}
   if(!$('specification').value.trim()){status('spec-status','Upload or enter a job specification first.','bad');return;}
