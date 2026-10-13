@@ -106,7 +106,7 @@ test('review queue capacity refuses extra items instead of silently omitting wor
 });
 
 test('legacy single-dimension AI suggestions cannot be approved or priced, even when selected',()=>{
- const item={...newItem,id:'legacy',ai_auto_key:'old-mark',takeoff_evidence:{...newItem.takeoff_evidence,highlight_id:'legacy-mark'}};
+ const item={...newItem,id:'legacy',ai_auto_key:'old-mark',takeoff_evidence:{...newItem.takeoff_evidence,highlight_id:'legacy-mark',region:{x:.65,y:.67,w:.17,h:.18}}};
  const legacy={...mark,id:'legacy-mark',x:.211,y:.213,w:.173,h:.182,evidence:'Individual slab on plan ground floor'};
  const data={...saved,calibrations:{'doc1#1':{status:'calibrated',metresPerPixel:0.01,crosscheck_verified:false}},
   ai_pending_takeoff:[{id:'legacy',kind:'measured',item,highlight:legacy}]};
