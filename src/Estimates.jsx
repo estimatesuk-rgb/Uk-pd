@@ -414,33 +414,67 @@ export default function Estimates({db,project,docs=[],onReloadDocs=()=>{}}){
          setAiProgress({processed:complete,total:count,stage:'Analysing page '+(complete+1)+' of '+count});
          setNotice('Working… reading drawing page '+(complete+1)+' of '+count+' with Cloudflare AI.');
          const rendered=await renderAiPage(source,pageNumber);
-         const result=await postCloudflareTakeoff('/api/estimate-plan-review',{
-           project_id:project.id,document_id:source.d.id,page_number:pageNumber,image:rendered.image,
-           job_type:estimate.project_type,
-           calibration_status:calibrationStatus(checkedPages.find(p=>p.document_id===source.d.id&&p.page===pageNumber)),
-         },session.access_token);
-         if(!result?.page||!Array.isArray(result.page.takeoff_draft))throw Error('Cloudflare AI did not return a usable page review.');
          const sheetEntry=checkedPages.find(p=>p.document_id===source.d.id&&p.page===pageNumber);
          const savedScale=(estimate.calibrations||{})[source.d.id+'#'+pageNumber];
          const registeredStage=(estimate.drawing_stages||{})[source.d.id];
-         const safeStage=verifiedAutoStage(registeredStage,result.page.classification);
-         const {measured,rejected}=measureAutoPage(result.page.auto_marks,{
-           calibration_status:calibrationStatus(sheetEntry),
-           metresPerPixel:savedScale?.metresPerPixel,dimensions:rendered.dimensions,
-           classification:safeStage,document_id:source.d.id,page:pageNumber,filename:source.filename,
-         });
-         for(const measurement of measured)autoCandidates.push({...measurement,document_id:source.d.id,
-           filename:source.filename,page:pageNumber,metresPerPixel:savedScale.metresPerPixel});
-         for(const problem of rejected)autoRejections.push({...problem,filename:source.filename,page:pageNumber});
-         pageCoverage.push({
-           document_id:source.d.id,filename:source.filename,page:pageNumber,
-           classification:result.page.classification,registered_stage:registeredStage,
-           calibration_status:calibrationStatus(sheetEntry),
-           provisional_measured:measured.length,held_shapes:rejected.length,
-           scope_items:result.page.takeoff_draft.length,
-           unresolved_questions:result.page.unresolved?.length||0
-         });
-         reviewed.push(result.page);complete++;
+         const registeredOnPage=viewsFor(source.d.id,pageNumber);
+         const analysedViews=registeredOnPage.length?registeredOnPage:[null];
+         for(const registeredView of analysedViews){
+           if(registeredView){
+             const valid=validateDrawingView(registeredView,source.d);
+             if(!valid.ok)throw Error('Drawing view '+registeredView.name+': '+valid.error);
+           }
+           const crop=await renderViewCropFromDataUri(
+             rendered.image,registeredView,rendered.pixelDimensions);
+           const context=registeredView?aiViewContext(
+             registeredView,source.d,
+             (estimate.view_calibrations||{})[registeredView.id],
+             rendered.pixelDimensions,crop.dimensions):
+             {ok:true,calibration_status:calibrationStatus(sheetEntry),
+               metresPerPixel:savedScale?.metresPerPixel};
+           if(!context.ok)throw Error('View '+registeredView.name+': '+context.error);
+           const result=await postCloudflareTakeoff('/api/estimate-plan-review',{
+             project_id:project.id,document_id:source.d.id,page_number:pageNumber,
+             image:crop.image,job_type:estimate.project_type,
+             calibration_status:context.calibration_status,
+             view_type:registeredView?.kind||'unregistered-sheet',
+             view_label:registeredView?.name||'Full drawing page'
+           },session.access_token);
+           if(!result?.page||!Array.isArray(result.page.takeoff_draft))
+             throw Error('Cloudflare AI did not return a usable drawing-view review.');
+           // A named registered drawing view provides context, but never
+           // changes the source filename/revision used for audit trails.
+           result.page.view_name=registeredView?.name||null;
+           result.page.view_type=registeredView?.kind||null;
+           const safeStage=verifiedAutoStage(registeredStage,result.page.classification);
+           const {measured,rejected}=measureAutoPage(result.page.auto_marks,{
+             calibration_status:context.calibration_status,
+             metresPerPixel:context.metresPerPixel,
+             dimensions:crop.dimensions,classification:safeStage,
+             document_id:source.d.id,page:pageNumber,
+             filename:registeredView?.name||source.filename
+           });
+           for(const measurement of measured){
+             const mapped=registeredView?mapCropMeasurement(measurement,registeredView):measurement;
+             autoCandidates.push({...mapped,document_id:source.d.id,filename:source.filename,
+               page:pageNumber,metresPerPixel:context.metresPerPixel,
+               view_name:registeredView?.name||null});
+           }
+           for(const problem of rejected)autoRejections.push({...problem,
+             filename:source.filename,page:pageNumber,view_name:registeredView?.name||null});
+           pageCoverage.push({
+             document_id:source.d.id,filename:source.filename,page:pageNumber,
+             view_name:registeredView?.name||null,
+             view_type:registeredView?.kind||null,
+             classification:result.page.classification,registered_stage:registeredStage,
+             calibration_status:context.calibration_status,
+             provisional_measured:measured.length,held_shapes:rejected.length,
+             scope_items:result.page.takeoff_draft.length,
+             unresolved_questions:result.page.unresolved?.length||0
+           });
+           reviewed.push(result.page);
+         }
+         complete++;
          setAiProgress({processed:complete,total:count,stage:'Analysed '+complete+' of '+count+' pages'});
        }
      }
