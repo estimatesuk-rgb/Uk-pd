@@ -22,6 +22,7 @@ import {auditMeasurementQuality} from './aiMeasurementQuality.mjs';
 import {previewPendingMark} from './aiPendingPreview.mjs';
 import {verifySecondDimension} from './scaleCrosscheck.mjs';
 import {prepareIfcElements,createIfc4Model} from './ifcExport.mjs';
+import {prepareArchitecturalBim} from './bimArchitecturalParts.mjs';
 import DrawingViewWorkbench from './DrawingViewWorkbench.jsx';
 import {aiViewContext,mapCropMeasurement,renderViewCropFromDataUri,MEASURABLE_VIEW_KINDS} from './aiViewGeometry.mjs';
 import {viewCalibrationStatus,validateDrawingView} from './drawingViewModel.mjs';
@@ -35,8 +36,9 @@ const svgPolygon=h=>[h.points,...(h.openings||[])].map(poly=>svgTrace(poly,true)
 const perLine=i=>num(i.quantity)*(num(i.material_rate)+num(i.plant_rate)+num(i.labour_hours)*num(i.labour_rate));
 const BUILDER_FIELDS=['name','contact_name','address','phone','email','vat_number','company_number','footer','logo_path'];
 const emptyBuilderForm={name:'',contact_name:'',address:'',phone:'',email:'',vat_number:'',company_number:'',footer:'',logo_path:''};
-function PricedModel3D({highlights=[],items=[],drawingStages={},calibrations={},docs=[],bimSpecs={},onBimSpecChange=()=>{},onBimSave=()=>{},projectName='UKPD project'}){
+function PricedModel3D({highlights=[],items=[],drawingStages={},calibrations={},docs=[],bimSpecs={},viewData={},onBimSpecChange=()=>{},onBimSave=async()=>{},projectName='UKPD project'}){
  const [angle,setAngle]=useState(35),[selected,setSelected]=useState(null),[filter,setFilter]=useState('all'),[onlyPriced,setOnlyPriced]=useState(false);
+ const [bimNotice,setBimNotice]=useState(''),[bimActionBusy,setBimActionBusy]=useState(false),[bimNoticeKind,setBimNoticeKind]=useState('status');
  const models=highlights.filter(h=>Array.isArray(h.points)&&h.points.length>=3&&h.points.every(p=>Number.isFinite(Number(p.x))&&Number.isFinite(Number(p.y)))).map(h=>{
    const lines=items.filter(i=>i.takeoff_evidence?.highlight_id===h.id);
    const stage=h.stage||drawingStages[h.drawing_id]||'Unclassified';
@@ -53,16 +55,66 @@ function PricedModel3D({highlights=[],items=[],drawingStages={},calibrations={},
  const palette={'New':'#2563eb','Proposed':'#2563eb','Demolition':'#ec4899','Existing':'#94a3b8','Retained':'#94a3b8'};
  const chosen=models.find(m=>m.id===selected);
  const bimCandidates=highlights.filter(h=>['area','polygon','polyline','length'].includes(h.kind));
- const bimPackage=prepareIfcElements({highlights,bim_specs:bimSpecs,calibrations,docs});
+ const bimPackage=prepareIfcElements({highlights,bim_specs:bimSpecs,calibrations,docs,drawingStages});
+ const hasViewInputs=(viewData.elements||[]).length>0||(viewData.features||[]).length>0;
+ const viewPackage=hasViewInputs?prepareArchitecturalBim({
+   views:viewData.views||[],docs,calibrations:viewData.calibrations||{},
+   elements:viewData.elements||[],features:viewData.features||[]
+ }):null;
  const selectedBimCount=bimCandidates.filter(h=>bimSpecs[h.id]?.include===true).length;
- function exportIFC(){
-   if(bimPackage.issues.length){window.alert('IFC4 export held: '+bimPackage.issues.map(x=>x.label+': '+x.reason).join('\\n'));return}
+ const activePackage=hasViewInputs?viewPackage:{models:bimPackage.ready,issues:bimPackage.issues};
+ const sourceDescription=hasViewInputs?'Drawing-view workbench':'this 3D priced-work section';
+ const missingInput=selectedBimCount===0&&!hasViewInputs;
+ const needsWork=activePackage.issues.length>0||activePackage.models.length===0;
+ function showBimIssue(prefix,errors){
+   setBimNoticeKind('alert');
+   setBimNotice(prefix+' '+errors.slice(0,4).map(i=>i.label+': '+i.reason).join(' | ')+
+     (errors.length>4?' ('+(errors.length-4)+' additional issue(s))':'')+
+     ' Use the Drawing-view workbench to trace and independently verify each drawing view.');
+ }
+ async function saveBimInputs(){
+   if(bimActionBusy)return;
+   setBimActionBusy(true);setBimNotice('Saving BIM inputs to this project…');setBimNoticeKind('status');
    try{
-     const contents=createIfc4Model({projectName,elements:bimPackage.ready});
+     await onBimSave();
+     setBimNoticeKind('status');
+     setBimNotice('BIM inputs saved to project. '+selectedBimCount+' selected mark(s). '+
+       (hasViewInputs?'The checked model from the Drawing-view workbench is also stored in this project.':
+         selectedBimCount?'The selected dimensions still need to pass the IFC checks before export.':
+         'No legacy marks have been selected; use the Drawing-view workbench to start a new model.'));
+   }catch(error){
+     setBimNoticeKind('alert');
+     setBimNotice('BIM inputs were NOT saved: '+String(error?.message||error)+'. Check your connection and sign-in, then retry.');
+   }finally{setBimActionBusy(false)}
+ }
+ function exportIFC(){
+   if(missingInput){
+     setBimNoticeKind('alert');
+     setBimNotice('No checked 3D BIM geometry to export. Register an individual floor or roof drawing in the Drawing-view workbench, verify two dimensions, then trace the elements. The old schematic footprints are NOT BIM geometry.');
+     return;
+   }
+   if(needsWork){
+     showBimIssue('Cannot generate a BIM file until its checked measurements are complete.',activePackage.issues);
+     return;
+   }
+   try{
+     const contents=createIfc4Model({projectName,elements:activePackage.models});
      const url=URL.createObjectURL(new Blob([contents],{type:'application/x-step'}));
-     const a=document.createElement('a');a.href=url;a.download='UKPD-verified-partial-BIM.ifc';a.click();
+     const a=document.createElement('a');a.href=url;a.download='UKPD-verified-3D-BIM.ifc';
+     document.body.appendChild(a);a.click();a.remove();
      setTimeout(()=>URL.revokeObjectURL(url),3000);
-   }catch(e){window.alert('Cannot export verified IFC4 model: '+String(e?.message||e))}
+     setBimNoticeKind('status');
+     setBimNotice('Generated UKPD-verified-3D-BIM.ifc with '+activePackage.models.length+
+       ' independently checked model element(s) from '+sourceDescription+'. Check the file in an IFC viewer before relying on its geometry.');
+   }catch(e){
+     setBimNoticeKind('alert');setBimNotice('IFC4 generation failed: '+String(e?.message||e));
+   }
+ }
+ function openWorkbench(){
+   const node=document.getElementById('ukpd-drawing-view-workbench');
+   if(!node){setBimNotice('Drawing-view workbench was not found on this page.');setBimNoticeKind('alert');return}
+   node.scrollIntoView({behavior:'smooth',block:'start'});
+   node.focus?.({preventScroll:true});
  }
  function exportModel(){
    const payload={format:'UKPD-SCHEMATIC-3D-v1',warning:'Plan footprint only. Vertical elevations, heights and building form are NOT verified by this file.',projectElements:models.map(m=>({id:m.id,label:m.name,stage:m.stage,drawing_id:m.drawing_id,page:m.page,planPoints:m.points,priceExVAT:m.price,boq:m.lines.map(i=>({ref:i.ref_no,description:i.description,quantity:i.quantity,unit:i.unit,value:perLine(i)}))})),unlinkedBoqItems:missing.length};
@@ -79,8 +131,8 @@ function PricedModel3D({highlights=[],items=[],drawingStages={},calibrations={},
      <button type="button" className="outline" onClick={exportModel} disabled={!models.length}>Export schematic model data (not BIM)</button>
    </div>
    <div style={{border:'1px solid #b9c8dc',borderRadius:10,padding:12,margin:'12px 0',background:'#f7fbff'}}>
-    <h4 style={{margin:'0 0 8px'}}>Verified 3D BIM export — IFC4 (walls and slabs only)</h4>
-    <p className="muted">Choose individually checked geometry below. Set actual elevations, heights and thicknesses from the drawings or verified survey; nothing is invented. Every selected element must be on the SAME drawing page with TWO matching written scale dimensions. IFC is a limited spatial model, not a complete building information model or fabrication-ready design.</p>
+    <h4 style={{margin:'0 0 8px'}}>Verified 3D BIM export — IFC4</h4>
+    <p className="muted">Save the checked marks below or use the full Drawing-view workbench above to create walls, slabs, roofs and openings. Each source view needs two independent dimension checks. IFC export uses the project's newer verified drawing-view model when present; missing data is never filled in.</p>
     {bimCandidates.map(h=>{const spec=bimSpecs[h.id]||{};const wall=['polyline','length'].includes(h.kind);return <div key={h.id} style={{padding:'10px 0',borderTop:'1px solid #d5dfed',display:'grid',gap:7}}>
       <label><input type="checkbox" checked={spec.include===true} onChange={e=>onBimSpecChange(h.id,'include',e.target.checked)}/> Model {h.name||'Unnamed element'} — {wall?'Wall centre-line':'Slab/floor footprint'} (page {h.page})</label>
       {spec.include&&<>
@@ -93,9 +145,15 @@ function PricedModel3D({highlights=[],items=[],drawingStages={},calibrations={},
       </>}
      </div>})}
     {!bimCandidates.length&&<p>No traceable floor outlines or wall centre-lines. Add verified manual drawing markups before requesting BIM.</p>}
-    <p>{selectedBimCount} selected mark(s); {bimPackage.ready.length} model element(s) prepared; {bimPackage.issues.length} issue(s) to resolve.</p>
-    {bimPackage.issues.length>0&&<p role="alert">{bimPackage.issues.slice(0,4).map(x=>x.label+': '+x.reason).join(' | ')}</p>}
-    <div className="estimateToolbar"><button type="button" onClick={onBimSave}>Save BIM inputs to project</button><button type="button" disabled={bimPackage.issues.length>0||!bimPackage.ready.length} onClick={exportIFC}>Generate IFC4 3D model</button></div>
+    <p>{selectedBimCount} selected mark(s); {activePackage.models.length} verified model element(s) from {sourceDescription}; {activePackage.issues.length} item(s) to resolve.</p>
+    {activePackage.issues.length>0&&<p role="alert">{activePackage.issues.slice(0,4).map(x=>x.label+': '+x.reason).join(' | ')}</p>}
+    <div className="estimateToolbar" style={{flexWrap:'wrap'}}>
+      <button type="button" disabled={bimActionBusy} onClick={saveBimInputs}>{bimActionBusy?'Saving BIM inputs…':'Save BIM inputs to project'}</button>
+      <button type="button" disabled={bimActionBusy} onClick={exportIFC}>Generate IFC4 3D model</button>
+      <button type="button" className="outline" onClick={openWorkbench}>Open drawing-view BIM workbench</button>
+    </div>
+    {bimNotice&&<p role={bimNoticeKind} data-testid="bim-action-feedback" style={{marginTop:10,fontWeight:600}}>{bimNotice}</p>}
+    {missingInput&&<p className="muted">No verified model geometry is selected yet. Generate will explain what is missing; it won't produce a fabricated building.</p>}
    </div>
    <svg viewBox="0 0 600 460" role="img" aria-label="Interactive schematic isometric footprints of measured work linked to the BOQ" style={{maxWidth:'100%',width:'100%',background:'#f2f6fc',border:'1px solid #d5dfed',borderRadius:12}}>
     <path d="M40 360 L300 420 L560 360 M300 420 L300 65" fill="none" stroke="#cbd5e1" strokeWidth="1"/>
@@ -674,6 +732,13 @@ export default function Estimates({db,project,docs=[],onReloadDocs=()=>{}}){
  }
  function patch(k,v){setEstimate(x=>({...x,[k]:v}))}
  async function save(next=estimate){setBusy(true);try{const{error}=await db.from('projects').update({estimate_data:next}).eq('id',project.id);setNotice(error?'Save failed: '+error.message:'Estimate and drawing highlights saved')}finally{setBusy(false)}}
+ async function saveBimSpecs(){
+   const next={...estimate,bim_specs:estimate.bim_specs||{}};
+   const {error}=await db.from('projects').update({estimate_data:next}).eq('id',project.id);
+   if(error)throw Error(error.message);
+   setEstimate(next);
+   setNotice('Verified BIM inputs saved to project.');
+ }
  async function saveViewWorkbenchData(changes){
    const next={...estimate,...changes};
    const {error}=await db.from('projects').update({estimate_data:next}).eq('id',project.id);
@@ -1150,7 +1215,7 @@ export default function Estimates({db,project,docs=[],onReloadDocs=()=>{}}){
  {previewMark.kind==='polygon'&&<path d={svgPolygon(previewMark)} fill="rgba(17,108,206,.22)" fillRule="evenodd" stroke="#0561bd" strokeWidth=".7" strokeDasharray="1.2 .5" strokeLinejoin="round"/>}
  </svg>}{drag&&hover&&!calibrate&&<div className="estimateMark drawingNew" style={{left:Math.min(drag.x,hover.x)*100+'%',top:Math.min(drag.y,hover.y)*100+'%',width:Math.abs(drag.x-hover.x)*100+'%',height:Math.abs(drag.y-hover.y)*100+'%'}}/>}</div></div></div><p className="muted">Drawing key: 🟢 Green = linked to a priced BOQ item; 🟡 Amber = linked but unpriced; 🔴 Red = not linked to BOQ. 🔵 Blue dashed = an unapproved AI proposal (preview only). Drawings must be calibrated and measured quantities reviewed before issue.</p>
  {currentHighlights.map(h=>{const m=regionMeasures(h);return <div key={h.id} className="estimateHighlightRow">{h.stage}: {h.name} — {h.kind||'area'} (page {h.page}) {m?m.quantity+' '+m.unit:''}{m?.openings_count?' (gross '+m.gross_area_m2+' m² less '+m.deductions_area_m2+' m² for '+m.openings_count+' opening(s))':''} — {pricedBoq(h).length?'PRICED':linkedBoq(h).length?'LINKED / UNPRICED':'NOT LINKED'} <button type="button" disabled={selectedCalibrationStatus==='reference-only'||(h.kind!=='count'&&!metresPerPixel)} onClick={()=>addMeasured(h)}>Add measured {h.kind||'area'} to BOQ</button> <button type="button" className="outline" onClick={()=>patch('highlights',estimate.highlights.filter(x=>x.id!==h.id))}>Remove</button></div>})}
- <PricedModel3D highlights={estimate.highlights||[]} items={estimate.items||[]} drawingStages={estimate.drawing_stages||{}} calibrations={estimate.calibrations||{}} docs={fileDocs} bimSpecs={estimate.bim_specs||{}} projectName={project.name} onBimSpecChange={(id,key,value)=>patch('bim_specs',{...(estimate.bim_specs||{}),[id]:{...(estimate.bim_specs||{})[id],[key]:value}})} onBimSave={()=>save()}/>
+ <PricedModel3D highlights={estimate.highlights||[]} items={estimate.items||[]} drawingStages={estimate.drawing_stages||{}} calibrations={estimate.calibrations||{}} docs={fileDocs} bimSpecs={estimate.bim_specs||{}} viewData={{views:estimate.drawing_views||[],calibrations:estimate.view_calibrations||{},elements:estimate.view_bim_elements||[],features:estimate.view_bim_features||[]}} projectName={project.name} onBimSpecChange={(id,key,value)=>patch('bim_specs',{...(estimate.bim_specs||{}),[id]:{...(estimate.bim_specs||{})[id],[key]:value}})} onBimSave={saveBimSpecs}/>
  <h3>2. Build measured BOQ items</h3>
  {(estimate.ai_pending_takeoff||[]).length>0&&<div className="notice" role="region" aria-label="Review new AI takeoff suggestions">
    <strong>Review new AI suggestions — {(estimate.ai_pending_takeoff||[]).length} pending</strong>
