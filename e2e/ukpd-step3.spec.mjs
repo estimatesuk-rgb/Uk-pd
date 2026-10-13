@@ -78,7 +78,7 @@ async function interceptAll(page,state){
   // Unexpected Supabase endpoint must NEVER reach the real account.
   return json(route,{message:'Unmocked isolated E2E request: '+method+' '+path},501);
  });
- await page.route('**/api/ai-health',route=>json(route,{ready:true,provider:'E2E mock',model:'fixture'}));
+ await page.route('**/api/ai-health',route=>json(route,{ready:true,provider:'Cloudflare Workers AI',model:'E2E fixture'}));
  await page.route('**/api/estimate-plan-review',route=>{
   state.aiCalls.push({endpoint:'page',payload:route.request().postDataJSON()});
   if(state.failAI)return json(route,{error:'Injected plan-reader error for Playwright test'},502);
@@ -144,7 +144,7 @@ test('Step 3 signed-in: absent job type blocks AI without a request',async({page
  const state=fixture({estimateData:{...structuredClone(BASE_ITEM),project_type:'',drawing_mode:''}});
  await openAuthenticatedEstimate(page,state);
  await page.getByRole('button',{name:'Step 3 — Start AI Take-Off'}).click();
- await expect(page.getByText(/Before reading plans, choose the type of construction job/)).toBeVisible();
+ await expect(page.locator('#estimate-ai-takeoff').getByRole('alert').filter({hasText:/Before reading plans, choose the type of construction job/})).toBeVisible();
  expect(state.aiCalls).toHaveLength(0);
  expect(state.writes).toHaveLength(0);
 });
