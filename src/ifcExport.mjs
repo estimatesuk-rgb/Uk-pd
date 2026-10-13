@@ -117,7 +117,34 @@ export function createIfc4Model({projectName='UKPD partial BIM',elements=[],now=
  for(const [parent,child] of [[project,site],[site,building],[building,storey]])
   put('IFCRELAGGREGATES',guid()+',$,$,$,'+parent+',('+child+')');
  const extrudeDir=put('IFCDIRECTION','(0.,0.,1.)');
- const contained=[];
+ const contained=[],entities=new Map();
+ function brepRoof(el){
+  if(!['x','y'].includes(el.slope_axis)||!valid(el.high_m,-10,150)||
+     !valid(el.rise_m,0,40)||el.holes?.length)
+   throw Error('Roof requires a checked single face with verified eaves and high levels');
+  const shape=[...el.outline];
+  const signed=shape.reduce((a,p,i)=>{const q=shape[(i+1)%shape.length];return a+p.x*q.y-q.x*p.y},0);
+  if(Math.abs(signed)<.01)throw Error('Roof face outline has no measurable area');
+  if(signed<0)shape.reverse();
+  const v=shape.map(p=>p[el.slope_axis]),lo=Math.min(...v),hi=Math.max(...v);
+  if(hi-lo<.05)throw Error('Roof face has no verifiable horizontal fall/run');
+  const bottom=shape.map(p=>({x:p.x,y:p.y,z:el.rise_m*(p[el.slope_axis]-lo)/(hi-lo)}));
+  const top=bottom.map(p=>({...p,z:p.z+el.depth}));
+  const faces=[];
+  function face(points){
+   const vertices=points.map(p=>cart3(p.x,p.y,p.z));
+   const loop=put('IFCPOLYLOOP','('+vertices.join(',')+')');
+   const bound=put('IFCFACEOUTERBOUND',loop+',.T.');
+   faces.push(put('IFCFACE','(('+bound+'))'));
+  }
+  face(top);face([...bottom].reverse());
+  for(let i=0;i<shape.length;i++){
+   const j=(i+1)%shape.length;
+   face([bottom[i],bottom[j],top[j],top[i]]);
+  }
+  const shell=put('IFCCLOSEDSHELL','('+faces.join(',')+')');
+  return put('IFCFACETEDBREP',shell);
+ }
  function polyline(coords){
   const pts=[...coords,coords[0]];
   const ids=pts.map(p=>put('IFCCARTESIANPOINT','('+[p.x,p.y].map(numeric).join(',')+')'));
@@ -126,22 +153,49 @@ export function createIfc4Model({projectName='UKPD partial BIM',elements=[],now=
  for(const el of elements){
   if(!valid(el.depth,.001,25)||!finite(el.base_m)||!Array.isArray(el.outline)||el.outline.length<3)
    throw Error('Invalid verified geometry');
-  const boundary=polyline(el.outline);
-  const holes=(el.holes||[]).map(polyline);
-  const profile=holes.length?put('IFCARBITRARYPROFILEDEFWITHVOIDS','.AREA.,$,'+boundary+',('+holes.join(',')+')'):
+  const typeByElement={
+   slab:'IFCSLAB',wall:'IFCWALL',roof:'IFCROOF',door:'IFCDOOR',window:'IFCWINDOW'
+  };
+  const type=typeByElement[el.element];
+  if(!type)throw Error('Unknown BIM entity type: '+el.element);
+  let solid,repType;
+  if(el.element==='roof'){
+   solid=brepRoof(el);repType='Brep';
+  }else{
+   const boundary=polyline(el.outline);
+   const holes=(el.holes||[]).map(polyline);
+   const profile=holes.length?put('IFCARBITRARYPROFILEDEFWITHVOIDS','.AREA.,$,'+boundary+',('+holes.join(',')+')'):
     put('IFCARBITRARYCLOSEDPROFILEDEF','.AREA.,$,'+boundary);
-  const solid=put('IFCEXTRUDEDAREASOLID',profile+','+axis()+','+extrudeDir+','+numeric(el.depth));
-  const shape=put('IFCSHAPEREPRESENTATION',context+','+quote('Body')+','+quote('SweptSolid')+',('+solid+')');
+   solid=put('IFCEXTRUDEDAREASOLID',profile+','+axis()+','+extrudeDir+','+numeric(el.depth));
+   repType='SweptSolid';
+  }
+  const shape=put('IFCSHAPEREPRESENTATION',context+','+quote('Body')+','+quote(repType)+',('+solid+')');
   const representation=put('IFCPRODUCTDEFINITIONSHAPE','$,$,('+shape+')');
   const localPlace=put('IFCLOCALPLACEMENT',storeyPlace+','+axis(0,0,el.base_m));
-  const type=el.element==='slab'?'IFCSLAB':el.element==='wall'?'IFCWALL':null;
-  if(!type)throw Error('Unknown BIM entity type');
-  const entity=put(type,guid()+',$,'+quote(el.name)+',$,$,'+localPlace+','+representation+',$,'+(type==='IFCSLAB'?'.FLOOR.':'.NOTDEFINED.'));
-  contained.push(entity);
+  const suffix={
+   IFCSLAB:'.FLOOR.',IFCWALL:'.NOTDEFINED.',IFCROOF:'.NOTDEFINED.',
+   IFCDOOR:'.DOOR.,.NOTDEFINED.,$',IFCWINDOW:'.WINDOW.,.NOTDEFINED.,$'
+  }[type];
+  const extras=(el.element==='door'||el.element==='window')
+    ?numeric(el.height_m)+','+numeric(el.width_m)+','+suffix:suffix;
+  const entity=put(type,guid()+',$,'+quote(el.name)+',$,$,'+localPlace+','+representation+',$,'+extras);
+  contained.push(entity);entities.set(el.id,entity);
   const p1=put('IFCPROPERTYSINGLEVALUE',quote('Source drawing')+',$,IFCTEXT('+quote(el.source+' page '+el.page)+'),$');
   const p2=put('IFCPROPERTYSINGLEVALUE',quote('Checked dimension reference')+',$,IFCTEXT('+quote(el.evidence)+'),$');
   const pset=put('IFCPROPERTYSET',guid()+',$,'+quote('UKPD verified inputs')+',$,('+p1+','+p2+')');
   put('IFCRELDEFINESBYPROPERTIES',guid()+',$,$,$,('+entity+'),'+pset);
+  if(el.element==='door'||el.element==='window'){
+   const host=entities.get(el.host_id);
+   if(!host)throw Error('Opening '+el.name+' needs a verified, preceding IFC wall element');
+   if(!valid(el.width_m,.25,5)||!valid(el.height_m,.3,6))
+    throw Error('Door or window dimensions have not been verified');
+   // The opening is a subtraction feature related to the host wall. The
+   // door/window is a separate IFC product that fills that actual void.
+   const opening=put('IFCOPENINGELEMENT',guid()+',$,'+
+     quote('Opening for '+el.name)+',$,$,'+localPlace+','+representation+',$,.OPENING.');
+   put('IFCRELVOIDSELEMENT',guid()+',$,$,$,'+host+','+opening);
+   put('IFCRELFILLSELEMENT',guid()+',$,$,$,'+opening+','+entity);
+  }
  }
  put('IFCRELCONTAINEDINSPATIALSTRUCTURE',guid()+',$,$,$,('+contained.join(',')+'),'+storey);
  const iso=now.toISOString().slice(0,19);
