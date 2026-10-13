@@ -65,3 +65,16 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Verify live UKPD address after deployment
+        run: |
+          set -eu
+          APP_URL="https://uk-pd.estimates-uk.workers.dev"
+          echo "Checking $APP_URL"
+          curl --fail --show-error --silent --location --retry 6 --retry-all-errors --retry-delay 5 --max-time 20 \
+            "$APP_URL/" -o /tmp/ukpd-live.html
+          grep -qi 'UK Principal Designers' /tmp/ukpd-live.html || { echo "::error::UKPD address returned unexpected HTML"; exit 1; }
+          curl --fail --show-error --silent --location --retry 6 --retry-all-errors --retry-delay 5 --max-time 20 \
+            "$APP_URL/api/ai-health" -o /tmp/ukpd-ai-health.json
+          node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('/tmp/ukpd-ai-health.json','utf8'));if(x.ready!==true)throw Error('Live Cloudflare AI health is not ready');"
+          echo "Verified live UKPD homepage and AI health endpoint over HTTPS."
