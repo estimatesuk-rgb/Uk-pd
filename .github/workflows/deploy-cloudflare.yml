@@ -41,6 +41,8 @@ jobs:
               -gravity center -composite "public/icon-${size}.png"
           done
           cp public/icon-180.png public/apple-touch-icon.png
+      - name: Run tests before production deployment
+        run: npm test
       - name: Build site
         run: npm run build
       - name: Verify site files
