@@ -4,7 +4,7 @@ import {scaleSheetRegister,calibrationStatus,missingCalibration} from '../src/ca
 const d={id:'drawing-1',file_path:'current/rev-b.pdf',revision:'B'};
 const entries=scaleSheetRegister([{d,filename:'Plans.pdf',numPages:3}]);
 const key=page=>'drawing-1#'+page;
-const checked=page=>({status:'calibrated',source_path:d.file_path,source_revision:d.revision,metres:5,pixelLength:200,metresPerPixel:0.025});
+const checked=page=>({status:'calibrated',source_path:d.file_path,source_revision:d.revision,metres:5,pixelLength:200,metresPerPixel:0.025,crosscheck_verified:true,sheet_dimensions_px:[1000,800]});
 test('every PDF page gets a separate required scale',()=>{
  assert.equal(entries.length,3);
  assert.deepEqual(entries.map(x=>x.page),[1,2,3]);
@@ -32,4 +32,11 @@ test('reference-only requires an explicit saved confirmation',()=>{
 test('all eligible pages can pass only with valid saved states',()=>{
  const from={calibrations:{[key(1)]:checked(1),[key(2)]:checked(2),[key(3)]:{status:'reference-only',source_path:d.file_path,source_revision:d.revision,reference_only_confirmed:true}}};
  assert.equal(missingCalibration(entries,from).length,0);
+});
+
+test('first unconfirmed scale dimension is not accepted for automatic take-off',()=>{
+ const first={...checked(1),crosscheck_verified:false};
+ const calibration={calibrations:{[key(1)]:first}};
+ assert.equal(calibrationStatus(entries[0],calibration),'needs-check');
+ assert.deepEqual(missingCalibration(entries,calibration).map(x=>x.page),[1,2,3]);
 });
