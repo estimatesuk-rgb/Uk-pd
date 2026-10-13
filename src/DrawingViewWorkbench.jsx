@@ -181,6 +181,36 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
     '. All model elements still require a BIM coordination check.')}
   catch{}
  }
+ async function addArchitecturalFeature(){
+  if(!bimName.trim()||sourceNote.trim().length<12)return setMessage('Give this component a name and a verifiable drawing/section dimension reference.');
+  const type=mode==='roof'?'roof':bimType;
+  const common={id:crypto.randomUUID(),name:bimName.trim(),type,
+    dimension_reference:sourceNote.trim(),checked:true,include:true};
+  let feature;
+  if(mode==='roof'){
+   if(!['roof'].includes(bimType)||![base,thickness,roofHigh,xOrigin,yOrigin].every(v=>String(v).trim()!=='')){
+    return setMessage('Enter the verified eaves level, high/ridge level, roof thickness and common X/Y origin.');
+   }
+   if(points.length<3)return setMessage('Click the actual corners of ONE roof plane, not the whole roof silhouette.');
+   feature={...common,view_id:view.id,points,
+    eave_m:n(base),ridge_m:n(roofHigh),thickness_m:n(thickness),
+    origin_x_m:n(xOrigin),origin_y_m:n(yOrigin),slope_axis:slopeAxis};
+  }else{
+   if(!['window','door'].includes(bimType))return setMessage('Select IFC Window or IFC Door.');
+   if(!openingHost||![openingOffset,openingWidth,openingSill,height].every(v=>String(v).trim()!==''))
+    return setMessage('Choose a checked wall segment and enter the measured offset, width, sill height and opening height.');
+   feature={...common,host_id:openingHost,view_id:view.id,
+    offset_m:n(openingOffset),width_m:n(openingWidth),sill_m:n(openingSill),height_m:n(height)};
+  }
+  const check=prepareArchitecturalBim({views,docs,calibrations,elements,features:[feature]});
+  if(check.issues.length)return setMessage(check.issues.map(x=>x.reason).join(' | '));
+  const combined=prepareArchitecturalBim({views,docs,calibrations,elements,features:[...features,feature]});
+  if(combined.issues.length)return setMessage(combined.issues.map(x=>x.reason).join(' | '));
+  try{await saveUpdate('view_bim_features',[...features,feature]);
+   setPoints([]);setApproved(false);
+   setMessage('Saved verified '+type+' and rebuilt IFC geometry. Check the interactive 3D preview before export.');
+  }catch{}
+ }
  function exportIfc(){
   if(bim.issues.length)return setMessage('IFC export held: '+bim.issues.map(x=>x.reason).join('; '));
   try{
