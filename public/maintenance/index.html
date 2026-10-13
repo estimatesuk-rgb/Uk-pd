@@ -1529,6 +1529,10 @@ function jumpToReviewLine(index){
   const card=$('review-suggest').querySelector('[data-review-line="'+index+'"]');
   if(card){card.classList.add('is-focused');card.scrollIntoView({block:'nearest',behavior:'smooth'});}
 }
+function reviewSourceLabel(index){
+  const location=sourceMapLocation(index);
+  return location?'row '+(location.row+1)+' ('+location.sheet+')':'line '+(index+1);
+}
 function renderReviewRates(){
   const root=$('review-results');if(!root)return;
   if(!rates.length){root.innerHTML='<div class="empty">Import the V8 ratebook first.</div>';return;}
@@ -1538,7 +1542,7 @@ function renderReviewRates(){
     const selected=activeReviewLine!==null&&selectedMatches.get(activeReviewLine)?.code===r.code;
     return '<div class="result'+(selected?' manual-chosen':'')+'"><div><strong>'+esc(r.code)+'</strong> — '+esc(r.description)+
       '<small>'+esc(r.trade)+' · '+esc(r.unit)+' · Labour '+money(r.labour)+' + Materials '+money(r.materials)+'</small></div>'+
-      '<div><b>'+money(r.rate)+'</b><br><button type="button" class="tiny'+(selected?' chosen-button':'')+'" data-review-add="'+esc(r.code)+'">'+(selected?'✓ Selected':activeReviewLine!==null?'Choose for line '+(activeReviewLine+1):'Add rate')+'</button></div></div>';
+      '<div><b>'+money(r.rate)+'</b><br><button type="button" class="tiny'+(selected?' chosen-button':'')+'" data-review-add="'+esc(r.code)+'">'+(selected?'✓ Selected':activeReviewLine!==null?'Choose for '+reviewSourceLabel(activeReviewLine):'Add rate')+'</button></div></div>';
   }).join('')||'<div class="empty">No close match. Try a shorter word such as “door” or “paint”, or enter an exact SOR code.</div>';
   root.querySelectorAll('[data-review-add]').forEach(b=>b.onclick=()=>{
     const qty=Number($('review-qty').value);
@@ -1683,7 +1687,7 @@ function switchReviewRate(index,code,qty){
   persistReviewSelections();save();calculate();
   renderReviewSuggestions();
   jumpToReviewLine(index);
-  const message='✓ Priced original line '+(index+1)+' · SOR '+code+' · '+qty+' '+rate.unit+' · '+money(qty*rate.rate*(1+adjustment()/100))+(repeatedCount?' · filled '+repeatedCount+' duplicate(s)':'');
+  const message='✓ Priced original '+reviewSourceLabel(index)+' · SOR '+code+' · '+qty+' '+rate.unit+' · '+money(qty*rate.rate*(1+adjustment()/100))+(repeatedCount?' · filled '+repeatedCount+' duplicate(s)':'');
   $('review-selected').textContent=message;reviewAction(message);return true;
 }
 function renderReviewSuggestions(){
