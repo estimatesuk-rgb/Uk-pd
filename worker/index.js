@@ -4,7 +4,21 @@
 const SUPABASE_URL = "https://pesiuyxktimlycvefmrb.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_rTHnWN6DadaTbeytOAeu3Q_akGv_xba";
 const MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
-const MAX_IMAGE_LENGTH = 3_000_000; // Base64 data URI length (~2.2 MB binary).
+const MAX_IMAGE_LENGTH = 3_000_000;
+const JOB_TYPES = Object.freeze({
+  "new-house":"New-build house","new-bungalow":"New-build bungalow",
+  "new-commercial":"New-build commercial / industrial",
+  "single-extension":"Single-storey extension",
+  "double-extension":"Two-storey / multi-storey extension",
+  "loft-conversion":"Loft conversion","garage-conversion":"Garage conversion",
+  "barn-conversion":"Barn / outbuilding conversion",
+  "refurbishment":"Refurbishment / renovation",
+  "internal-alterations":"Internal / structural alterations",
+  "change-of-use":"Conversion / change of use",
+  "demolition-rebuild":"Demolition and rebuild",
+  "other-alterations":"Other works to an existing building",
+  "other-new-build":"Other new-build project"
+}); // Base64 data URI length (~2.2 MB binary).
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const json = (data, status = 200) => Response.json(data, {
   status,
@@ -78,6 +92,8 @@ export default {
     try {
       const body = await request.json();
       const projectId = String(body?.project_id || "");
+      const jobType = JOB_TYPES[String(body?.job_type || "")];
+      if (!jobType) return fail("Choose a valid construction job type before analysing drawings.", 400);
       if (path === "/api/estimate-plan-review") {
         const documentId = String(body?.document_id || "");
         const check = await accessCheck(request, projectId, documentId);
@@ -93,6 +109,7 @@ export default {
         const calibrationStatus = body?.calibration_status === "reference-only" ? "reference-only" : body?.calibration_status === "calibrated" ? "calibrated" : "needed";
         const prompt = pagesPrompt + "\nDocument: " + filename + ", revision: " +
           String(check.doc.revision || "unspecified") + ", page: " + page + ". Calibration: " + calibrationStatus + "." +
+          " Estimator-selected project type: " + jobType + ". This is context only; derive all work from actual plans. For extensions, loft conversions, alterations and refurbishments identify existing and retained elements; do not assume everything on a proposed plan is new work." +
           (calibrationStatus === "reference-only" ? " This is a construction notes / reference-only page. Read specifications but NEVER return a numeric quantity for this page." : "");
         const result = await callAI(env, [
           { role: "system", content: "Return only well-formed JSON. Do not invent measurements or compliance." },
@@ -125,7 +142,7 @@ export default {
       if (input.length > 85_000) return fail("Drawing summaries are too large; review smaller batches.", 413);
       const result = await callAI(env, [
         { role: "system", content: synthesisPrompt + " Construction notes marked reference-only can specify materials and workmanship, but cannot establish measured quantities. Keep their quantities null. Every quantity is draft and requires QS verification." },
-        { role: "user", content: "Compare and consolidate these reviewed sheets:\n" + input },
+        { role: "user", content: "Estimator-selected job type: " + jobType + ". Treat the work type as context, not geometric evidence. Confirm changes from drawings only; classify uncertain or retained work separately. Compare and consolidate these reviewed sheets:\n" + input },
       ], 3300);
       if (!Array.isArray(result.changes) || !Array.isArray(result.takeoff_draft) || !Array.isArray(result.unresolved)) {
         return fail("AI drawing comparison was incomplete. No BOQ was saved.", 502);
