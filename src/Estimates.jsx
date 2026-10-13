@@ -20,6 +20,7 @@ import {stageAiTakeoff,decideAiSuggestion} from './aiTakeoffQueue.mjs';
 import {findPotentialAiOverlaps,auditExistingBoqOverlap} from './aiSuggestionConflict.mjs';
 import {auditMeasurementQuality} from './aiMeasurementQuality.mjs';
 import {previewPendingMark} from './aiPendingPreview.mjs';
+import {verifySecondDimension} from './scaleCrosscheck.mjs';
 pdfjs.GlobalWorkerOptions.workerSrc=new URL('pdfjs-dist/build/pdf.worker.min.mjs',import.meta.url).toString();
 const fresh={items:[],highlights:[],builder_id:'',drawing_mode:'',project_type:'',takeoff_review_status:'Draft',takeoff_reviewer:'',takeoff_reviewed_at:'',measurement_standard:'NRM2',drawing_stages:{},supplier_price_date:'',supplier_price_source:'',global_adjustment:0,overheads:15,profit:10,vat:20,pc_sums:[],provisional_sums:[],dayworks:[],contingency_mode:'percent',contingency_value:0,quote_intro:'We are pleased to provide our quotation for the works described below.',quote_scope:'',quote_validity:'30 days',quote_payment_terms:'Payment schedule to be agreed before commencement.',quote_exclusions:'Items not expressly included are excluded.',quote_terms:'Subject to agreed contract terms.',quote_ref:'',quote_revisions:[]};
 const initialItem={ref_no:'',work_section:'Measured Works',description:'',trade:'General',drawing:'',quantity:0,unit:'m²',material_rate:0,plant_rate:0,labour_hours:0,labour_rate:0,supplier:'',price_url:'',status:'Needs verification'};
@@ -229,14 +230,24 @@ export default function Estimates({db,project,docs=[],onReloadDocs=()=>{}}){
      setNotice('Select BOTH ends of a known dimension on this drawing, then enter its actual length in metres.');return;
    }
    if(referenceOnly&&!window.confirm('Mark this page as construction notes — no scale required? AI will still read the notes and specification, but it MUST NOT use this page for scaled measurements. Only choose this when the page has no measurable drawing or usable scale.'))return;
+   if(!referenceOnly&&(!Array.isArray(dimensions)||dimensions.some(v=>!Number.isFinite(v)||v<=0))){setNotice('Wait until the full drawing page has loaded before checking its scale.');return}
+   const prior=estimate.calibrations?.[drawing+'#'+page];
+   const validPrior=prior?.status==='calibrated'&&prior.source_path===entry.file_path&&String(prior.source_revision||'')===entry.revision;
+   const second=validPrior&&!prior.crosscheck_verified&&!referenceOnly;
+   const checked=second?verifySecondDimension(prior,length,line,reference.points,dimensions):null;
+   if(second&&!checked.ok){setNotice(checked.reason+' Existing scale has not been verified. Use another dimension, or Reset scale to start again.');return}
    const status=referenceOnly?'reference-only':'calibrated';
    const saved={
      status,source_path:entry.file_path,source_revision:entry.revision,
      calibrated_at:new Date().toISOString(),reference_only_confirmed:referenceOnly,
      ...(referenceOnly?{}:{
-       metresPerPixel:length/line,metres:length,pixelLength:line,
-       reference_points:reference.points||null,
-       method:'two drawing points against stated dimension — QS verify',
+       metresPerPixel:second?prior.metresPerPixel:length/line,
+       metres:second?prior.metres:length,pixelLength:second?prior.pixelLength:line,
+       reference_points:second?prior.reference_points:reference.points||null,
+       sheet_dimensions_px:dimensions,
+       crosscheck_verified:second,
+       ...(second?{second_reference_points:reference.points,second_metres:length,second_pixel_length:line,scale_difference:checked.difference}:{}),
+       method:second?'Two independent written dimensions, agreement within 2% — QS review still required':'First written dimension — independent cross-check required',
      }),
    };
    const next={...estimate,calibrations:{...(estimate.calibrations||{}),[drawing+'#'+page]:saved}};
@@ -248,7 +259,7 @@ export default function Estimates({db,project,docs=[],onReloadDocs=()=>{}}){
      const pending=missingCalibration(calibrationPages,next);
      if(pending.length){
        chooseCalibrationPage(pending[0]);
-       setNotice((referenceOnly?'Construction notes — no scale required':'Checked dimension and page scale')+' saved. '+pending.length+' page(s) still need review.');
+       setNotice(second?'Scale cross-check passed. '+pending.length+' sheet(s) remain to verify.':referenceOnly?'Construction notes saved. '+pending.length+' sheet(s) remain.':'First scale dimension saved. Check a DIFFERENT dimension on this page before AI take-off. '+pending.length+' sheet(s) still need checking.');
      }else{
        setNotice('All pages are now scaled or marked no scale required. Press Start AI Take-Off to read all drawings and construction notes.');
        setTimeout(()=>document.getElementById('estimate-ai-takeoff')?.scrollIntoView({behavior:'smooth',block:'start'}),0);
@@ -927,7 +938,7 @@ export default function Estimates({db,project,docs=[],onReloadDocs=()=>{}}){
      return <button type="button" key={entry.document_id+'#'+entry.page} className={selected?'selected':''}
        aria-current={selected?'step':undefined} disabled={calibrationSaving}
        onClick={()=>chooseCalibrationPage(entry)}>
-       {status==='calibrated'?'✓ Scaled':status==='reference-only'?'Notes — no scale':'Needs scale'} — {entry.filename} (page {entry.page}, rev {entry.revision||'not stated'})
+       {status==='calibrated'?'✓ Two dimensions checked':status==='reference-only'?'Notes — no scale':status==='needs-check'?'Second scale check required':'Needs scale'} — {entry.filename} (page {entry.page}, rev {entry.revision||'not stated'})
      </button>
    })}</div>
  </div>}<div className="estimateForm"><label>Drawing register — classify each drawing before measuring<div style={{display:'grid',gap:8,marginTop:8}}>{fileDocs.length?fileDocs.map(d=><div key={d.id} style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}><span style={{flex:'1 1 190px'}}>{d.document_no||d.title} (rev {d.revision||'not stated'})</span><select aria-label={'Drawing stage for '+(d.document_no||d.title)} value={(estimate.drawing_stages||{})[d.id]||'Unclassified'} disabled={stageSaving||aiBusy||jobTypeSaving} onChange={e=>chooseDrawingStage(d.id,e.target.value)}><option>Unclassified</option><option>Existing</option><option>Proposed</option><option>Demolition</option><option>Detail / Supporting</option><option>Mixed existing/proposed</option></select></div>):<span>No current plans uploaded. Open Project → Upload Plans.</span>}</div></label></div><div className="estimateForm"><label>Measurement standard<select value={estimate.measurement_standard||'NRM2'} onChange={e=>patch('measurement_standard',e.target.value)}><option>NRM2</option><option>SMM7</option></select></label><label>Take-off review status<select value={estimate.takeoff_review_status||'Draft'} onChange={e=>patch('takeoff_review_status',e.target.value)}><option>Draft</option><option>QS review required</option><option>QS reviewed</option></select></label><label>QS reviewer / checker<input value={estimate.takeoff_reviewer||''} onChange={e=>patch('takeoff_reviewer',e.target.value)} placeholder="Full name"/></label><label>Review date<input type="date" value={estimate.takeoff_reviewed_at||''} onChange={e=>patch('takeoff_reviewed_at',e.target.value)}/></label></div><p className="muted">The selected measurement standard is recorded for review; automated NRM2/SMM7 rules are not yet implemented. Upload Existing, Proposed and Demolition plans in the project Documents section, then identify them by stage here. Scale measurements remain indicative pending QS verification.</p><p className="muted">For accurate quantities, the written drawing dimensions must be verified. Press <strong>Select a dimension</strong>, then on a phone tap the two ends of the SAME printed dimension (or drag on a desktop). Enter the written length in metres. Scale is retained by drawing revision and page. Area take-off remains provisional until independently checked.</p>
@@ -939,7 +950,7 @@ export default function Estimates({db,project,docs=[],onReloadDocs=()=>{}}){
      setNotice('Select point A, then point B. A blue marker appears for each point.');
    }} disabled={!drawing||!dimensions[0]||!calibrationWizard||calibrationSaving}>{calibrate?'Selecting A → B':'Select a dimension (A → B)'}</button>
   <label>Printed dimension length (metres)<input type="number" inputMode="decimal" min="0" step="any" value={calibrationMetres} onChange={e=>setCalibrationMetres(e.target.value)} placeholder="e.g. 3.6" /></label>
-  <button type="button" disabled={calibrationSaving||!reference||reference.drawing_id!==drawing||reference.page!==page||!(Number(calibrationMetres)>0)} onClick={()=>saveCalibration(false)}>{calibrationSaving?'Saving…':'Save scale & next'}</button>
+  <button type="button" disabled={calibrationSaving||!reference||reference.drawing_id!==drawing||reference.page!==page||!(Number(calibrationMetres)>0)} onClick={()=>saveCalibration(false)}>{calibrationSaving?'Saving…':selectedCalibrationStatus==='needs-check'?'Check second dimension':'Save first dimension'}</button>
   <button type="button" className="outline" disabled={calibrationSaving||!calibrationWizard||!drawing} onClick={()=>saveCalibration(true)}>Construction notes — no scale required</button>
   <span role="status" aria-live="polite">{calibrate?(calibrationFirst?'Tap second end of the dimension':'Tap first and second ends, or drag along the dimension'):reference?'Line selected — enter metres and save':selectedCalibrationStatus==='calibrated'?'This page has a saved scale':selectedCalibrationStatus==='reference-only'?'Construction notes — no scale required':'Scale not set for this page'}</span>
  </div><div className="estimateToolbar" aria-label="Manual take-off tools"><label>Mark type<select value={markMode} onChange={e=>{setMarkMode(e.target.value);setPanMode(false);panRef.current=null;firstMeasurePointRef.current=null;setFirstMeasurePoint(null);setCalibrate(false);setReference(null);setNotice('Select a measurable plan and mark '+e.target.value+' work.')}}><option value="area">Area — m² (rectangle)</option><option value="length">Length — m (two taps)</option><option value="count">Count — nr (one tap per item)</option><option value="volume">Volume — m³ (rectangle × depth)</option></select></label>{markMode==='volume'&&<label>Depth / thickness (metres)<input type="number" inputMode="decimal" step="any" min="0.001" value={markDepth} placeholder="e.g. 0.15" onChange={e=>setMarkDepth(e.target.value)}/></label>}<small>Manual marks only, checked against project scale where required. All BOQ quantities need QS review.</small></div><div className="estimateToolbar"><label>Choose uploaded plan<select value={drawing} onChange={e=>{setDrawing(e.target.value);setPage(1);setReference(null);setCalibrationFirst(null);setCalibrate(false)}}><option value="">Select existing or proposed PDF</option>{fileDocs.map(d=><option key={d.id} value={d.id}>{d.document_no||d.title}</option>)}</select></label><label>Work / rate description<input list="estimate-rate-descriptions" value={markName} onChange={e=>setMarkName(e.target.value)} placeholder="Enter the same description as a library rate"/><datalist id="estimate-rate-descriptions">{[...new Set(rateLibrary.map(r=>r.description).filter(Boolean))].slice(0,1000).map((desc,i)=><option key={i} value={desc}/>)}</datalist></label><label>Drawing stage<select value={stage} onChange={e=>setStage(e.target.value)}><option>Proposed</option><option>Existing</option><option>Demolition</option><option>Retained</option></select></label>{pageCount>1&&<label>Page<select value={page} onChange={e=>{setPage(Number(e.target.value));setReference(null);setCalibrationFirst(null);setCalibrate(false)}}>{Array.from({length:pageCount},(_,i)=><option key={i} value={i+1}>{i+1}</option>)}</select></label>}</div>
