@@ -107,9 +107,15 @@ export default {
         }
         const filename = String(check.doc.document_no || "drawing").slice(0,160);
         const calibrationStatus = body?.calibration_status === "reference-only" ? "reference-only" : body?.calibration_status === "calibrated" ? "calibrated" : "needed";
+        const allowedViews = new Set(["ground-floor-plan","upper-floor-plan","roof-plan","elevation","section","detail","site-plan","unregistered-sheet"]);
+        const viewType = allowedViews.has(String(body?.view_type||"unregistered-sheet"))
+          ? String(body?.view_type||"unregistered-sheet"):"unregistered-sheet";
+        const viewLabel = String(body?.view_label||"").replace(/[^A-Za-z0-9 .()_\/-]/g," ").slice(0,100);
         const prompt = pagesPrompt + "\nDocument: " + filename + ", revision: " +
           String(check.doc.revision || "unspecified") + ", page: " + page + ". Calibration: " + calibrationStatus + "." +
           " Estimator-selected project type: " + jobType + ". This is context only; derive all work from actual plans. For extensions, loft conversions, alterations and refurbishments identify existing and retained elements; do not assume everything on a proposed plan is new work." +
+          " Registered drawing view type: "+viewType+". View label: "+viewLabel+". The submitted image "+
+          (viewType==="unregistered-sheet"?"may contain multiple independent views. Do not invent measurements from any other view or scale.":"is a user-cropped drawing view. Only identify geometry entirely within THIS cropped view. Do not use printed scales or dimensions from other plans/elevations on the original sheet.")+
           (calibrationStatus === "reference-only" ? " This is a construction notes / reference-only page. Read specifications but NEVER return a numeric quantity for this page." : "");
         const result = await callAI(env, [
           { role: "system", content: "Return only well-formed JSON. Do not invent measurements or compliance." },
@@ -119,7 +125,7 @@ export default {
           return fail("AI image interpretation was incomplete. No result was saved.", 502);
         }
         return json({ ok: true, provider: "Cloudflare Workers AI", page: {
-          filename, document_id: documentId, page_number: page, classification: result.classification,
+          filename, document_id: documentId, page_number: page, view_name:viewLabel,view_type:viewType,classification: result.classification,
           confidence: result.confidence || "low", reason: result.reason || "AI provisional",
           calibration_status: calibrationStatus,
           auto_marks: calibrationStatus === "calibrated" && ["Proposed", "Demolition"].includes(result.classification) && Array.isArray(result.auto_marks)
@@ -133,6 +139,7 @@ export default {
       if (!Array.isArray(pages) || pages.length < 1 || pages.length > 20) return fail("Include between one and twenty reviewed drawing pages.");
       const summaries = pages.map(p => ({
         filename: String(p.filename || "").slice(0,160), page_number: Number(p.page_number),
+        view_name:String(p.view_name||"").slice(0,100),view_type:String(p.view_type||"").slice(0,40),
         classification: String(p.classification || "").slice(0,50), reason: String(p.reason || "").slice(0,700),
         calibration_status: p.calibration_status === "reference-only" ? "reference-only" : "calibrated",
         takeoff_draft: Array.isArray(p.takeoff_draft) ? p.takeoff_draft.slice(0,25) : [],
