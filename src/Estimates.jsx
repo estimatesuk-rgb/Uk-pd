@@ -79,7 +79,7 @@ export default function Estimates({db,project,docs=[],onReloadDocs=()=>{}}){
  const [rateImportBusy,setRateImportBusy]=useState(false),[rateImportStatus,setRateImportStatus]=useState(''),[rateImportReview,setRateImportReview]=useState([]);
  const [editingBoq,setEditingBoq]=useState(null);const [takeoffNotes,setTakeoffNotes]=useState('');const [item,setItem]=useState(initialItem),[pcDraft,setPcDraft]=useState({description:'',amount:'',attendance_percent:'0'}),[provisionalDraft,setProvisionalDraft]=useState({description:'',amount:'',defined:false,include:true}),[dayworkDraft,setDayworkDraft]=useState({description:'',labour:0,materials:0,plant:0,markup:0}),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);
  const [aiBusy,setAiBusy]=useState(false),[aiReview,setAiReview]=useState(null);
- const [jobTypeSaving,setJobTypeSaving]=useState(false);
+ const [jobTypeSaving,setJobTypeSaving]=useState(false),[stageSaving,setStageSaving]=useState(false);
  const [aiPreviewId,setAiPreviewId]=useState(null);
  const [aiProgress,setAiProgress]=useState({processed:0,total:0,stage:'idle'}); const [drawing,setDrawing]=useState(''),[page,setPage]=useState(1),[pageCount,setPageCount]=useState(1),[image,setImage]=useState(''),[dimensions,setDimensions]=useState([0,0]);
  const [calibrate,setCalibrate]=useState(false),[reference,setReference]=useState(null),[calibrationMetres,setCalibrationMetres]=useState(''),[calibrationFirst,setCalibrationFirst]=useState(null),[drag,setDrag]=useState(null),[hover,setHover]=useState(null),[markName,setMarkName]=useState('New work'),[stage,setStage]=useState('Proposed');
@@ -545,6 +545,18 @@ export default function Estimates({db,project,docs=[],onReloadDocs=()=>{}}){
    }catch(e){setNotice('Job type could not be saved: '+String(e?.message||e)+'. Retry selection before running take-off.');}
    finally{setJobTypeSaving(false)}
  }
+ async function chooseDrawingStage(id,stage){
+   if(stageSaving||jobTypeSaving||aiBusy)return;
+   const next={...estimate,drawing_stages:{...(estimate.drawing_stages||{}),[id]:stage}};
+   setStageSaving(true);
+   try{
+     const {error}=await db.from('projects').update({estimate_data:next}).eq('id',project.id);
+     if(error)throw error;
+     setEstimate(next);
+     setNotice('Drawing classification saved. Continue with the remaining pages or Step 2 calibration.');
+   }catch(e){setNotice('Drawing stage was not saved: '+String(e?.message||e));}
+   finally{setStageSaving(false)}
+ }
  function patch(k,v){setEstimate(x=>({...x,[k]:v}))}
  async function save(next=estimate){setBusy(true);try{const{error}=await db.from('projects').update({estimate_data:next}).eq('id',project.id);setNotice(error?'Save failed: '+error.message:'Estimate and drawing highlights saved')}finally{setBusy(false)}}
  async function uploadBuilderLogo(f){
@@ -878,10 +890,11 @@ export default function Estimates({db,project,docs=[],onReloadDocs=()=>{}}){
  <div id="estimate-ai-takeoff" className="estimateForm" style={{padding:16,marginBottom:16}}>
  <div style={{gridColumn:'1 / -1'}}><strong>Step 1 — What type of job are we measuring?</strong><p className="muted">Tap the work type before the AI reads the plans. This controls which drawings are required and whether an existing/proposed comparison must be carried out.</p><div role="group" aria-label="Choose construction job type" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(170px,1fr))',gap:8}}>{TAKEOFF_JOB_TYPES.map(t=><button type="button" key={t.id} aria-pressed={estimate.project_type===t.id} className={estimate.project_type===t.id?'selected':'outline'} disabled={aiBusy||calibrationSaving||jobTypeSaving} onClick={()=>chooseJobType(t.id)}>{t.label}</button>)}</div><p role="status"><strong>{estimate.project_type?jobTypeFor(estimate.project_type)?.label||'Unknown job type':'No job type chosen'}</strong>{estimate.project_type?' — '+(estimate.drawing_mode==='new-build'?'New build: no existing plans required.':'Existing versus proposed comparison required.'):'. Choose an option above to continue.'}</p></div>
  <p style={{gridColumn:'1 / -1'}} role="status">{jobTypeSaving?'Saving your job type…':fileDocs.length+' supported plan file(s) currently recognised.'} <button type="button" className="outline" onClick={onReloadDocs} disabled={aiBusy}>Refresh uploaded drawings</button> If you have just uploaded drawings in another browser, refresh this list before Step 3.</p>
+ <div style={{gridColumn:'1 / -1',padding:'10px 0'}}><strong>Classify uploaded drawings before reading</strong><p className="muted">Label each file as Existing, Proposed, Demolition, or Detail / Supporting. The choices are saved with the project. {stageSaving?'Saving drawing stage…':''}</p><div style={{display:'grid',gap:8}}>{fileDocs.map(d=><label key={d.id} style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}><span style={{flex:'1 1 190px'}}>{drawingDisplayName(d)}</span><select aria-label={'Drawing type for '+drawingDisplayName(d)} disabled={stageSaving||aiBusy||jobTypeSaving} value={(estimate.drawing_stages||{})[d.id]||'Unclassified'} onChange={e=>chooseDrawingStage(d.id,e.target.value)}><option value="Unclassified">Choose drawing stage</option><option value="Existing">Existing</option><option value="Proposed">Proposed</option><option value="Demolition">Demolition</option><option value="Detail / Supporting">Detail / Supporting</option><option value="Mixed existing/proposed">Mixed existing/proposed</option></select></label>)}{!fileDocs.length&&<p role="alert">No PDF or image drawings found. Refresh above or upload plans in Documents.</p>}</div></div>
  <p className="muted" style={{gridColumn:'1 / -1'}}>Classify every uploaded file in the Drawing register below. The AI may only measure work when its observed stage agrees with your registered drawing stage. Combined existing/proposed sheets need manual verification; they cannot automatically supply quantity outlines.</p>
  <div style={{gridColumn:'1 / -1'}}><strong>Step 2 — Check drawing scales</strong><p className="muted">Each measurable sheet needs one checked, written dimension before the AI take-off can start. Use two taps (phone) or drag along the dimension (desktop). Construction notes and details without measurable drawings can be marked no scale required; AI still reads their specifications and notes. Different-scale views need separate checking.</p></div>
- <button type="button" onClick={beginCalibration} disabled={calibrationLoading||aiBusy||jobTypeSaving}>{calibrationLoading?'Working…':'Set drawing scales'}</button>
- <button type="button" aria-busy={aiBusy} style={{fontSize:18,fontWeight:700,padding:'14px 22px'}} onClick={runAiTakeoff} disabled={aiBusy||calibrationLoading||calibrationSaving||jobTypeSaving}>{aiBusy?<span role="status" aria-live="polite">Working…</span>:estimate.ai_last_analysed_at?"Reanalyse drawings — review new findings":"Step 3 — Start AI Take-Off"}</button>
+ <button type="button" onClick={beginCalibration} disabled={calibrationLoading||aiBusy||jobTypeSaving||stageSaving}>{calibrationLoading?'Working…':'Set drawing scales'}</button>
+ <button type="button" aria-busy={aiBusy} style={{fontSize:18,fontWeight:700,padding:'14px 22px'}} onClick={runAiTakeoff} disabled={aiBusy||calibrationLoading||calibrationSaving||jobTypeSaving||stageSaving}>{aiBusy?<span role="status" aria-live="polite">Working…</span>:estimate.ai_last_analysed_at?"Reanalyse drawings — review new findings":"Step 3 — Start AI Take-Off"}</button>
  {estimate.ai_last_analysed_at&&<p style={{gridColumn:'1 / -1'}} role="status"><strong>Existing BOQ protected:</strong> Running AI analysis again will not add, remove or overwrite saved BOQ lines. New findings go into the review queue until you approve them individually. Previously saved lines remain unchanged. (Reader safeguard version 2026-10-12-R36.)</p>}
  {calibrationPages.length>0&&<p style={{gridColumn:'1 / -1'}} aria-live="polite">{calibrationPages.length-missingCalibration(calibrationPages).length} of {calibrationPages.length} pages scaled or marked no scale required. {missingCalibration(calibrationPages).length?'Finish the remaining pages before take-off.':'All pages checked — ready to start AI drawing review.'}</p>}
  <div style={{gridColumn:'1 / -1'}} aria-live="polite" role="status">
