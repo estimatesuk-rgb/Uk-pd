@@ -36,9 +36,10 @@ test('duplicate geometry is not silently approved by a user click',()=>{
 test('distinct pending outline may be explicitly selected but still provisional',()=>{
  const item={...newItem,id:'c',ai_auto_key:'new-2',
  takeoff_evidence:{...newItem.takeoff_evidence,highlight_id:'mark-c',region:{x:.7,y:.7,w:.1,h:.1}}};
- const distinct={...mark,id:'mark-c',x:.7,y:.7,w:.1,h:.1};
+ const distinct={...mark,id:'mark-c',x:.701,y:.701,w:.101,h:.101,evidence:'Ground floor slab between gridlines A3 and C7 on drawing01'};
  const r=stageAiTakeoff(saved,[],[item],[distinct]);
- const result=decideAiSuggestion({...saved,ai_pending_takeoff:r.ai_pending_takeoff},'c','add');
+ const estimate={...saved,calibrations:{'doc1#1':{status:'calibrated',crosscheck_verified:true}},ai_pending_takeoff:r.ai_pending_takeoff};
+ const result=decideAiSuggestion(estimate,'c','add');
  assert.equal(result.error,undefined);
  assert.equal(result.next.items.length,2);
  assert.equal(result.next.items[1].ref_no,'002');
@@ -102,4 +103,13 @@ test('new-build first run can retain explicit provisional AI lines as before',()
 test('review queue capacity refuses extra items instead of silently omitting work',()=>{
  const previous={...saved,ai_pending_takeoff:Array.from({length:150},(_,i)=>({id:'q'+i,item:{id:'q'+i,ai_draft_key:'q'+i}}))};
  assert.throws(()=>stageAiTakeoff(previous,[{id:'scope-x',description:'Another element',ai_draft_key:'more-work'}],[],[]),/More than 150/);
+});
+
+test('legacy single-dimension AI suggestions cannot be approved or priced, even when selected',()=>{
+ const item={...newItem,id:'legacy',ai_auto_key:'old-mark',takeoff_evidence:{...newItem.takeoff_evidence,highlight_id:'legacy-mark'}};
+ const legacy={...mark,id:'legacy-mark',x:.211,y:.213,w:.173,h:.182,evidence:'Individual slab on plan ground floor'};
+ const data={...saved,calibrations:{'doc1#1':{status:'calibrated',metresPerPixel:0.01,crosscheck_verified:false}},
+  ai_pending_takeoff:[{id:'legacy',kind:'measured',item,highlight:legacy}]};
+ const result=decideAiSuggestion(data,'legacy','add');
+ assert.match(result.error,/Unverified AI scale/);
 });
