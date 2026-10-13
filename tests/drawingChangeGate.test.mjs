@@ -19,3 +19,10 @@ test('draft scope requires exact source and classification',()=>{
  assert.equal(validateDraftChange(pages,[change],{...draft,drawing_reference:'proposed.pdf p10'}),false);
  assert.equal(validateDraftChange(pages,[{...change,classification:'Retained unchanged'}],draft),false);
 });
+
+test('draft scope fails closed for duplicated or contradictory evidence',()=>{
+ const draft={description:'New wall',drawing_reference:'proposed.pdf p1'};
+ assert.equal(validateDraftChange(pages,[change,change],draft),false);
+ assert.equal(validateDraftChange(pages,[change,{...change,classification:'Retained unchanged'}],draft),false);
+ assert.equal(validateDraftChange(pages,[change,{...change,confidence:'low'}],draft),false);
+});
