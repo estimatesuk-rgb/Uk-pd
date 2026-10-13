@@ -141,13 +141,18 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
  async function storeScale(){
   if(!view||!viewDoc||!previewDims)return setMessage('Select a registered drawing view.');
   if(points.length!==2)return setMessage('Click both ends of a printed dimension INSIDE the isolated view.');
+  const dx=Math.abs((points[1].x-points[0].x)*previewDims[0]);
+  const dy=Math.abs((points[1].y-points[0].y)*previewDims[1]);
+  const first=calibration?.status!=='first-dimension';
+  if(first&&dx<=dy*2)return setMessage('Step 1: choose a HORIZONTAL X-axis printed dimension.');
+  if(!first&&dy<=dx*2)return setMessage('Step 2: choose a VERTICAL Y-axis printed dimension.');
   const result=saveViewScaleCheck({view,document:viewDoc,previous:calibration,
    dimensions:previewDims,points,metres:n(metres)});
   if(!result.ok)return setMessage(result.error);
   try{await saveUpdate('view_calibrations',{...calibrations,[view.id]:result.value});
    setPoints([]);setMetres('');
-   setMessage(result.complete?'Two independent printed dimensions agree. The view is ready for checked take-off.':
-     'First dimension saved. Select a DIFFERENT printed dimension for the second scale check.');
+   setMessage(result.complete?'X and Y verified. Next use an elevation or section for Z heights: wall, eaves and ridge levels.':
+     'X-axis saved. Now click both ends of a VERTICAL Y-axis dimension and enter its printed length.');
   }catch{}
  }
  async function addElement(){
@@ -283,8 +288,9 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
      (calibration?.status==='first-dimension'?'First dimension saved; select a second independent line':
       'Unverified view scale')}.</p>
     {mode==='scale'?<div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'end'}}>
-     <label>Printed dimension (metres)<input type="number" min="0.001" step="0.001" value={metres} onChange={e=>setMetres(e.target.value)} placeholder="e.g. 5.006"/></label>
-     <button type="button" disabled={working||points.length!==2} onClick={storeScale}>{calibration?'Verify second dimension':'Save first dimension'}</button>
+      <p style={{flexBasis:'100%'}}><strong>{scaleCheck.ok?'Step 3: Z heights':calibration?.status==='first-dimension'?'Step 2: Y-axis (vertical)':'Step 1: X-axis (horizontal)'}</strong> — {scaleCheck.ok?'Use a dimensioned elevation or section to verify wall, eaves and ridge heights before saving 3D elements.':calibration?.status==='first-dimension'?'Select the two ends of a vertical printed dimension and enter its true length.':'Select the two ends of a horizontal printed dimension and enter its true length.'}</p>
+     <label>{calibration?.status==='first-dimension'?'Y-axis printed dimension (metres)':'X-axis printed dimension (metres)'}<input type="number" min="0.001" step="0.001" value={metres} onChange={e=>setMetres(e.target.value)} placeholder="e.g. 5.006"/></label>
+     <button type="button" disabled={working||points.length!==2} onClick={storeScale}>{calibration?.status==='first-dimension'?'Verify Y-axis dimension':scaleCheck.ok?'Scale verified':'Save X-axis dimension'}</button>
     </div>:<>
      <p><strong>{mode==='opening'?'Host wall opening':mode==='roof'?'Roof face trace':'Deterministic trace'}:</strong> {mode==='opening'?'Choose a checked host wall and enter the opening dimensions.':measures?.ok?format(measures.quantity)+' '+measures.unit:'Complete the trace on a two-dimension-calibrated view.'}</p>
      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
@@ -309,7 +315,8 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
       </>}
       {mode==='slab'&&<label>Known floor area for comparison (m², optional)<input type="number" step=".01" value={expectedArea} onChange={e=>setExpectedArea(e.target.value)} placeholder="e.g. 31.88"/></label>}
      </div>
-     <label>Dimension source / section reference<input value={sourceNote} onChange={e=>setSourceNote(e.target.value)} placeholder="Drawing C3, 5006 mm by 6368 mm, Section A-A"/></label>
+     <p style={{flexBasis:'100%'}}><strong>Step 3: Height (Z).</strong> Refer to the elevation or section and enter measured wall heights, eaves and ridge levels. Do not guess missing values.</p>
+      <label>Dimension source / section reference<input value={sourceNote} onChange={e=>setSourceNote(e.target.value)} placeholder="Drawing C3, 5006 mm by 6368 mm, Section A-A"/></label>
      <label><input type="checkbox" checked={approved} onChange={e=>setApproved(e.target.checked)}/> I have checked the dimensions, revision, alignment, source section and element position</label>
      <button type="button" disabled={working||!scaleCheck.ok||!approved} onClick={addElement}>Save verified IFC {bimType}</button>
     </>}
