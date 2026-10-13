@@ -229,7 +229,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
  return <div className="estimateForm" style={{border:'2px solid #577997',borderRadius:12,
    padding:14,margin:'18px 0',gridTemplateColumns:'minmax(0,1fr)'}}>
   <h3 style={{margin:'0 0 8px'}}>Drawing-view workbench — measured take-off + IFC4 BIM</h3>
-  <p className="muted">For A1 sheets with plans, elevations and sections at different scales. Register each view independently, check two printed dimensions, then draw the actual work outline. No whole-sheet scale, guessed geometry or assumed wall heights.</p>
+  <p className="muted">Isolate a plan or roof view, verify two independent dimensions, then model checked slabs, walls, roof planes, doors and windows. Missing geometry or heights are never inferred.</p>
   <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'end'}}>
    <label>Drawing<select value={docId} onChange={e=>{setDocId(e.target.value);setPage(1);setSheet(null);setPreview(null)}}>{docs.map(d=><option key={d.id} value={d.id}>{d.document_no||d.title||d.file_path}</option>)}</select></label>
    <label>PDF page<input type="number" min="1" max={pages} value={page} onChange={e=>{setPage(Math.max(1,Number(e.target.value)||1));setSheet(null);setPreview(null)}}/></label>
@@ -263,10 +263,12 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
    {!preview&&<p>Load the matching drawing and select this registered view again to see its isolated crop.</p>}
    {preview&&<>
     <div style={{display:'flex',gap:10,alignItems:'end',flexWrap:'wrap'}}>
-     <label>Tool<select value={mode} onChange={e=>{setMode(e.target.value);setPoints([])}}>
+     <label>Tool<select value={mode} onChange={e=>{const next=e.target.value;setMode(next);setPoints([]);setBimType(next==='opening'?'window':next==='roof'?'roof':next==='wall'?'wall':'slab')}}>
       <option value="scale">Select dimension endpoints</option>
       <option value="slab">Trace slab/floor perimeter</option>
       <option value="wall">Trace wall centre-line</option>
+      <option value="roof">Trace one roof face</option>
+      <option value="opening">Add door / window to checked wall</option>
      </select></label>
      <button type="button" className="outline" onClick={()=>setPoints(x=>x.slice(0,-1))}>Undo last point</button>
      <button type="button" className="outline" onClick={()=>setPoints([])}>Clear trace</button>
@@ -274,7 +276,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
     <div style={{position:'relative',maxWidth:1000,border:'1px solid #8190a5',margin:'8px 0'}}>
      <img src={preview} alt={'Isolated '+view.name+' drawing view; click vertices'}
       draggable={false} onClick={viewClick} style={{display:'block',width:'100%',cursor:'crosshair',touchAction:'manipulation'}}/>
-     <Overlay points={points} closed={mode==='slab'}/>
+     <Overlay points={points} closed={mode==='slab'||mode==='roof'}/>
     </div>
     <p role="status">{points.length} selected point(s) · {scaleCheck.ok?
      'Two independent scale dimensions verified':
@@ -284,28 +286,42 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
      <label>Printed dimension (metres)<input type="number" min="0.001" step="0.001" value={metres} onChange={e=>setMetres(e.target.value)} placeholder="e.g. 5.006"/></label>
      <button type="button" disabled={working||points.length!==2} onClick={storeScale}>{calibration?'Verify second dimension':'Save first dimension'}</button>
     </div>:<>
-     <p><strong>Deterministic trace:</strong> {measures?.ok?format(measures.quantity)+' '+measures.unit:'Not yet measurable. Complete the trace on a two-dimension-calibrated view.'}</p>
+     <p><strong>{mode==='opening'?'Host wall opening':mode==='roof'?'Roof face trace':'Deterministic trace'}:</strong> {mode==='opening'?'Choose a checked host wall and enter the opening dimensions.':measures?.ok?format(measures.quantity)+' '+measures.unit:'Complete the trace on a two-dimension-calibrated view.'}</p>
      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
       <label>Element<input value={bimName} onChange={e=>setBimName(e.target.value)} placeholder="e.g. Plot 18 ground floor slab"/></label>
-      <label>IFC class<select value={bimType} onChange={e=>setBimType(e.target.value)}><option value="slab">IfcSlab</option><option value="wall">IfcWall</option></select></label>
-      <label>Base level (m)<input type="number" step=".001" value={base} onChange={e=>setBase(e.target.value)}/></label>
-      <label>Thickness (m)<input type="number" step=".001" value={thickness} onChange={e=>setThickness(e.target.value)}/></label>
-      {mode==='wall'&&<label>Wall height (m)<input type="number" step=".001" value={height} onChange={e=>setHeight(e.target.value)}/></label>}
-      <label>Common origin X (m)<input type="number" step=".001" value={xOrigin} onChange={e=>setXOrigin(e.target.value)}/></label>
-      <label>Common origin Y (m)<input type="number" step=".001" value={yOrigin} onChange={e=>setYOrigin(e.target.value)}/></label>
+      <label>IFC class<select value={bimType} onChange={e=>setBimType(e.target.value)}>{mode==='opening'?<><option value="window">IfcWindow</option><option value="door">IfcDoor</option></>:mode==='roof'?<option value="roof">IfcRoof</option>:mode==='wall'?<option value="wall">IfcWall</option>:<option value="slab">IfcSlab</option>}</select></label>
+      {mode!=='opening'&&<>
+       <label>{mode==='roof'?'Eaves level (m)':'Base level (m)'}<input type="number" step=".001" value={base} onChange={e=>setBase(e.target.value)}/></label>
+       <label>{mode==='roof'?'Roof thickness (m)':'Thickness (m)'}<input type="number" step=".001" value={thickness} onChange={e=>setThickness(e.target.value)}/></label>
+       <label>Common origin X (m)<input type="number" step=".001" value={xOrigin} onChange={e=>setXOrigin(e.target.value)}/></label>
+       <label>Common origin Y (m)<input type="number" step=".001" value={yOrigin} onChange={e=>setYOrigin(e.target.value)}/></label>
+      </>}
+      {(mode==='wall'||mode==='opening')&&<label>{mode==='opening'?'Opening height (m)':'Wall height (m)'}<input type="number" step=".001" value={height} onChange={e=>setHeight(e.target.value)}/></label>}
+      {mode==='roof'&&<>
+       <label>High/ridge level (m)<input type="number" step=".001" value={roofHigh} onChange={e=>setRoofHigh(e.target.value)} placeholder="Verified from section"/></label>
+       <label>Roof rises along<select value={slopeAxis} onChange={e=>setSlopeAxis(e.target.value)}><option value="x">Project X axis</option><option value="y">Project Y axis</option></select></label>
+      </>}
+      {mode==='opening'&&<>
+       <label>Host wall segment<select value={openingHost} onChange={e=>setOpeningHost(e.target.value)}><option value="">Choose verified wall</option>{hostChoices.map(w=><option key={w.id} value={w.id}>{w.name} (length checked)</option>)}</select></label>
+       <label>Start offset along wall (m)<input type="number" step=".001" value={openingOffset} onChange={e=>setOpeningOffset(e.target.value)} /></label>
+       <label>Opening width (m)<input type="number" step=".001" value={openingWidth} onChange={e=>setOpeningWidth(e.target.value)} /></label>
+       <label>Sill above host wall base (m)<input type="number" step=".001" value={openingSill} onChange={e=>setOpeningSill(e.target.value)} /></label>
+      </> 
       {mode==='slab'&&<label>Known floor area for comparison (m², optional)<input type="number" step=".01" value={expectedArea} onChange={e=>setExpectedArea(e.target.value)} placeholder="e.g. 31.88"/></label>}
      </div>
      <label>Dimension source / section reference<input value={sourceNote} onChange={e=>setSourceNote(e.target.value)} placeholder="Drawing C3, 5006 mm by 6368 mm, Section A-A"/></label>
-     <label><input type="checkbox" checked={approved} onChange={e=>setApproved(e.target.checked)}/> I have checked the trace, drawing revision, scale, level, thickness and construction source</label>
-     <button type="button" disabled={working||!scaleCheck.ok||!approved} onClick={addElement}>Save checked element to BIM</button>
+     <label><input type="checkbox" checked={approved} onChange={e=>setApproved(e.target.checked)}/> I have checked the dimensions, revision, alignment, source section and element position</label>
+     <button type="button" disabled={working||!scaleCheck.ok||!approved} onClick={addElement}>Save verified IFC {bimType}</button>
     </>}
    </>}
   </div>}
   <div>
-   <strong>4. IFC4 BIM model · {bim.models.length} generated element(s)</strong>
-   <p className="muted">Only checked geometry is included. All included views must have a reviewed common coordinate origin. Roof form, openings, framing, foundations and services require their own verified geometry and specifications.</p>
-   {elements.map(e=><p key={e.id}>{e.name} — {e.type} · source {views.find(v=>v.id===e.view_id)?.name||'missing'} · {e.checked?'QS checked':'Unverified'}</p>)}
+   <strong>4. IFC4 BIM model · {bim.models.length} model element(s)</strong>
+   <p className="muted">Checked floors, walls, roof faces and door/window openings only. Any unmodelled elements, structural details and services remain outstanding. Verify the whole model in a dedicated IFC/BIM viewer.</p>
+   {elements.map(e=><p key={e.id}>{e.name} — {e.type} · source {views.find(v=>v.id===e.view_id)?.name||'missing'}</p>)}
+   {features.map(f=><p key={f.id}>{f.name} — {f.type} · verified dimensions recorded</p>)}
    {bim.issues.length>0&&<p role="alert">{bim.issues.slice(0,6).map(x=>x.label+': '+x.reason).join(' | ')}</p>}
+   {bim.models.length>0&&<BimScene3D elements={bim.models}/>}
    <button type="button" onClick={exportIfc} disabled={working||bim.issues.length>0||!bim.models.length}>Generate IFC4 3D BIM file</button>
   </div>
   {message&&<p role="status" className="notice">{message}</p>}
