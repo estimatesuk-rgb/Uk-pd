@@ -1,6 +1,7 @@
 import {classifyChangeEvidence,validateDraftChange} from './drawingChangeGate.mjs';
 import {validateDrawingPackage,validateObservedDrawingPackage,verifiedAutoStage} from './drawingPackageGate.mjs';
 import {TAKEOFF_JOB_TYPES,jobTypeFor,validateJobType} from './takeoffJobTypes.mjs';
+import {uploadedExtension,isCurrentDrawingFile,drawingDisplayName} from './drawingFileTypes.mjs';
 import React,{useEffect,useRef,useState} from 'react';
 import {Document,Packer,Paragraph,TextRun,Table,TableRow,TableCell,HeadingLevel,ImageRun} from 'docx';
 import * as pdfjs from 'pdfjs-dist';
@@ -92,7 +93,7 @@ export default function Estimates({db,project,docs=[]}){
  const [zoom,setZoom]=useState(1),[panMode,setPanMode]=useState(false);
  const zoomRef=useRef(1),pointerPositions=useRef(new Map()),pinchRef=useRef(null),panRef=useRef(null),gestureRef=useRef(false),scrollAnimation=useRef(null);
  useEffect(()=>{zoomRef.current=1;setZoom(1);setPanMode(false);pointerPositions.current.clear();pinchRef.current=null;panRef.current=null;gestureRef.current=false;pressedPoint.current=null;firstCalibrationPoint.current=null;firstMeasurePointRef.current=null;setFirstMeasurePoint(null);setDrag(null);setHover(null);return()=>{if(scrollAnimation.current)cancelAnimationFrame(scrollAnimation.current)}},[drawing,page]);
- const fileDocs=docs.filter(d=>d.status!=='Superseded'&&/\.(pdf|png|jpg|jpeg)$/i.test(d.document_no||d.title||d.file_path||''));
+ const fileDocs=docs.filter(isCurrentDrawingFile);
  useEffect(()=>{db.from('estimate_rate_library').select('*').order('description').limit(5000).then(({data,error})=>{if(!error)setRateLibrary(data||[])});},[db]);
  useEffect(()=>{db.from('estimate_builders').select('*').order('name').then(({data,error})=>{if(!error)setBuilders(data||[])});},[db]);
  // Fetch a selected sheet only when the drawing or page changes, never on each zoom.
@@ -107,7 +108,7 @@ export default function Estimates({db,project,docs=[]}){
      if(cancelled)return;
      if(error||!data?.signedUrl){setNotice(error?.message||'Drawing could not be opened');return}
      try{
-       const url=data.signedUrl,ext=(d.document_no||d.title||d.file_path||'').split('.').pop().toLowerCase();
+       const url=data.signedUrl,ext=uploadedExtension(d);
        if(ext!=='pdf'){setImage(url);setPageCount(1);return}
        const loading=pdfjs.getDocument({url});
        doc=await loading.promise;
@@ -172,8 +173,8 @@ export default function Estimates({db,project,docs=[]}){
    for(const d of fileDocs){
      const {data:signed,error}=await db.storage.from('project-files').createSignedUrl(d.file_path,1200);
      if(error||!signed?.signedUrl)throw Error('Cannot read drawing '+(d.document_no||d.title||''));
-     const filename=d.document_no||d.title||d.file_path||'Drawing';
-     const ext=filename.split('.').pop().toLowerCase();
+     const filename=drawingDisplayName(d);
+     const ext=uploadedExtension(d);
      if(ext==='pdf'){
        const pdf=await pdfjs.getDocument({url:signed.signedUrl}).promise;
        count+=pdf.numPages;
@@ -300,7 +301,7 @@ export default function Estimates({db,project,docs=[]}){
  }
  async function runAiTakeoff(){
    if(aiBusy)return;
-   if(!fileDocs.length){setNotice('Upload plans in Documents before running take-off.');return}
+   if(!fileDocs.length){setNotice('No supported drawing files were found for this project. Upload PDF, JPG, PNG or WebP plans in Documents, then reopen this estimate.');return}
    const jobCheck=validateJobType(estimate.project_type,estimate.drawing_mode);
    if(!jobCheck.ok){setNotice(jobCheck.error);return}
    const packageCheck=validateDrawingPackage(jobCheck.mode,fileDocs,estimate.drawing_stages||{});
@@ -862,8 +863,8 @@ export default function Estimates({db,project,docs=[]}){
  <div style={{gridColumn:'1 / -1'}}><strong>Step 1 — What type of job are we measuring?</strong><p className="muted">Tap the work type before the AI reads the plans. This controls which drawings are required and whether an existing/proposed comparison must be carried out.</p><div role="group" aria-label="Choose construction job type" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(170px,1fr))',gap:8}}>{TAKEOFF_JOB_TYPES.map(t=><button type="button" key={t.id} aria-pressed={estimate.project_type===t.id} className={estimate.project_type===t.id?'selected':'outline'} disabled={aiBusy||calibrationSaving} onClick={()=>{setEstimate(current=>({...current,project_type:t.id,drawing_mode:t.mode}));setNotice(t.mode==='new-build'?'New-build take-off selected. Upload proposed drawings and classify them as Proposed. Existing plans are not required.':'Existing-building work selected. Upload existing and proposed drawings, classify each sheet and confirm the changed work before take-off.')}}>{t.label}</button>)}</div><p role="status"><strong>{estimate.project_type?jobTypeFor(estimate.project_type)?.label||'Unknown job type':'No job type chosen'}</strong>{estimate.project_type?' — '+(estimate.drawing_mode==='new-build'?'New build: no existing plans required.':'Existing versus proposed comparison required.'):'. Choose an option above to continue.'}</p></div>
  <p className="muted" style={{gridColumn:'1 / -1'}}>Classify every uploaded file in the Drawing register below. The AI may only measure work when its observed stage agrees with your registered drawing stage. Combined existing/proposed sheets need manual verification; they cannot automatically supply quantity outlines.</p>
  <div style={{gridColumn:'1 / -1'}}><strong>Step 2 — Check drawing scales</strong><p className="muted">Each measurable sheet needs one checked, written dimension before the AI take-off can start. Use two taps (phone) or drag along the dimension (desktop). Construction notes and details without measurable drawings can be marked no scale required; AI still reads their specifications and notes. Different-scale views need separate checking.</p></div>
- <button type="button" onClick={beginCalibration} disabled={calibrationLoading||aiBusy||!estimate.project_type}>{calibrationLoading?'Working…':'Set drawing scales'}</button>
- <button type="button" aria-busy={aiBusy} style={{fontSize:18,fontWeight:700,padding:'14px 22px'}} onClick={runAiTakeoff} disabled={aiBusy||calibrationLoading||calibrationSaving||!estimate.project_type}>{aiBusy?<span role="status" aria-live="polite">Working…</span>:estimate.ai_last_analysed_at?"Reanalyse drawings — review new findings":"Step 3 — Start AI Take-Off"}</button>
+ <button type="button" onClick={beginCalibration} disabled={calibrationLoading||aiBusy}>{calibrationLoading?'Working…':'Set drawing scales'}</button>
+ <button type="button" aria-busy={aiBusy} style={{fontSize:18,fontWeight:700,padding:'14px 22px'}} onClick={runAiTakeoff} disabled={aiBusy||calibrationLoading||calibrationSaving}>{aiBusy?<span role="status" aria-live="polite">Working…</span>:estimate.ai_last_analysed_at?"Reanalyse drawings — review new findings":"Step 3 — Start AI Take-Off"}</button>
  {estimate.ai_last_analysed_at&&<p style={{gridColumn:'1 / -1'}} role="status"><strong>Existing BOQ protected:</strong> Running AI analysis again will not add, remove or overwrite saved BOQ lines. New findings go into the review queue until you approve them individually. Previously saved lines remain unchanged. (Reader safeguard version 2026-10-12-R36.)</p>}
  {calibrationPages.length>0&&<p style={{gridColumn:'1 / -1'}} aria-live="polite">{calibrationPages.length-missingCalibration(calibrationPages).length} of {calibrationPages.length} pages scaled or marked no scale required. {missingCalibration(calibrationPages).length?'Finish the remaining pages before take-off.':'All pages checked — ready to start AI drawing review.'}</p>}
  <div style={{gridColumn:'1 / -1'}} aria-live="polite" role="status">
