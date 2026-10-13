@@ -29,7 +29,7 @@ test('each view needs two independent printed dimensions; a page-level scale is 
 test('view crop has its own coordinate system and deterministic area, never 613 m2 guessed rectangles',()=>{
  const trace=[{x:.1,y:.1},{x:.6,y:.1},{x:.6,y:.5},{x:.1,y:.5}];
  const result=viewQuantity({view,document:doc,calibration:second.value,kind:'area',points:trace});
- assert.equal(result.ok,true);assert.equal(result.quantity,21.6);
+ assert.equal(result.ok,true);assert.ok(Math.abs(result.quantity-21.6)<1e-9);
  assert.equal(viewQuantity({view,document:doc,calibration:first.value,kind:'area',points:trace}).ok,false);
  assert.equal(viewQuantity({view,document:doc,calibration:second.value,kind:'length',points:trace}).ok,true);
 });
