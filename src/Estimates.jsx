@@ -22,6 +22,7 @@ import {auditMeasurementQuality} from './aiMeasurementQuality.mjs';
 import {previewPendingMark} from './aiPendingPreview.mjs';
 import {verifySecondDimension} from './scaleCrosscheck.mjs';
 import {prepareIfcElements,createIfc4Model} from './ifcExport.mjs';
+import DrawingViewWorkbench from './DrawingViewWorkbench.jsx';
 pdfjs.GlobalWorkerOptions.workerSrc=new URL('pdfjs-dist/build/pdf.worker.min.mjs',import.meta.url).toString();
 const fresh={items:[],highlights:[],builder_id:'',drawing_mode:'',project_type:'',takeoff_review_status:'Draft',takeoff_reviewer:'',takeoff_reviewed_at:'',measurement_standard:'NRM2',drawing_stages:{},supplier_price_date:'',supplier_price_source:'',global_adjustment:0,overheads:15,profit:10,vat:20,pc_sums:[],provisional_sums:[],dayworks:[],contingency_mode:'percent',contingency_value:0,quote_intro:'We are pleased to provide our quotation for the works described below.',quote_scope:'',quote_validity:'30 days',quote_payment_terms:'Payment schedule to be agreed before commencement.',quote_exclusions:'Items not expressly included are excluded.',quote_terms:'Subject to agreed contract terms.',quote_ref:'',quote_revisions:[]};
 const initialItem={ref_no:'',work_section:'Measured Works',description:'',trade:'General',drawing:'',quantity:0,unit:'m²',material_rate:0,plant_rate:0,labour_hours:0,labour_rate:0,supplier:'',price_url:'',status:'Needs verification'};
@@ -626,6 +627,12 @@ export default function Estimates({db,project,docs=[],onReloadDocs=()=>{}}){
  }
  function patch(k,v){setEstimate(x=>({...x,[k]:v}))}
  async function save(next=estimate){setBusy(true);try{const{error}=await db.from('projects').update({estimate_data:next}).eq('id',project.id);setNotice(error?'Save failed: '+error.message:'Estimate and drawing highlights saved')}finally{setBusy(false)}}
+ async function saveViewWorkbenchData(changes){
+   const next={...estimate,...changes};
+   const {error}=await db.from('projects').update({estimate_data:next}).eq('id',project.id);
+   if(error)throw Error(error.message);
+   setEstimate(next);
+ }
  async function uploadBuilderLogo(f){
   if(!f)return;
   if(!['image/png','image/jpeg'].includes(f.type)){setNotice('Please select a PNG or JPEG builder logo.');return}
@@ -1030,6 +1037,7 @@ export default function Estimates({db,project,docs=[],onReloadDocs=()=>{}}){
  <div className="estimateToolbar"><label>Saved builder<select value={estimate.builder_id||''} onChange={e=>patch('builder_id',e.target.value)}><option value="">Select builder</option>{builders.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label><button type="button" onClick={()=>{setBuilderForm({...emptyBuilderForm});setNotice('')}}>+ Add Builder</button><button type="button" className="outline" onClick={editBuilder} disabled={!builder} title={builder?'Edit the saved company and quotation details':'Select a saved builder first'}>Edit Builder</button><button onClick={()=>save()} disabled={busy}>Save estimate</button><button onClick={makeWord}>Generate Word BOQ</button><button type="button" onClick={exportBoqCSV}>Export BOQ CSV</button><button type="button" onClick={exportTakeoffJSON}>Export take-off JSON</button><button type="button" onClick={printMarkedDrawing}>Marked-up drawing PDF appendix</button><button onClick={printQuote}>Preview / Print Quotation</button><button onClick={saveQuoteRevision} disabled={busy||pricingIssues.length>0} title={pricingIssues.length?'Resolve pricing checks before saving a quote revision':''}>Save Quote Revision</button></div>
  {builderForm&&<div className="estimateForm" aria-label={builderForm.id?'Edit builder':'Add builder'}><h3>{builderForm.id?'Edit Builder — company and letterhead details':'Add Builder — company and letterhead details'}</h3>{[['name','Company name'],['contact_name','Contact'],['address','Postal address'],['phone','Phone'],['email','Email'],['vat_number','VAT number'],['company_number','Company number'],['footer','Quotation footer']].map(([k,l])=><label key={k}>{l}<input value={builderForm[k]||''} onChange={e=>setBuilderForm(b=>({...b,[k]:e.target.value}))}/></label>)}<label>Company logo (PNG or JPEG)<input type="file" accept=".png,.jpg,.jpeg" disabled={builderSaving||logoUploading} onChange={e=>uploadBuilderLogo(e.target.files?.[0])}/>{builderForm.logo_path&&<small>Saved logo on file. Upload another image to replace it.</small>}</label><button type="button" onClick={saveBuilder} disabled={builderSaving||logoUploading}>{builderSaving?'Saving builder…':logoUploading?'Uploading logo…':builderForm.id?'Save Builder Changes':'Save Builder'}</button><button type="button" className="outline" disabled={builderSaving||logoUploading} onClick={()=>setBuilderForm(null)}>Cancel</button></div>}
  <h3 id="estimate-drawing-takeoff">1. Drawing take-off and QS review</h3>
+ <DrawingViewWorkbench db={db} project={project} docs={fileDocs} estimate={estimate} onCommit={saveViewWorkbenchData}/>
  {selectedAiProposal&&<div className="notice" role="status">
    <strong>Unapproved AI drawing preview:</strong> {selectedAiProposal.item.description} — {selectedAiProposal.item.quantity} {selectedAiProposal.item.unit}.
    {previewMark?' The AI outline is shown in blue on this drawing.':' Switch to the correct source drawing/page to see this AI outline.'}
