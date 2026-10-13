@@ -460,22 +460,25 @@ export default function Estimates({db,project,docs=[]}){
            method:entry.method,quantity_status:'Provisional - QS verify'},
        });
      }
-     const stage=stageAiTakeoff(estimate,added,autoAdded,newHighlights);
+     const stage=stageAiTakeoff(estimate,added,autoAdded,newHighlights,{forceReview:estimate.drawing_mode==='comparison'});
      const next={...estimate,items:stage.items,highlights:stage.highlights,
        ai_pending_takeoff:stage.ai_pending_takeoff,ai_review_mode:stage.ai_review_mode,
        ai_auto_measurement_review:{accepted:stage.ai_review_mode==='initial'?autoAdded.length-stage.staged_count:0,
          suggested_for_review:stage.staged_count,rejected:autoRejections.slice(0,100),
          checked_pages:count,analysed_at:new Date().toISOString()},
-       ai_page_coverage:summariseAiCoverage(pageCoverage),
+       ai_job_type:estimate.project_type,ai_page_coverage:summariseAiCoverage(pageCoverage),
        ai_drawing_review:comparison.drawing_review,ai_last_analysed_at:new Date().toISOString(),
        takeoff_review_status:'AI draft — QS review required'};
      const {error:saveError}=await db.from('projects').update({estimate_data:next}).eq('id',project.id);
      if(saveError)throw Error('Could not save draft BOQ: '+saveError.message);
      setEstimate(next);setAiReview(comparison.drawing_review);
      setAiProgress({processed:count,total:count,
-       stage:stage.ai_review_mode==='rerun-review'?'Reanalysis saved — BOQ unchanged':'Draft BOQ saved for QS checking'});
+       stage:stage.ai_review_mode==='rerun-review'?'Reanalysis saved — BOQ unchanged':
+         stage.ai_review_mode==='comparison-review'?'Change comparison ready — QS selection required':'Draft BOQ saved for QS checking'});
      const needsMeasurement=added.filter(x=>!x.quantity).length;
-     setNotice(stage.ai_review_mode==='rerun-review'
+     setNotice(stage.ai_review_mode==='comparison-review'
+       ?'AI compared '+count+' page(s) for '+(jobTypeFor(estimate.project_type)?.label||'existing-building work')+'. No AI changes entered the BOQ automatically. '+stage.staged_count+' finding(s) await individual QS review; '+autoRejections.length+' outline(s) were held. Review each drawing before adding items.'
+       :stage.ai_review_mode==='rerun-review'
        ?'AI reviewed '+count+' page(s). Existing BOQ and marked areas were LEFT UNCHANGED. '
          +stage.staged_count+' new observation(s) queued for QS approval; '
          +autoRejections.length+' outline(s) held as duplicates, conflicts or invalid. Inspect the Review new AI suggestions section.'
