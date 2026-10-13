@@ -7,16 +7,19 @@ export function classifyChangeEvidence(pages,changes,candidate){
  if(!existing)return {approved:true,reason:'No existing plan supplied: new-build mode; QS review still required'};
  const source=norm(candidate.filename),page=Number(candidate.page),name=norm(candidate.mark?.name);
  if(!source||!Number.isInteger(page)||page<1||!name)return {approved:false,reason:'Missing traceable drawing reference'};
- const matches=(changes||[]).filter(c=>{
-  const kind=norm(c.classification);
-  if(!classes.has(kind)||norm(c.confidence)!=='high')return false;
-  const ref=norm(kind==='demolished'?c.existing_source:c.proposed_source);
-  const filenameMatch=ref===source+' p'+page||ref===source+' page '+page||
-    ref===source+' '+page;
-  return filenameMatch&&norm(c.element)===name;
- });
- if(matches.length!==1)return {approved:false,reason:matches.length?'Conflicting change evidence':'No exact confirmed change evidence'};
- return {approved:true,reason:'High-confidence drawing comparison match',change:matches[0]};
+ const references=new Set([source+' p'+page,source+' page '+page,source+' '+page]);
+ // Inspect all records for this element/source, including uncertain and retained
+ // records. A contradictory retained entry must invalidate an apparent new work.
+ const related=(changes||[]).filter(c=>norm(c.element)===name&&
+   [norm(c.existing_source),norm(c.proposed_source)].some(ref=>references.has(ref)));
+ if(related.length!==1)return {approved:false,reason:related.length?'Conflicting change evidence':'No exact confirmed change evidence'};
+ const change=related[0],kind=norm(change.classification);
+ if(!classes.has(kind)||norm(change.confidence)!=='high')
+  return {approved:false,reason:'Change is retained, uncertain or lacks high-confidence evidence'};
+ const requiredRef=norm(kind==='demolished'?change.existing_source:change.proposed_source);
+ if(!references.has(requiredRef))
+  return {approved:false,reason:'Change evidence is not linked to the correct drawing stage'};
+ return {approved:true,reason:'High-confidence drawing comparison match',change};
 }
 export function validateDraftChange(pages,changes,draft){
  const existing=(pages||[]).some(p=>norm(p.classification).includes('existing'));
