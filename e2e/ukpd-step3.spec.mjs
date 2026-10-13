@@ -129,6 +129,46 @@ async function expectStep3Feedback(page,pattern,state){
   }));throw e;
  }
 }
+test('Verified BIM model exports IFC roof, wall, slab and hosted door/window relationships',async({page})=>{
+ const evidence='C3 Section A-A verified width, height, level and roof rise reference';
+ const view={id:'g',document_id:DOC_ID,page:1,kind:'ground-floor-plan',name:'Ground plan',
+  source_path:STORAGE_PATH,source_revision:'P01',common_origin_verified:true,
+  bounds:{x:.05,y:.05,w:.45,h:.75}};
+ const roofView={...view,id:'r',name:'Roof plan',kind:'roof-plan'};
+ const cal={status:'calibrated',crosscheck_verified:true,metresPerPixel:.01,
+  source_path:STORAGE_PATH,source_revision:'P01',dimensions_px:[1000,800],view_id:'g'};
+ const origin={base_m:0,origin_x_m:0,origin_y_m:0};
+ const wall={id:'w',view_id:'g',name:'External wall',type:'wall',checked:true,
+  dimension_reference:evidence,thickness_m:.3,height_m:3,
+  points:[{x:.1,y:.2},{x:.8,y:.2}],...origin};
+ const slab={id:'s',view_id:'g',name:'Ground slab',type:'slab',checked:true,
+  dimension_reference:evidence,thickness_m:.15,...origin,
+  points:[{x:.1,y:.2},{x:.8,y:.2},{x:.8,y:.6},{x:.1,y:.6}]};
+ const roof={id:'roof',view_id:'r',name:'Roof face',type:'roof',checked:true,
+  dimension_reference:evidence,thickness_m:.2,origin_x_m:0,origin_y_m:0,
+  slope_axis:'x',eave_m:3.2,ridge_m:4.4,
+  points:[{x:.1,y:.2},{x:.8,y:.2},{x:.8,y:.6},{x:.1,y:.6}]};
+ const door={id:'door',type:'door',name:'Entrance',checked:true,dimension_reference:evidence,
+  host_id:'w-0',offset_m:1.1,width_m:.9,height_m:2.1,sill_m:0};
+ const window={id:'window',type:'window',name:'Window',checked:true,dimension_reference:evidence,
+  host_id:'w-0',offset_m:3.1,width_m:1.2,height_m:1.1,sill_m:.9};
+ const state=fixture({estimateData:{...structuredClone(BASE_ITEM),
+  drawing_views:[view,roofView],view_calibrations:{g:cal,r:{...cal,view_id:'r'}},
+  view_bim_elements:[slab,wall],view_bim_features:[roof,door,window]}});
+ await openAuthenticatedEstimate(page,state);
+ const exportButton=page.getByRole('button',{name:'Generate IFC4 3D BIM file'});
+ await expect(exportButton).toBeEnabled();
+ await expect(page.getByText('4. IFC4 BIM model · 5 model element(s)')).toBeVisible();
+ const [download]=await Promise.all([page.waitForEvent('download'),exportButton.click()]);
+ expect(download.suggestedFilename()).toBe('UKPD-checked-elements.ifc');
+ const {readFile}=await import('node:fs/promises');
+ const ifc=await readFile(await download.path(),'utf8');
+ for(const entity of ['IFCROOF','IFCSLAB','IFCWALL','IFCDOOR','IFCWINDOW',
+  'IFCRELVOIDSELEMENT','IFCRELFILLSELEMENT','IFCFACETEDBREP']){
+  expect(ifc).toContain(entity+'(');
+ }
+ expect(state.writes).toHaveLength(0);
+});
 test('Step 3 signed-in: mocked new-build AI produces QS review, not priced quantities',async({page})=>{
  const state=fixture();await openAuthenticatedEstimate(page,state);
  await page.getByRole('button',{name:'Step 3 — Start AI Take-Off'}).click();
