@@ -83,6 +83,18 @@ export function prepareArchitecturalBim({views=[],calibrations={},docs=[],elemen
     source:host.source,page:host.page,view_id:host.view_id,
     evidence:f.dimension_reference});
  }
+ // A verified door/window may not overlap another opening in the same
+ // host wall. Boolean subtraction and displayed wall pieces must agree.
+ const groups=new Map();
+ for(const model of models.filter(m=>m.element==='door'||m.element==='window')){
+  const used=groups.get(model.host_id)||[];
+  for(const prior of used){
+   if(model.offset_m<prior.offset_m+prior.width_m-.00001&&
+      model.offset_m+model.width_m>prior.offset_m+.00001)
+    issues.push({id:model.id,label:model.name,reason:'This opening overlaps another verified opening on the same wall'});
+  }
+  used.push(model);groups.set(model.host_id,used);
+ }
  if(sourceViews.size>1&&!views.filter(v=>sourceViews.has(v.id)).every(v=>v.common_origin_verified===true)){
   if(!issues.some(x=>x.id==='view-alignment'))issues.push({id:'view-alignment',label:'View coordination',
    reason:'Roof and floor views must be explicitly aligned to a shared X/Y origin and building levels'});
