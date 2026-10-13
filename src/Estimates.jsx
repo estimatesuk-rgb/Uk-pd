@@ -1,3 +1,4 @@
+import {classifyChangeEvidence,validateDraftChange} from './drawingChangeGate.mjs';
 import React,{useEffect,useRef,useState} from 'react';
 import {Document,Packer,Paragraph,TextRun,Table,TableRow,TableCell,HeadingLevel,ImageRun} from 'docx';
 import * as pdfjs from 'pdfjs-dist';
@@ -319,19 +320,7 @@ export default function Estimates({db,project,docs=[]}){
      const reviewedClasses=reviewed.map(p=>String(p.classification||'').toLowerCase());
      const hasExisting=reviewedClasses.some(c=>c.includes('existing'));
      const changes=Array.isArray(comparison.drawing_review?.changes)?comparison.drawing_review.changes:[];
-     const normSource=x=>String(x||'').toLowerCase().replace(/\\s+/g,' ').trim();
-     const isConfirmedChange=(entry)=>{
-       if(!hasExisting)return true; // Standalone new-build project.
-       const source=normSource(entry.filename),name=normSource(entry.mark?.name);
-       return changes.some(c=>{
-         const cls=String(c.classification||'').toLowerCase();
-         if(!['new','altered','demolished'].includes(cls)||String(c.confidence||'').toLowerCase()!=='high')return false;
-         const proposed=normSource(c.proposed_source),existing=normSource(c.existing_source);
-         const referenced=cls==='demolished'?existing:proposed;
-         const element=normSource(c.element);
-         return referenced.includes(source)&&referenced.includes(String(entry.page))&&element===name;
-       });
-     };
+     const isConfirmedChange=entry=>classifyChangeEvidence(reviewed,changes,entry).approved;
      const heldComparison=autoCandidates.filter(m=>!isConfirmedChange(m));
      for(const m of heldComparison)autoRejections.push({description:m.mark?.name,
        reason:'Existing/proposed comparison did not confirm this exact element as new, altered or demolished with high confidence; no quantity added.',
@@ -361,8 +350,7 @@ export default function Estimates({db,project,docs=[]}){
        const description=String(draft.description||'').trim();
        if(!description)continue;
        // A change schedule must support proposed-work scope when existing plans exist.
-       if(hasExisting&&!changes.some(c=>['new','altered','demolished'].includes(String(c.classification||'').toLowerCase())&&
-          normSource(c.element)===normSource(description)&&String(c.confidence||'').toLowerCase()==='high'))continue;
+       if(!validateDraftChange(reviewed,changes,draft))continue;
        const unit=normalizedUnit(draft.unit),reference=String(draft.drawing_reference||'').trim();
        // Keep the measured line rather than also issuing a zero-quantity AI scope
        // row for the same work type. Different descriptions remain separate.
