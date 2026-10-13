@@ -270,10 +270,19 @@ export default function Estimates({db,project,docs=[],onReloadDocs=()=>{}}){
    return health;
  }
  async function postCloudflareTakeoff(endpoint,payload,token){
-   const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify(payload)});
-   let data={};try{data=await response.json()}catch{}
-   if(!response.ok||data?.error)throw Error(data?.error||'Cloudflare AI request failed (HTTP '+response.status+').');
-   return data;
+   const abort=new AbortController();
+   const timer=setTimeout(()=>abort.abort(),120000);
+   try{
+     const response=await fetch(endpoint,{method:'POST',signal:abort.signal,
+       headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},
+       body:JSON.stringify(payload)});
+     let data={};try{data=await response.json()}catch{}
+     if(!response.ok||data?.error)throw Error(data?.error||'Cloudflare AI request failed (HTTP '+response.status+').');
+     return data;
+   }catch(error){
+     if(error?.name==='AbortError')throw Error('Cloudflare AI did not respond within two minutes. This page was not saved. Check the network or service allowance and try again.');
+     throw error;
+   }finally{clearTimeout(timer)}
  }
  async function renderAiPage(source,pageNumber){
    const canvas=document.createElement('canvas');
