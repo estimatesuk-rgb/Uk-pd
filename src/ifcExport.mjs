@@ -50,7 +50,7 @@ export function prepareIfcElements({highlights=[],bim_specs={},calibrations={},d
   if(typeof spec.evidence!=='string'||spec.evidence.trim().length<12){fail('Provide the checked dimension/detail reference');continue;}
   if(!['Proposed','Existing'].includes(mark.stage)){fail('Only identified existing or proposed elements can be modelled');continue;}
   if(!['slab','wall'].includes(spec.element)){fail('Choose Slab/Floor or Wall');continue;}
-  if(!valid(Number(spec.base_m),-20,150)){fail('Provide a valid base elevation in metres');continue;}
+  if(spec.base_m===undefined||spec.base_m===null||String(spec.base_m).trim()===''||!valid(Number(spec.base_m),-20,150)){fail('Provide a valid base elevation in metres');continue;}
   const doc=docs.find(d=>d.id===mark.drawing_id&&d.status!=='Superseded');
   const cal=calibrations[mark.drawing_id+'#'+mark.page];
   if(!doc||!cal||cal.status!=='calibrated'||cal.source_path!==doc.file_path||
