@@ -117,12 +117,22 @@ async function openAuthenticatedEstimate(page,state){
  await page.locator('aside').getByRole('button',{name:'Estimates & AI Plan Reader'}).click();
  await page.getByText(NAME,{exact:true}).first().click();
  await expect(page.getByRole('heading',{name:'Estimates & Bill of Quantities'})).toBeVisible();
+ await expect(page.locator('#estimate-ai-takeoff')).toContainText('1 supported plan file(s) currently recognised.');
  await expect(page.getByRole('button',{name:'Step 3 — Start AI Take-Off'})).toBeVisible();
+}
+async function expectStep3Feedback(page,pattern,state){
+ try{await expect(page.locator('#estimate-ai-takeoff').getByRole('alert').filter({hasText:pattern})).toBeVisible({timeout:15000})}
+ catch(e){
+  console.log('Step 3 browser diagnostic:',JSON.stringify({
+   notice:await page.locator('#estimate-ai-takeoff').innerText().catch(()=>''),
+   supabaseRoutes:state.requests,aiCalls:state.aiCalls.map(x=>x.endpoint),writes:state.writes.length
+  }));throw e;
+ }
 }
 test('Step 3 signed-in: mocked new-build AI produces QS review, not priced quantities',async({page})=>{
  const state=fixture();await openAuthenticatedEstimate(page,state);
  await page.getByRole('button',{name:'Step 3 — Start AI Take-Off'}).click();
- await expect(page.getByText(/All 1 suggested measurements\/scope lines are HELD outside the priced BOQ/)).toBeVisible();
+ await expectStep3Feedback(page,/All 1 suggested measurements\/scope lines are HELD outside the priced BOQ/,state);
  await expect(page.getByRole('region',{name:'Review new AI takeoff suggestions'})).toBeVisible();
  await expect(page.getByText(/Review new AI suggestions — 1 pending/)).toBeVisible();
  expect(state.aiCalls.map(x=>x.endpoint)).toEqual(['page','summary']);
@@ -135,7 +145,7 @@ test('Step 3 signed-in: mocked new-build AI produces QS review, not priced quant
 test('Step 3 signed-in: AI service failure leaves saved estimate untouched',async({page})=>{
  const state=fixture({failAI:true});await openAuthenticatedEstimate(page,state);
  await page.getByRole('button',{name:'Step 3 — Start AI Take-Off'}).click();
- await expect(page.getByText(/AI plan reader stopped: Injected plan-reader error/)).toBeVisible();
+ await expectStep3Feedback(page,/AI plan reader stopped: Injected plan-reader error/,state);
  expect(state.aiCalls.map(x=>x.endpoint)).toEqual(['page']);
  expect(state.writes).toHaveLength(0);
  expect(state.project.estimate_data.items).toEqual([]);
@@ -152,7 +162,7 @@ test('Step 3 signed-in: missing calibration prompts for scale instead of calling
  const state=fixture({estimateData:{...structuredClone(BASE_ITEM),calibrations:{}}});
  await openAuthenticatedEstimate(page,state);
  await page.getByRole('button',{name:'Step 3 — Start AI Take-Off'}).click();
- await expect(page.getByText(/need scale calibration or a construction-notes\/no-scale decision/)).toBeVisible();
+ await expectStep3Feedback(page,/need scale calibration or a construction-notes\/no-scale decision/,state);
  expect(state.aiCalls).toHaveLength(0);
  expect(state.writes).toHaveLength(0);
 });
