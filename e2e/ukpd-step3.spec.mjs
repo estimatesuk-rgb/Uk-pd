@@ -19,10 +19,10 @@ const BASE_ITEM={items:[],highlights:[],ai_pending_takeoff:[],
     sheet_dimensions_px:[1,1]
   }}
 };
-// Valid 160x100 test PNG with two synthetic outlines; not a real construction drawing.
+// Verified Pillow-encoded 32x32 PNG with one synthetic outline; not a real drawing.
 // Quantity accuracy is tested elsewhere against benchmark drawings.
 const TEST_PNG=Buffer.from(
- 'iVBORw0KGgoAAAANSUhEUgAAAKAAAABkCAIAAACO1KzYAAAA2klEQVR42u3dwQ2AIBREQdfYf8trAx4xKMwUYCIvnxAupO3Buk5LIDACIzACIzACI7DArOIa+K0kv/jnrS7v4qrSFo3ACIxDlkOWCWbiBH9/Pv6yx5hgBEZggREYgREYgREYgREYgQVGYARGYARGYAQWGIERGIERGIERGIEFRmAERmAERmAEFhiBERiBERiBERiBBUZgBEZgBEZgBBYYgREYgREYgRFYYARGYARGYARGYAQWGIERGIF5yfgn3jd8Rt0EM03aWgUTjMAIjMAIjMAILDACIzACIzAC8+wGolwSyMU9ukIAAAAASUVORK5CYII=','base64');
+ 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAATElEQVR4nGP8//8/Ay0BE01NH7WAGMCCxmdkZKTEOMwkg24BVkVEAqyOG/pxMGrBqAWjFoxaMGrBqAUMDFirTAqrZXTTRlt2oxZQDADXAAxC81oizAAAAABJRU5ErkJggg==','base64');
 const user={id:USER_ID,aud:'authenticated',role:'authenticated',email:'ukpd-test@example.invalid',
   app_metadata:{provider:'email',providers:['email']},user_metadata:{},
   created_at:'2026-10-13T00:00:00Z'};
