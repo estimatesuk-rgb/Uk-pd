@@ -151,7 +151,8 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
   if(!result.ok)return setMessage(result.error);
   try{await saveUpdate('view_calibrations',{...calibrations,[view.id]:result.value});
    setPoints([]);setMetres('');
-   setMessage(result.complete?'X and Y verified. Next use an elevation or section for Z heights: wall, eaves and ridge levels.':
+   if(result.complete){setMode('slab');setBimType('slab');}
+   setMessage(result.complete?'X and Y verified. Step 3: click each corner of the floor perimeter to measure its area in square metres. Then verify Z heights from an elevation or section.':
      'X-axis saved. Now click both ends of a VERTICAL Y-axis dimension and enter its printed length.');
   }catch{}
  }
@@ -284,7 +285,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
      <Overlay points={points} closed={mode==='slab'||mode==='roof'}/>
     </div>
     <p role="status">{points.length} selected point(s) · {scaleCheck.ok?
-     'Two independent scale dimensions verified':
+     'X and Y scale verified — now trace the floor corners for area (m²)':
      (calibration?.status==='first-dimension'?'First dimension saved; select a second independent line':
       'Unverified view scale')}.</p>
     {mode==='scale'?<div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'end'}}>
@@ -292,7 +293,8 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
      <label>{calibration?.status==='first-dimension'?'Y-axis printed dimension (metres)':'X-axis printed dimension (metres)'}<input type="number" min="0.001" step="0.001" value={metres} onChange={e=>setMetres(e.target.value)} placeholder="e.g. 5.006"/></label>
      <button type="button" disabled={working||points.length!==2} onClick={storeScale}>{calibration?.status==='first-dimension'?'Verify Y-axis dimension':scaleCheck.ok?'Scale verified':'Save X-axis dimension'}</button>
     </div>:<>
-     <p><strong>{mode==='opening'?'Host wall opening':mode==='roof'?'Roof face trace':'Deterministic trace'}:</strong> {mode==='opening'?'Choose a checked host wall and enter the opening dimensions.':measures?.ok?format(measures.quantity)+' '+measures.unit:'Complete the trace on a two-dimension-calibrated view.'}</p>
+     {mode==='slab'&&<p role="status"><strong>Step 3 — Measure floor area:</strong> Click the floor perimeter corners in order (four corners for a rectangular floor). The area updates below as you click. Use Undo if needed. Confirm whether the boundary is internal or external before saving. Then proceed to heights (Z) from the elevations or sections.</p>}
+      <p><strong>{mode==='opening'?'Host wall opening':mode==='roof'?'Roof face trace':'Deterministic trace'}:</strong> {mode==='opening'?'Choose a checked host wall and enter the opening dimensions.':measures?.ok?(mode==='slab'?'Measured floor area: ':'')+format(measures.quantity)+' '+measures.unit:'Click at least three floor corners on a calibrated drawing to calculate area.'}</p>
      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
       <label>Element<input value={bimName} onChange={e=>setBimName(e.target.value)} placeholder="e.g. Plot 18 ground floor slab"/></label>
       <label>IFC class<select value={bimType} onChange={e=>setBimType(e.target.value)}>{mode==='opening'?<><option value="window">IfcWindow</option><option value="door">IfcDoor</option></>:mode==='roof'?<option value="roof">IfcRoof</option>:mode==='wall'?<option value="wall">IfcWall</option>:<option value="slab">IfcSlab</option>}</select></label>
