@@ -211,6 +211,15 @@ test('Verified BIM model exports IFC roof, wall, slab and hosted door/window rel
   'IFCRELVOIDSELEMENT','IFCRELFILLSELEMENT','IFCFACETEDBREP']){
   expect(ifc).toContain(entity+'(');
  }
+ const legacyExport=page.getByRole('button',{name:'Generate IFC4 3D model'});
+ await expect(legacyExport).toBeEnabled();
+ const [secondDownload]=await Promise.all([page.waitForEvent('download'),legacyExport.click()]);
+ expect(secondDownload.suggestedFilename()).toBe('UKPD-verified-3D-BIM.ifc');
+ const exported=await readFile(await secondDownload.path(),'utf8');
+ for(const entity of ['IFCSLAB','IFCROOF','IFCDOOR','IFCWINDOW']){
+   expect(exported).toContain(entity+'(');
+ }
+ await expect(page.getByTestId('bim-action-feedback')).toContainText('Generated UKPD-verified-3D-BIM.ifc');
  expect(state.writes).toHaveLength(0);
 });
 test('Step 3 signed-in: mocked new-build AI produces QS review, not priced quantities',async({page})=>{
