@@ -313,8 +313,31 @@ export default function Estimates({db,project,docs=[]}){
      const norm=x=>String(x||'').toLowerCase().trim().replace(/\s+/g,' ');
      const seen=new Set((estimate.items||[]).map(i=>i.ai_draft_key).filter(Boolean));
      const previousAuto=new Set((estimate.items||[]).map(i=>i.ai_auto_key).filter(Boolean));
+     // Page-level outlines alone cannot prove that an element is new work.
+     // When existing drawings are supplied, only the cross-sheet comparison
+     // may authorise candidate quantities, and ambiguous matches are held.
+     const reviewedClasses=reviewed.map(p=>String(p.classification||'').toLowerCase());
+     const hasExisting=reviewedClasses.some(c=>c.includes('existing'));
+     const changes=Array.isArray(comparison.drawing_review?.changes)?comparison.drawing_review.changes:[];
+     const normSource=x=>String(x||'').toLowerCase().replace(/\\s+/g,' ').trim();
+     const isConfirmedChange=(entry)=>{
+       if(!hasExisting)return true; // Standalone new-build project.
+       const source=normSource(entry.filename),name=normSource(entry.mark?.name);
+       return changes.some(c=>{
+         const cls=String(c.classification||'').toLowerCase();
+         if(!['new','altered','demolished'].includes(cls)||String(c.confidence||'').toLowerCase()!=='high')return false;
+         const proposed=normSource(c.proposed_source),existing=normSource(c.existing_source);
+         const referenced=cls==='demolished'?existing:proposed;
+         const element=normSource(c.element);
+         return referenced.includes(source)&&referenced.includes(String(entry.page))&&element===name;
+       });
+     };
+     const heldComparison=autoCandidates.filter(m=>!isConfirmedChange(m));
+     for(const m of heldComparison)autoRejections.push({description:m.mark?.name,
+       reason:'Existing/proposed comparison did not confirm this exact element as new, altered or demolished with high confidence; no quantity added.',
+       filename:m.filename,page:m.page});
      const added=[],autoAdded=[],newHighlights=[];
-     const uniqueAuto=autoCandidates.filter(m=>!previousAuto.has(m.key));
+     const uniqueAuto=autoCandidates.filter(m=>isConfirmedChange(m)&&!previousAuto.has(m.key));
      const measuredScopeFor=(description,unit,reference)=> {
        // Identical tasks on separate floors or drawings must remain visible
        // as outstanding scope until specifically tied to their source page.
@@ -337,6 +360,9 @@ export default function Estimates({db,project,docs=[]}){
      for(const draft of comparison.takeoff_draft){
        const description=String(draft.description||'').trim();
        if(!description)continue;
+       // A change schedule must support proposed-work scope when existing plans exist.
+       if(hasExisting&&!changes.some(c=>['new','altered','demolished'].includes(String(c.classification||'').toLowerCase())&&
+          normSource(c.element)===normSource(description)&&String(c.confidence||'').toLowerCase()==='high'))continue;
        const unit=normalizedUnit(draft.unit),reference=String(draft.drawing_reference||'').trim();
        // Keep the measured line rather than also issuing a zero-quantity AI scope
        // row for the same work type. Different descriptions remain separate.
