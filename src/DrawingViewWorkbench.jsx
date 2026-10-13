@@ -18,8 +18,8 @@ function Overlay({points=[],closed=false}){
  const d=points.map((p,i)=>(i?'L':'M')+(p.x*100).toFixed(3)+' '+(p.y*100).toFixed(3)).join(' ')+(closed?' Z':'');
  return <svg aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none"
   style={{pointerEvents:'none',position:'absolute',inset:0,width:'100%',height:'100%',overflow:'visible'}}>
-   <path d={d} fill={closed?'rgba(2,122,183,.15)':'none'} stroke="#0077be" strokeWidth=".45" strokeDasharray=".65 .4"/>
-   {points.map((p,i)=><circle key={i} cx={100*p.x} cy={100*p.y} r=".65" fill="#d82342" stroke="#fff" strokeWidth=".2"/>)}
+   <path d={d} fill={closed?'rgba(255,235,59,.14)':'none'} stroke="#e0b900" strokeWidth=".20" strokeDasharray=".65 .4"/>
+   {points.map((p,i)=><circle key={i} cx={100*p.x} cy={100*p.y} r=".30" fill="#ffdf00" stroke="#705c00" strokeWidth=".10"/>)}
  </svg>;
 }
 export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onCommit=async()=>{}}){
