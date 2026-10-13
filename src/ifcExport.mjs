@@ -24,6 +24,8 @@ const numeric=n=>{
 };
 function markPoints(mark){
  if(mark.kind==='polygon')return validatedPolygonWithOpenings(mark.points,mark.openings||[]);
+ if(mark.kind==='area'&&[mark.x,mark.y,mark.w,mark.h].every(v=>typeof v==='number'&&Number.isFinite(v))&&mark.w>0&&mark.h>0&&mark.x>=0&&mark.y>=0&&mark.x+mark.w<=1&&mark.y+mark.h<=1)
+  return validatedPolygonWithOpenings([{x:mark.x,y:mark.y},{x:mark.x+mark.w,y:mark.y},{x:mark.x+mark.w,y:mark.y+mark.h},{x:mark.x,y:mark.y+mark.h}],[]);
  if(mark.kind==='polyline'||mark.kind==='length'){
   const points=validateTrace(mark.points,false);
   return points?{outline:points,holes:[]}:null;
@@ -55,6 +57,7 @@ export function prepareIfcElements({highlights=[],bim_specs={},calibrations={},d
     String(cal.source_revision||'')!==String(doc.revision||'')){
     fail('Drawing revision and calibrated scale must match the source');continue;
   }
+  if(cal.crosscheck_verified!==true){fail('Check a second independent printed dimension before creating a BIM element');continue;}
   if(!valid(Number(cal.metresPerPixel),1e-9,1)||!Array.isArray(cal.sheet_dimensions_px)||
      cal.sheet_dimensions_px.length!==2||cal.sheet_dimensions_px.some(n=>!valid(n,50,50000))){
     fail('Original page dimensions are missing. Recalibrate this drawing with the current reader');continue;
@@ -66,7 +69,7 @@ export function prepareIfcElements({highlights=[],bim_specs={},calibrations={},d
   const outline=shape.outline.map(toMeters),holes=shape.holes.map(h=>h.map(toMeters));
   const base=Number(spec.base_m);
   if(spec.element==='slab'){
-   if(mark.kind!=='polygon'){fail('Floor/slab needs a closed footprint polygon');continue;}
+   if(!['polygon','area'].includes(mark.kind)){fail('Floor/slab needs a closed footprint polygon');continue;}
    if(!valid(Number(spec.thickness_m),.025,3)){fail('Enter verified slab thickness (m)');continue;}
    ready.push({id:mark.id,name:label,element:'slab',base_m:base,depth:Number(spec.thickness_m),
      outline,holes,source:doc.document_no||doc.title||doc.file_path,page:mark.page,
