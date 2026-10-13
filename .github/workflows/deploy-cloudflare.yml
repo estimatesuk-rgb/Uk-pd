@@ -47,6 +47,10 @@ jobs:
         run: npm run build
       - name: Verify site files
         run: test -s dist/index.html && test -d dist/assets
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Browser smoke tests before deployment
+        run: npm run test:e2e
       - name: Check Cloudflare credentials
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
