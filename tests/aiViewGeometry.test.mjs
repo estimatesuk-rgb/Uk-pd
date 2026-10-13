@@ -37,5 +37,5 @@ test('crop-local AI mark is mapped back into source sheet while keeping source r
 });
 test('model point translation is consistent for calibration-independent normalized coordinates',()=>{
  assert.deepEqual(mapCropPoint({x:0,y:0},view),{x:.1,y:.4});
- assert.equal(mapCropPoint({x:1,y:1},view).x,.45);
+ assert.ok(Math.abs(mapCropPoint({x:1,y:1},view).x-.45)<1e-10);
 });
