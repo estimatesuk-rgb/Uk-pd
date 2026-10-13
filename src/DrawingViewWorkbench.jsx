@@ -1,8 +1,10 @@
-import React,{useEffect,useRef,useState} from 'react';
+import React,{useEffect,useMemo,useRef,useState} from 'react';
 import * as pdfjs from 'pdfjs-dist';
 import {VIEW_KINDS,validateDrawingView,cropPixels,saveViewScaleCheck,
   viewCalibrationStatus,viewQuantity,prepareViewBim} from './drawingViewModel.mjs';
 import {createIfc4Model} from './ifcExport.mjs';
+import {prepareArchitecturalBim} from './bimArchitecturalParts.mjs';
+import BimScene3D from './BimScene3D.jsx';
 
 const n=v=>Number(v);
 const format=v=>Number(v).toLocaleString('en-GB',{maximumFractionDigits:3});
@@ -22,7 +24,7 @@ function Overlay({points=[],closed=false}){
 }
 export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onCommit=async()=>{}}){
  const views=estimate.drawing_views||[],calibrations=estimate.view_calibrations||{};
- const elements=estimate.view_bim_elements||[];
+ const elements=estimate.view_bim_elements||[],features=estimate.view_bim_features||[];
  const [docId,setDocId]=useState(''),[page,setPage]=useState(1);
  const [sheet,setSheet]=useState(null),[sheetDims,setSheetDims]=useState(null),[pages,setPages]=useState(1);
  const [viewName,setViewName]=useState(''),[viewKind,setViewKind]=useState('ground-floor-plan');
@@ -31,6 +33,8 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
  const [mode,setMode]=useState('scale'),[points,setPoints]=useState([]),[metres,setMetres]=useState('');
  const [bimName,setBimName]=useState(''),[bimType,setBimType]=useState('slab');
  const [base,setBase]=useState(''),[thickness,setThickness]=useState(''),[height,setHeight]=useState('');
+ const [roofHigh,setRoofHigh]=useState(''),[slopeAxis,setSlopeAxis]=useState('x');
+ const [openingHost,setOpeningHost]=useState(''),[openingOffset,setOpeningOffset]=useState(''),[openingWidth,setOpeningWidth]=useState(''),[openingSill,setOpeningSill]=useState('');
  const [xOrigin,setXOrigin]=useState(''),[yOrigin,setYOrigin]=useState('');
  const [sourceNote,setSourceNote]=useState(''),[expectedArea,setExpectedArea]=useState('');
  const [approved,setApproved]=useState(false),[working,setWorking]=useState(false);
@@ -40,9 +44,10 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
  const viewDoc=docs.find(d=>d.id===view?.document_id);
  const calibration=calibrations[view?.id];
  const scaleCheck=viewCalibrationStatus(view,viewDoc,calibration);
- const measures=view&&scaleCheck.ok&&points.length>=2?
+ const measures=view&&scaleCheck.ok&&points.length>=2&&mode!=='opening'?
    viewQuantity({view,document:viewDoc,calibration,points,kind:mode==='wall'?'length':'area'}):null;
- const bim=prepareViewBim({views,docs,calibrations,elements});
+ const bim=useMemo(()=>prepareArchitecturalBim({views,docs,calibrations,elements,features}),[views,docs,calibrations,elements,features]);
+ const hostChoices=bim.models.filter(m=>m.element==='wall');
  useEffect(()=>{if(!docId&&docs.length)setDocId(docs[0].id)},[docs,docId]);
  async function saveUpdate(key,value){
   setWorking(true);
@@ -129,7 +134,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
   setMessage('View loaded. Select calibration mode and click two endpoints of a written dimension.');
  }
  function viewClick(e){
-  if(!preview||!previewDims||!view)return;
+  if(!preview||!previewDims||!view||mode==='opening')return;
   const p=pos(e,e.currentTarget);
   setPoints(current=>mode==='scale'&&current.length>=2?[p]:[...current,p]);
  }
@@ -148,6 +153,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
  async function addElement(){
   if(!view||!scaleCheck.ok)return setMessage(scaleCheck.error||'First verify both dimensions.');
   if(!approved)return setMessage('A competent reviewer must confirm the geometry and evidence.');
+  if(mode==='roof'||mode==='opening')return addArchitecturalFeature();
   const type=mode==='wall'?'wall':'slab';
   if(type!==bimType)return setMessage('Choose matching Wall/Slab type.');
   const measured=viewQuantity({view,document:viewDoc,calibration,points,
@@ -182,7 +188,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
    const url=URL.createObjectURL(new Blob([text],{type:'application/x-step'}));
    const link=document.createElement('a');link.href=url;link.download='UKPD-checked-elements.ifc';link.click();
    setTimeout(()=>URL.revokeObjectURL(url),2000);
-   setMessage('IFC4 file created from '+bim.models.length+' independently checked wall/slab elements.');
+   setMessage('IFC4 file created from '+bim.models.length+' checked building elements, including verified roofs and wall-hosted openings where entered.');
   }catch(e){setMessage('IFC export failed: '+String(e?.message||e))}
  }
  async function setAligned(v,checked){
