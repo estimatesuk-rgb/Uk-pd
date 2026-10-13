@@ -22,7 +22,11 @@ export function validateDraftChange(pages,changes,draft){
  const existing=(pages||[]).some(p=>norm(p.classification).includes('existing'));
  if(!existing)return true;
  const name=norm(draft.description),ref=norm(draft.drawing_reference);
- return (changes||[]).some(c=>classes.has(norm(c.classification))&&norm(c.confidence)==='high'&&
-   norm(c.element)===name&&ref&&
+ // A draft scope item must have one unambiguous, exact change record.
+ // Duplicate or contradictory classifications are held for human review.
+ if(!name||!ref)return false;
+ const related=(changes||[]).filter(c=>norm(c.element)===name&&
    (norm(c.proposed_source)===ref||norm(c.existing_source)===ref));
+ return related.length===1&&classes.has(norm(related[0].classification))&&
+   norm(related[0].confidence)==='high';
 }
