@@ -2,6 +2,7 @@ import {measuredQuantity} from './takeoffMeasurement.mjs';
 import {validateTrace,validatedPolygonWithOpenings,polygonBounds} from './shapeGeometry.mjs';
 import {measureDimensionedCandidate} from './dimensionedMeasurements.mjs';
 import {measurementQualityFlags} from './aiMeasurementQuality.mjs';
+import {aiGeometryRejection} from './aiGeometryTrust.mjs';
 
 // AI suggests outlines; all quantities are calculated deterministically against
 // a revision-matched scale. Never infer a scale from the picture or from a label.
@@ -40,6 +41,8 @@ function candidateMark(c){
 
 export function measureAutoCandidate(c,context){
   if(context?.calibration_status!=='calibrated')return {error:'No verified sheet calibration'};
+  const unsafe=aiGeometryRejection(c,context);
+  if(unsafe)return {error:unsafe};
   if(!['Proposed','Demolition'].includes(context?.classification))return {error:'Supporting/existing/uncertain sheet'};
   if(!['high'].includes(c?.confidence))return {error:'Outline confidence not high'};
   if(!['Proposed','Demolition'].includes(c?.stage)||c.stage!==context.classification)
