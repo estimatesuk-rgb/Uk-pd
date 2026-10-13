@@ -4,15 +4,15 @@ import {confirmedDimension,measureDimensionedCandidate} from '../src/dimensioned
 import {measureAutoCandidate} from '../src/autoMeasurement.mjs';
 const page={calibration_status:'calibrated',classification:'Proposed',metresPerPixel:.01,
  dimensions:[1000,500],document_id:'drawing-A',page:1};
-const path=[{x:.1,y:.1},{x:.5,y:.1}];
+const path=[{x:.101,y:.101},{x:.501,y:.101}];
 const wall={kind:'wall_face',points:path,stage:'Proposed',description:'New masonry external wall',
  evidence:'New external wall linework',confidence:'high',height_m:2.4,height_evidence:'Height 2400 mm per floor-to-ceiling note'};
 const trench={kind:'trench',points:path,stage:'Proposed',description:'Foundation strip excavation',
  evidence:'Strip foundation identified',confidence:'high',width_m:.6,
  width_evidence:'600 mm wide strip foundation',depth_m:1.1,depth_evidence:'1100mm below ground'};
-const slab={kind:'slab_volume',points:[{x:.1,y:.1},{x:.5,y:.1},{x:.5,y:.3},{x:.1,y:.3}],
+const slab={kind:'slab_volume',points:[{x:.101,y:.101},{x:.501,y:.101},{x:.501,y:.301},{x:.101,y:.301}],
  stage:'Proposed',description:'Reinforced concrete floor slab',confidence:'high',
- evidence:'Clearly outlined slab footprint',depth_m:.15,depth_evidence:'150mm slab thickness'};
+ evidence:'Section F-F slab footprint traced between gridlines A-B',depth_m:.15,depth_evidence:'150mm slab thickness'};
 test('cited 2400mm is 2.4m, unsupported numbers and ambiguities rejected',()=>{
  assert.equal(confirmedDimension(2.4,'2400 mm finished storey height'),true);
  assert.equal(confirmedDimension(.15,'150 mm concrete slab'),true);
