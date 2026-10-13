@@ -13,7 +13,7 @@ const opening=[
 ];
 const context={classification:'Proposed',calibration_status:'calibrated',metresPerPixel:scale,
  dimensions:size,document_id:'plan-rev-A',page:1};
-const candidate={kind:'polygon',points:outline,description:'New irregular floor slab',stage:'Proposed',
+const candidate={kind:'polygon',points:outline.map(p=>({x:p.x+.001,y:p.y+.001})),description:'New irregular floor slab',stage:'Proposed',
  evidence:'Continuous boundary shown on proposed drawing',confidence:'high'};
 test('non-rectangular L-shaped floor measures actual area not enclosing box',()=>{
  const m=measuredTrace({kind:'polygon',points:outline},size,scale);
@@ -60,7 +60,7 @@ test('auto polygon carries net deduction detail but never trusts claimed model q
  assert.equal(result.unit,'m²');
 });
 test('auto polyline uses correct unit and refuses unrelated existing and notes-only geometry',()=>{
- const result=measureAutoCandidate({...candidate,kind:'polyline',points:[{x:.1,y:.1},{x:.4,y:.1},{x:.4,y:.5}]},context);
+ const result=measureAutoCandidate({...candidate,kind:'polyline',points:[{x:.101,y:.101},{x:.401,y:.101},{x:.401,y:.501}]},context);
  assert.equal(result.quantity,5);assert.equal(result.unit,'m');
  assert.ok(measureAutoCandidate(candidate,{...context,calibration_status:'reference-only'}).error);
  assert.ok(measureAutoCandidate(candidate,{...context,classification:'Existing'}).error);
