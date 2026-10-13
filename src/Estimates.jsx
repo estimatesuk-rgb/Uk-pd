@@ -24,6 +24,7 @@ import {verifySecondDimension} from './scaleCrosscheck.mjs';
 import {prepareIfcElements,createIfc4Model} from './ifcExport.mjs';
 import DrawingViewWorkbench from './DrawingViewWorkbench.jsx';
 import {aiViewContext,mapCropMeasurement,renderViewCropFromDataUri,MEASURABLE_VIEW_KINDS} from './aiViewGeometry.mjs';
+import {viewCalibrationStatus,validateDrawingView} from './drawingViewModel.mjs';
 pdfjs.GlobalWorkerOptions.workerSrc=new URL('pdfjs-dist/build/pdf.worker.min.mjs',import.meta.url).toString();
 const fresh={items:[],highlights:[],builder_id:'',drawing_mode:'',project_type:'',takeoff_review_status:'Draft',takeoff_reviewer:'',takeoff_reviewed_at:'',measurement_standard:'NRM2',drawing_stages:{},supplier_price_date:'',supplier_price_source:'',global_adjustment:0,overheads:15,profit:10,vat:20,pc_sums:[],provisional_sums:[],dayworks:[],contingency_mode:'percent',contingency_value:0,quote_intro:'We are pleased to provide our quotation for the works described below.',quote_scope:'',quote_validity:'30 days',quote_payment_terms:'Payment schedule to be agreed before commencement.',quote_exclusions:'Items not expressly included are excluded.',quote_terms:'Subject to agreed contract terms.',quote_ref:'',quote_revisions:[]};
 const initialItem={ref_no:'',work_section:'Measured Works',description:'',trade:'General',drawing:'',quantity:0,unit:'m²',material_rate:0,plant_rate:0,labour_hours:0,labour_rate:0,supplier:'',price_url:'',status:'Needs verification'};
@@ -393,9 +394,8 @@ export default function Estimates({db,project,docs=[],onReloadDocs=()=>{}}){
      const viewsFor=(documentId,pageNumber)=>registeredViews.filter(v=>v.document_id===documentId&&v.page===pageNumber);
      const unchecked=checkedPages.filter(p=>!viewsFor(p.document_id,p.page).length&&missingCalibration([p]).length);
      const unsupportedViews=registeredViews.filter(v=>MEASURABLE_VIEW_KINDS.has(v.kind)&&
-       !aiViewContext(v,fileDocs.find(d=>d.id===v.document_id),
-         (estimate.view_calibrations||{})[v.id],
-         [1000,1000],[Math.max(1,v.bounds.w*1000),Math.max(1,v.bounds.h*1000)]).ok);
+       !viewCalibrationStatus(v,fileDocs.find(d=>d.id===v.document_id),
+         (estimate.view_calibrations||{})[v.id]).ok);
      // Actual calibration dimensions are checked again against the rendered view.
      if(unsupportedViews.length){
        setAiProgress({processed:0,total:count,stage:'Waiting for verified drawing view scales'});
