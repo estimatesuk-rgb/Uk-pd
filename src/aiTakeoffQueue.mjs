@@ -1,4 +1,5 @@
 import {duplicateAutoCandidate} from './aiDuplicateGuard.mjs';
+import {aiGeometryRejection} from './aiGeometryTrust.mjs';
 
 // Reanalysis is deliberately non-destructive: observations must not silently
 // change quantities/costs that a QS may have reviewed on an earlier pass.
@@ -87,6 +88,14 @@ export function decideAiSuggestion(estimate,pendingId,decision){
     name:item.description,...e.region
    }},estimate.items||[]);
   if(hit.duplicate)return {error:'An existing measured item overlaps this suggestion: '+hit.reason};
+  const verifiedScale=(estimate.calibrations||{})[e.drawing_id+'#'+e.page];
+  if(!verifiedScale||verifiedScale.status!=='calibrated'||verifiedScale.crosscheck_verified!==true)
+   return {error:'Unverified AI scale: this proposed quantity was produced without two independent checked dimensions on its source drawing. Dismiss it and remeasure; it cannot enter the BOQ.'};
+  const geometryIssue=aiGeometryRejection({
+   ...p.highlight,description:item.description,
+   evidence:p.highlight.evidence||e.measurement_basis
+  },{filename:item.drawing});
+  if(geometryIssue)return {error:'Unverified AI geometry: '+geometryIssue};
   const covered=(estimate.highlights||[]).some(h=>h.id===p.highlight.id);
   if(covered)return {error:'This drawing mark is already accepted'};
  }
