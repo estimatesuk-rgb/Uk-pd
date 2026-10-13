@@ -7,30 +7,34 @@ export function isAiReanalysis(estimate){
   (estimate?.items||[]).some(item=>item?.ai_auto_key||item?.ai_draft_key));
 }
 const candidateKey=p=>p?.item?.ai_auto_key||p?.item?.ai_draft_key||p?.id||'';
-export function stageAiTakeoff(estimate,scopeItems=[],measuredItems=[],newHighlights=[]){
+export function stageAiTakeoff(estimate,scopeItems=[],measuredItems=[],newHighlights=[],options={}){
  const originalItems=estimate?.items||[],originalHighlights=estimate?.highlights||[];
  if(!isAiReanalysis(estimate)){
-  const flagged=measuredItems.filter(i=>(i?.takeoff_evidence?.quality_flags||[]).length>0);
-  const safe=measuredItems.filter(i=>!(i?.takeoff_evidence?.quality_flags||[]).length);
+  const reviewAll=options.forceReview===true;
+  const flagged=measuredItems.filter(i=>reviewAll||(i?.takeoff_evidence?.quality_flags||[]).length>0);
+  const safe=measuredItems.filter(i=>!reviewAll&&!(i?.takeoff_evidence?.quality_flags||[]).length);
   const flaggedIds=new Set(flagged.map(i=>i.takeoff_evidence?.highlight_id));
   const markups=new Map(newHighlights.map(h=>[h.id,h]));
   const prior=estimate?.ai_pending_takeoff||[];
   const existingKeys=new Set(prior.map(candidateKey));
   const pending=[...prior];
   let staged=0;
-  for(const item of flagged){
-    if(pending.length>=150)break;
-    const proposal={id:item.id,kind:'measured',item,
-       highlight:markups.get(item.takeoff_evidence.highlight_id)||null};
+  const suggestions=[
+   ...flagged.map(item=>({id:item.id,kind:'measured',item,
+     highlight:markups.get(item.takeoff_evidence.highlight_id)||null})),
+   ...(reviewAll?scopeItems.map(item=>({id:item.id,kind:'scope',item,highlight:null})):[])
+  ];
+  for(const proposal of suggestions){
     const key=candidateKey(proposal);
     if(existingKeys.has(key))continue;
+    if(pending.length>=150)throw Error('More than 150 unreviewed AI observations. Review or dismiss queued items before another take-off; no partial batch saved.');
     pending.push(proposal);existingKeys.add(key);staged++;
   }
   return {
-   items:[...originalItems,...scopeItems,...safe],
+   items:[...originalItems,...(reviewAll?[]:scopeItems),...safe],
    highlights:[...originalHighlights,...newHighlights.filter(h=>!flaggedIds.has(h.id))],
    ai_pending_takeoff:pending,
-   ai_review_mode:'initial',
+   ai_review_mode:reviewAll?'comparison-review':'initial',
    staged_count:staged
   };
  }
@@ -47,7 +51,7 @@ export function stageAiTakeoff(estimate,scopeItems=[],measuredItems=[],newHighli
  for(const proposal of newProposals){
   const key=candidateKey(proposal);
   if(used.has(key))continue;
-  if(pending.length>=150)break; // Explicit bounded queue, not unbounded storage.
+  if(pending.length>=150)throw Error('More than 150 unreviewed AI observations. Review or dismiss queued items before another take-off; no partial batch saved.');
   pending.push(proposal);used.add(key);staged++;
  }
  return {items:originalItems,highlights:originalHighlights,
