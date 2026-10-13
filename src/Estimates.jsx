@@ -23,6 +23,7 @@ import {previewPendingMark} from './aiPendingPreview.mjs';
 import {verifySecondDimension} from './scaleCrosscheck.mjs';
 import {prepareIfcElements,createIfc4Model} from './ifcExport.mjs';
 import DrawingViewWorkbench from './DrawingViewWorkbench.jsx';
+import {aiViewContext,mapCropMeasurement,renderViewCropFromDataUri,MEASURABLE_VIEW_KINDS} from './aiViewGeometry.mjs';
 pdfjs.GlobalWorkerOptions.workerSrc=new URL('pdfjs-dist/build/pdf.worker.min.mjs',import.meta.url).toString();
 const fresh={items:[],highlights:[],builder_id:'',drawing_mode:'',project_type:'',takeoff_review_status:'Draft',takeoff_reviewer:'',takeoff_reviewed_at:'',measurement_standard:'NRM2',drawing_stages:{},supplier_price_date:'',supplier_price_source:'',global_adjustment:0,overheads:15,profit:10,vat:20,pc_sums:[],provisional_sums:[],dayworks:[],contingency_mode:'percent',contingency_value:0,quote_intro:'We are pleased to provide our quotation for the works described below.',quote_scope:'',quote_validity:'30 days',quote_payment_terms:'Payment schedule to be agreed before commencement.',quote_exclusions:'Items not expressly included are excluded.',quote_terms:'Subject to agreed contract terms.',quote_ref:'',quote_revisions:[]};
 const initialItem={ref_no:'',work_section:'Measured Works',description:'',trade:'General',drawing:'',quantity:0,unit:'m²',material_rate:0,plant_rate:0,labour_hours:0,labour_rate:0,supplier:'',price_url:'',status:'Needs verification'};
@@ -367,7 +368,7 @@ export default function Estimates({db,project,docs=[],onReloadDocs=()=>{}}){
      canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);
      bitmap.close?.();
    }
-   return {image:await canvasAsImage(canvas),dimensions};
+   return {image:await canvasAsImage(canvas),dimensions,pixelDimensions:[canvas.width,canvas.height]};
  }
  async function runAiTakeoff(){
    if(aiBusy)return;
@@ -388,11 +389,23 @@ export default function Estimates({db,project,docs=[],onReloadDocs=()=>{}}){
      const {count}=prepared;setAiProgress({processed:0,total:count,stage:'Checking drawing scales'});
      const checkedPages=scaleSheetRegister(sources);
      setCalibrationPages(checkedPages);
-     const unchecked=missingCalibration(checkedPages);
+     const registeredViews=estimate.drawing_views||[];
+     const viewsFor=(documentId,pageNumber)=>registeredViews.filter(v=>v.document_id===documentId&&v.page===pageNumber);
+     const unchecked=checkedPages.filter(p=>!viewsFor(p.document_id,p.page).length&&missingCalibration([p]).length);
+     const unsupportedViews=registeredViews.filter(v=>MEASURABLE_VIEW_KINDS.has(v.kind)&&
+       !aiViewContext(v,fileDocs.find(d=>d.id===v.document_id),
+         (estimate.view_calibrations||{})[v.id],
+         [1000,1000],[Math.max(1,v.bounds.w*1000),Math.max(1,v.bounds.h*1000)]).ok);
+     // Actual calibration dimensions are checked again against the rendered view.
+     if(unsupportedViews.length){
+       setAiProgress({processed:0,total:count,stage:'Waiting for verified drawing view scales'});
+       setNotice(unsupportedViews.length+' registered floor plan view(s) lack matching TWO-dimension calibration. Use the Drawing-view workbench first; no AI take-off has been sent.');
+       return;
+     }
      if(unchecked.length){
        setCalibrationWizard(true);chooseCalibrationPage(unchecked[0]);
        setAiProgress({processed:0,total:count,stage:'Waiting for scale calibration'});
-       setNotice('Before AI take-off, '+unchecked.length+' drawing page(s) need scale calibration or a construction-notes/no-scale decision. No AI request has been sent.');
+       setNotice('Before AI take-off, '+unchecked.length+' single-view drawing page(s) need calibration or a construction-notes/no-scale decision. Register separate views for mixed-scale A1 sheets. No AI request has been sent.');
        return;
      }
      const reviewed=[],autoCandidates=[],autoRejections=[],pageCoverage=[];let complete=0;
