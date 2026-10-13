@@ -18,7 +18,7 @@ function setup({ project=true, document=true, output='{}' }={}) {
   return {env,calls};
 }
 const post=(route,data,token=true)=>new Request('https://uk-pd.example.workers.dev'+route,{
-  method:'POST',headers:{'content-type':'application/json',...(token?{authorization:'Bearer jwt.token.parts'}:{})},body:JSON.stringify(data)});
+  method:'POST',headers:{'content-type':'application/json',...(token?{authorization:'Bearer jwt.token.parts'}:{})},body:JSON.stringify({job_type:'new-house',...data})});
 const page={project_id:PROJECT,document_id:DOC,page_number:1,image};
 test.afterEach(()=>{globalThis.fetch=originalFetch});
 test('unauthenticated requests never invoke AI',async()=>{
@@ -59,4 +59,20 @@ test('health endpoint does not run the AI model',async()=>{
   const {env,calls}=setup();
   const res=await worker.fetch(new Request('https://uk-pd.example.workers.dev/api/ai-health'),env);
   assert.equal(res.status,200);assert.equal((await res.json()).ready,true);assert.equal(calls.length,0);
+});
+
+test('job type must be explicitly selected, invalid values fail before inference',async()=>{
+  const {env,calls}=setup();
+  for(const job_type of ['', 'unknown-work']){
+    const res=await worker.fetch(post('/api/estimate-plan-review',{...page,job_type}),env);
+    assert.equal(res.status,400);
+    assert.match((await res.json()).error,/job type/i);
+  }
+  assert.equal(calls.length,0);
+});
+test('the selected construction type is provided to the drawing reader',async()=>{
+  const {env,calls}=setup({output:JSON.stringify({classification:'Proposed',confidence:'high',reason:'Drawing',takeoff_draft:[],unresolved:[]})});
+  const res=await worker.fetch(post('/api/estimate-plan-review',{...page,job_type:'loft-conversion'}),env);
+  assert.equal(res.status,200);
+  assert.match(calls[0].args.messages[1].content[0].text,/Loft conversion/);
 });
