@@ -83,3 +83,23 @@ test('a first run with both sound and suspicious marks saves only sound draft li
  assert.deepEqual(result.highlights.map(h=>h.id),['legit-mark']);
  assert.equal(result.ai_pending_takeoff.length,1);
 });
+
+test('first extension or loft-conversion comparison holds all AI quantities and scope for QS review',()=>{
+ const scope={id:'scope-1',description:'New stair opening',unit:'item',quantity:0,ai_draft_key:'new-stair'};
+ const result=stageAiTakeoff({items:[],highlights:[]},[scope],[newItem],[mark],{forceReview:true});
+ assert.equal(result.ai_review_mode,'comparison-review');
+ assert.equal(result.items.length,0);
+ assert.equal(result.highlights.length,0);
+ assert.equal(result.ai_pending_takeoff.length,2);
+ assert.deepEqual(result.ai_pending_takeoff.map(x=>x.kind),['measured','scope']);
+ assert.equal(result.staged_count,2);
+});
+test('new-build first run can retain explicit provisional AI lines as before',()=>{
+ const result=stageAiTakeoff({items:[],highlights:[]},[],[newItem],[mark],{forceReview:false});
+ assert.equal(result.ai_review_mode,'initial');
+ assert.equal(result.items.length,1);
+});
+test('review queue capacity refuses extra items instead of silently omitting work',()=>{
+ const previous={...saved,ai_pending_takeoff:Array.from({length:150},(_,i)=>({id:'q'+i,item:{id:'q'+i,ai_draft_key:'q'+i}}))};
+ assert.throws(()=>stageAiTakeoff(previous,[{id:'scope-x',description:'Another element',ai_draft_key:'more-work'}],[],[]),/More than 150/);
+});
