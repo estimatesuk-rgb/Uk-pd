@@ -306,7 +306,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
        <label>Start offset along wall (m)<input type="number" step=".001" value={openingOffset} onChange={e=>setOpeningOffset(e.target.value)} /></label>
        <label>Opening width (m)<input type="number" step=".001" value={openingWidth} onChange={e=>setOpeningWidth(e.target.value)} /></label>
        <label>Sill above host wall base (m)<input type="number" step=".001" value={openingSill} onChange={e=>setOpeningSill(e.target.value)} /></label>
-      </> 
+      </>}
       {mode==='slab'&&<label>Known floor area for comparison (m², optional)<input type="number" step=".01" value={expectedArea} onChange={e=>setExpectedArea(e.target.value)} placeholder="e.g. 31.88"/></label>}
      </div>
      <label>Dimension source / section reference<input value={sourceNote} onChange={e=>setSourceNote(e.target.value)} placeholder="Drawing C3, 5006 mm by 6368 mm, Section A-A"/></label>
