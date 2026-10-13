@@ -413,7 +413,7 @@ export default function Estimates({db,project,docs=[],onReloadDocs=()=>{}}){
          const {measured,rejected}=measureAutoPage(result.page.auto_marks,{
            calibration_status:calibrationStatus(sheetEntry),
            metresPerPixel:savedScale?.metresPerPixel,dimensions:rendered.dimensions,
-           classification:safeStage,document_id:source.d.id,page:pageNumber,
+           classification:safeStage,document_id:source.d.id,page:pageNumber,filename:source.filename,
          });
          for(const measurement of measured)autoCandidates.push({...measurement,document_id:source.d.id,
            filename:source.filename,page:pageNumber,metresPerPixel:savedScale.metresPerPixel});
