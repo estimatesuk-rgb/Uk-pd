@@ -226,7 +226,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
   try{await saveUpdate('drawing_views',views.map(x=>x.id===v.id?{...x,common_origin_verified:checked}:x))}
   catch{}
  }
- return <div className="estimateForm" style={{border:'2px solid #577997',borderRadius:12,
+ return <div id="ukpd-drawing-view-workbench" tabIndex={-1} className="estimateForm" style={{border:'2px solid #577997',borderRadius:12,
    padding:14,margin:'18px 0',gridTemplateColumns:'minmax(0,1fr)'}}>
   <h3 style={{margin:'0 0 8px'}}>Drawing-view workbench — measured take-off + IFC4 BIM</h3>
   <p className="muted">Isolate a plan or roof view, verify two independent dimensions, then model checked slabs, walls, roof planes, doors and windows. Missing geometry or heights are never inferred.</p>
