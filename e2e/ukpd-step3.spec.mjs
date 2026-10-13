@@ -129,6 +129,50 @@ async function expectStep3Feedback(page,pattern,state){
   }));throw e;
  }
 }
+test('BIM Save button persists inputs and Generate explains missing geometry instead of silently disabling',async({page})=>{
+ const state=fixture();
+ await openAuthenticatedEstimate(page,state);
+ const save=page.getByRole('button',{name:'Save BIM inputs to project'});
+ const generate=page.getByRole('button',{name:'Generate IFC4 3D model'});
+ await expect(save).toBeEnabled();
+ await expect(generate).toBeEnabled();
+ await save.click();
+ await expect(page.getByTestId('bim-action-feedback')).toContainText('BIM inputs saved to project.');
+ expect(state.writes.length).toBeGreaterThanOrEqual(1);
+ expect(state.project.estimate_data.bim_specs).toEqual({});
+ await generate.click();
+ await expect(page.getByTestId('bim-action-feedback')).toContainText('No checked 3D BIM geometry to export');
+ await expect(page.getByRole('button',{name:'Open drawing-view BIM workbench'})).toBeEnabled();
+ await page.getByRole('button',{name:'Open drawing-view BIM workbench'}).click();
+ await expect(page.locator('#ukpd-drawing-view-workbench')).toBeInViewport();
+});
+
+test('BIM Generate button exports checked legacy traced slab and Save persists its inputs',async({page})=>{
+ const mark={id:'verified-mark',name:'Checked entrance slab',drawing_id:DOC_ID,
+  page:1,stage:'Proposed',kind:'polygon',points:[{x:.13,y:.14},{x:.63,y:.14},
+   {x:.63,y:.47},{x:.13,y:.47}]};
+ const spec={include:true,qs_checked:true,element:'slab',base_m:'0',
+  thickness_m:'0.15',evidence:'C3 Section A-A checked 5006 x 6368 mm and slab thickness'};
+ const state=fixture({estimateData:{...structuredClone(BASE_ITEM),
+  highlights:[mark],bim_specs:{'verified-mark':spec},
+  calibrations:{[DOC_ID+'#1']:{...BASE_ITEM.calibrations[DOC_ID+'#1'],
+   sheet_dimensions_px:[1000,800]}}}});
+ await openAuthenticatedEstimate(page,state);
+ const generate=page.getByRole('button',{name:'Generate IFC4 3D model'});
+ await expect(generate).toBeEnabled();
+ await page.getByRole('button',{name:'Save BIM inputs to project'}).click();
+ await expect(page.getByTestId('bim-action-feedback')).toContainText('BIM inputs saved to project');
+ expect(state.writes.length).toBeGreaterThanOrEqual(1);
+ expect(state.project.estimate_data.bim_specs['verified-mark'].include).toBe(true);
+ const [download]=await Promise.all([page.waitForEvent('download'),generate.click()]);
+ expect(download.suggestedFilename()).toBe('UKPD-verified-3D-BIM.ifc');
+ const {readFile}=await import('node:fs/promises');
+ const ifc=await readFile(await download.path(),'utf8');
+ expect(ifc).toContain('IFCSLAB(');
+ expect(ifc).toContain('Checked entrance slab');
+ await expect(page.getByTestId('bim-action-feedback')).toContainText('Generated UKPD-verified-3D-BIM.ifc');
+});
+
 test('Verified BIM model exports IFC roof, wall, slab and hosted door/window relationships',async({page})=>{
  const evidence='C3 Section A-A verified width, height, level and roof rise reference';
  const view={id:'g',document_id:DOC_ID,page:1,kind:'ground-floor-plan',name:'Ground plan',
