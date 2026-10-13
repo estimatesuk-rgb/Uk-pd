@@ -26,3 +26,19 @@ test('draft scope fails closed for duplicated or contradictory evidence',()=>{
  assert.equal(validateDraftChange(pages,[change,{...change,classification:'Retained unchanged'}],draft),false);
  assert.equal(validateDraftChange(pages,[change,{...change,confidence:'low'}],draft),false);
 });
+
+test('contradictory retained or uncertain evidence invalidates an otherwise high-confidence change',()=>{
+ const retained={...change,classification:'Retained unchanged',confidence:'low'};
+ const uncertain={...change,classification:'Uncertain',confidence:'medium'};
+ assert.equal(classifyChangeEvidence(pages,[change,retained],candidate).approved,false);
+ assert.equal(classifyChangeEvidence(pages,[change,uncertain],candidate).approved,false);
+ assert.equal(classifyChangeEvidence(pages,[change,{...change,classification:'Demolished',existing_source:'proposed.pdf p1'}],candidate).approved,false);
+});
+
+test('demolition evidence must point to its existing drawing, new work to its proposed drawing',()=>{
+ const demolitionCandidate={filename:'existing.pdf',page:2,mark:{name:'Remove existing partition'}};
+ const demolition={classification:'Demolished',confidence:'high',element:'Remove existing partition',existing_source:'existing.pdf p2'};
+ assert.equal(classifyChangeEvidence(pages,[demolition],demolitionCandidate).approved,true);
+ assert.equal(classifyChangeEvidence(pages,[{...demolition,existing_source:'',proposed_source:'existing.pdf p2'}],demolitionCandidate).approved,false);
+ assert.equal(classifyChangeEvidence(pages,[{...change,existing_source:'proposed.pdf p1',proposed_source:'other.pdf p1'}],candidate).approved,false);
+});
