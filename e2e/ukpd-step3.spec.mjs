@@ -19,10 +19,10 @@ const BASE_ITEM={items:[],highlights:[],ai_pending_takeoff:[],
     sheet_dimensions_px:[1,1]
   }}
 };
-// Tiny valid test PNG: deliberately not a real construction drawing.
+// Valid 160x100 test PNG with two synthetic outlines; not a real construction drawing.
 // Quantity accuracy is tested elsewhere against benchmark drawings.
 const TEST_PNG=Buffer.from(
- 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO0ezd0AAAAASUVORK5CYII=','base64');
+ 'iVBORw0KGgoAAAANSUhEUgAAAKAAAABkCAIAAACO1KzYAAAA2klEQVR42u3dwQ2AIBREQdfYf8trAx4xKMwUYCIvnxAupO3Buk5LIDACIzACIzACI7DArOIa+K0kv/jnrS7v4qrSFo3ACIxDlkOWCWbiBH9/Pv6yx5hgBEZggREYgREYgREYgREYgQVGYARGYARGYAQWGIERGIERGIERGIEFRmAERmAERmAEFhiBERiBERiBERiBBUZgBEZgBEZgBBYYgREYgREYgRFYYARGYARGYARGYAQWGIERGIF5yfgn3jd8Rt0EM03aWgUTjMAIjMAIjMAILDACIzACIzAC8+wGolwSyMU9ukIAAAAASUVORK5CYII=','base64');
 const user={id:USER_ID,aud:'authenticated',role:'authenticated',email:'ukpd-test@example.invalid',
   app_metadata:{provider:'email',providers:['email']},user_metadata:{},
   created_at:'2026-10-13T00:00:00Z'};
@@ -162,7 +162,7 @@ test('Step 3 signed-in: missing calibration prompts for scale instead of calling
  const state=fixture({estimateData:{...structuredClone(BASE_ITEM),calibrations:{}}});
  await openAuthenticatedEstimate(page,state);
  await page.getByRole('button',{name:'Step 3 — Start AI Take-Off'}).click();
- await expectStep3Feedback(page,/need scale calibration or a construction-notes\/no-scale decision/,state);
+ await expectStep3Feedback(page,/need calibration or a construction-notes\/no-scale decision/,state);
  expect(state.aiCalls).toHaveLength(0);
  expect(state.writes).toHaveLength(0);
 });
