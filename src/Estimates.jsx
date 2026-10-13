@@ -27,6 +27,49 @@ const svgPolygon=h=>[h.points,...(h.openings||[])].map(poly=>svgTrace(poly,true)
 const perLine=i=>num(i.quantity)*(num(i.material_rate)+num(i.plant_rate)+num(i.labour_hours)*num(i.labour_rate));
 const BUILDER_FIELDS=['name','contact_name','address','phone','email','vat_number','company_number','footer','logo_path'];
 const emptyBuilderForm={name:'',contact_name:'',address:'',phone:'',email:'',vat_number:'',company_number:'',footer:'',logo_path:''};
+function PricedModel3D({highlights=[],items=[],drawingStages={}}){
+ const [angle,setAngle]=useState(35),[selected,setSelected]=useState(null),[filter,setFilter]=useState('all'),[onlyPriced,setOnlyPriced]=useState(false);
+ const models=highlights.filter(h=>Array.isArray(h.points)&&h.points.length>=3&&h.points.every(p=>Number.isFinite(Number(p.x))&&Number.isFinite(Number(p.y)))).map(h=>{
+   const lines=items.filter(i=>i.takeoff_evidence?.highlight_id===h.id);
+   const stage=h.stage||drawingStages[h.drawing_id]||'Unclassified';
+   const price=lines.reduce((a,i)=>a+perLine(i),0);
+   return {...h,lines,stage,price};
+ }).filter(h=>(filter==='all'||h.stage===filter)&&(!onlyPriced||h.price>0));
+ const missing=(items||[]).filter(i=>!highlights.some(h=>h.id===i.takeoff_evidence?.highlight_id));
+ const stages=[...new Set(highlights.map(h=>h.stage||drawingStages[h.drawing_id]||'Unclassified'))];
+ const projectPoint=(p,z=0)=>{
+   const x=(Number(p.x)-.5)*430,y=(Number(p.y)-.5)*360,r=angle*Math.PI/180;
+   return [300+x*Math.cos(r)-y*Math.sin(r),225+(x*Math.sin(r)+y*Math.cos(r))*.48-z];
+ };
+ const polygon=(points,z=0)=>points.map(p=>projectPoint(p,z).map(n=>n.toFixed(1)).join(',')).join(' ');
+ const palette={'New':'#2563eb','Proposed':'#2563eb','Demolition':'#ec4899','Existing':'#94a3b8','Retained':'#94a3b8'};
+ const chosen=models.find(m=>m.id===selected);
+ function exportModel(){
+   const payload={format:'UKPD-SCHEMATIC-3D-v1',warning:'Plan footprint only. Vertical elevations, heights and building form are NOT verified by this file.',projectElements:models.map(m=>({id:m.id,label:m.name,stage:m.stage,drawing_id:m.drawing_id,page:m.page,planPoints:m.points,priceExVAT:m.price,boq:m.lines.map(i=>({ref:i.ref_no,description:i.description,quantity:i.quantity,unit:i.unit,value:perLine(i)}))})),unlinkedBoqItems:missing.length};
+   const url=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}));
+   const a=document.createElement('a');a.href=url;a.download='ukpd-priced-model-schematic.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ }
+ return <div className="estimateHighlightRow" style={{display:'block',margin:'16px 0',padding:16}}>
+   <h3 style={{marginTop:0}}>3D priced-work model — schematic preview</h3>
+   <p className="muted">Isometric plan footprints from saved drawing marks. Click a shape to inspect linked BOQ amounts. Heights, walls and roof forms are <strong>not inferred</strong>; this is not yet a verified BIM model.</p>
+   <div className="estimateToolbar" style={{flexWrap:'wrap'}}>
+     <label>Rotate view <input type="range" min="-180" max="180" value={angle} onChange={e=>setAngle(Number(e.target.value))}/></label>
+     <label>Works filter <select value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">All marked stages</option>{stages.map(stage=><option key={stage} value={stage}>{stage}</option>)}</select></label>
+     <label><input type="checkbox" checked={onlyPriced} onChange={e=>setOnlyPriced(e.target.checked)}/> Show priced marks only</label>
+     <button type="button" className="outline" onClick={exportModel} disabled={!models.length}>Export schematic model data</button>
+   </div>
+   <svg viewBox="0 0 600 460" role="img" aria-label="Interactive schematic isometric footprints of measured work linked to the BOQ" style={{maxWidth:'100%',width:'100%',background:'#f2f6fc',border:'1px solid #d5dfed',borderRadius:12}}>
+    <path d="M40 360 L300 420 L560 360 M300 420 L300 65" fill="none" stroke="#cbd5e1" strokeWidth="1"/>
+    {models.map(m=><g key={m.id} onClick={()=>setSelected(m.id)} style={{cursor:'pointer'}} tabIndex={0} role="button" aria-label={'Inspect '+(m.name||'drawing mark')} onKeyDown={e=>{if(e.key==='Enter')setSelected(m.id)}}>
+       <polygon points={polygon(m.points,0)} fill={palette[m.stage]||'#b4a5ec'} fillOpacity={m.price>0?.6:.22} stroke={selected===m.id?'#101a30':'#50617b'} strokeWidth={selected===m.id?3:1.5}/>
+       <text x={projectPoint(m.points[0])[0]} y={projectPoint(m.points[0])[1]-8} fontSize="11" fontWeight="600" fill="#1d293b">{m.price>0?money(m.price):'Unpriced'}</text>
+     </g>)}
+   </svg>
+   {chosen?<p><strong>{chosen.name||'Marked work'}</strong> · {chosen.stage} · {chosen.lines.length} linked BOQ item(s) · <strong>{money(chosen.price)} ex VAT</strong>. {chosen.lines.map(i=>i.description+' ('+i.quantity+' '+i.unit+')').join('; ')||'No priced BOQ line linked.'}</p>:<p className="muted">{models.length} displayable plan footprints · {models.filter(m=>m.price>0).length} priced · {missing.length} BOQ items without a linked drawable footprint. Select a shape for details.</p>}
+   {!models.length&&<p role="status">No polygon footprints yet. Measure and save areas on the drawings first; lines and point-only marks do not create solid surfaces.</p>}
+   <p className="muted">Provisional schematic only. For actual building-height modelling, upload dimensioned elevations and sections and verify geometry before issuing a BIM model.</p>
+ </div>;
+}
 export default function Estimates({db,project,docs=[]}){
  const [estimate,setEstimate]=useState({...fresh,...project.estimate_data,items:project.estimate_data?.items||[],highlights:project.estimate_data?.highlights||[]});
  const [builders,setBuilders]=useState([]),[builderForm,setBuilderForm]=useState(null),[builderSaving,setBuilderSaving]=useState(false),[logoUploading,setLogoUploading]=useState(false);const [rateLibrary,setRateLibrary]=useState([]);
@@ -879,6 +922,7 @@ export default function Estimates({db,project,docs=[]}){
  {previewMark.kind==='polygon'&&<path d={svgPolygon(previewMark)} fill="rgba(17,108,206,.22)" fillRule="evenodd" stroke="#0561bd" strokeWidth=".7" strokeDasharray="1.2 .5" strokeLinejoin="round"/>}
  </svg>}{drag&&hover&&!calibrate&&<div className="estimateMark drawingNew" style={{left:Math.min(drag.x,hover.x)*100+'%',top:Math.min(drag.y,hover.y)*100+'%',width:Math.abs(drag.x-hover.x)*100+'%',height:Math.abs(drag.y-hover.y)*100+'%'}}/>}</div></div></div><p className="muted">Drawing key: 🟢 Green = linked to a priced BOQ item; 🟡 Amber = linked but unpriced; 🔴 Red = not linked to BOQ. 🔵 Blue dashed = an unapproved AI proposal (preview only). Drawings must be calibrated and measured quantities reviewed before issue.</p>
  {currentHighlights.map(h=>{const m=regionMeasures(h);return <div key={h.id} className="estimateHighlightRow">{h.stage}: {h.name} — {h.kind||'area'} (page {h.page}) {m?m.quantity+' '+m.unit:''}{m?.openings_count?' (gross '+m.gross_area_m2+' m² less '+m.deductions_area_m2+' m² for '+m.openings_count+' opening(s))':''} — {pricedBoq(h).length?'PRICED':linkedBoq(h).length?'LINKED / UNPRICED':'NOT LINKED'} <button type="button" disabled={selectedCalibrationStatus==='reference-only'||(h.kind!=='count'&&!metresPerPixel)} onClick={()=>addMeasured(h)}>Add measured {h.kind||'area'} to BOQ</button> <button type="button" className="outline" onClick={()=>patch('highlights',estimate.highlights.filter(x=>x.id!==h.id))}>Remove</button></div>})}
+ <PricedModel3D highlights={estimate.highlights||[]} items={estimate.items||[]} drawingStages={estimate.drawing_stages||{}}/>
  <h3>2. Build measured BOQ items</h3>
  {(estimate.ai_pending_takeoff||[]).length>0&&<div className="notice" role="region" aria-label="Review new AI takeoff suggestions">
    <strong>Review new AI suggestions — {(estimate.ai_pending_takeoff||[]).length} pending</strong>
