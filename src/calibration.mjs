@@ -12,9 +12,12 @@ export function calibrationStatus(entry,from) {
   if(value.status==='reference-only'&&value.reference_only_confirmed===true)return 'reference-only';
   if(value.status==='calibrated'&&Number.isFinite(Number(value.metresPerPixel))&&Number(value.metresPerPixel)>0
     &&Number.isFinite(Number(value.metres))&&Number(value.metres)>0
-    &&Number.isFinite(Number(value.pixelLength))&&Number(value.pixelLength)>=5)return 'calibrated';
+    &&Number.isFinite(Number(value.pixelLength))&&Number(value.pixelLength)>=5){
+    if(value.crosscheck_verified!==true)return 'needs-check';
+    return 'calibrated';
+  }
   return 'needed';
 }
 export function missingCalibration(entries,from) {
-  return entries.filter(entry=>calibrationStatus(entry,from)==='needed');
+  return entries.filter(entry=>!['calibrated','reference-only'].includes(calibrationStatus(entry,from)));
 }
