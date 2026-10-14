@@ -11,7 +11,8 @@ export class MpSqlStore extends DurableObject {
    if(typeof query!=="string" || !["first","all","run"].includes(operation) || !Array.isArray(params))return new Response("Invalid query request",{status:400});
    const cursor=this.sql.exec(query,...params);
    const rows=cursor.toArray();
-   const meta={changes:cursor.rowsWritten,last_row_id:this.sql.exec("SELECT last_insert_rowid() AS id").one().id};
+   const changeInfo=this.sql.exec("SELECT changes() AS changes, last_insert_rowid() AS id").one();
+   const meta={changes:Number(changeInfo.changes),last_row_id:Number(changeInfo.id)};
    return Response.json(operation==="first"?(rows[0]||null):operation==="all"?{results:rows}:{success:true,meta});
   }catch(e){
    console.error("MP internal database error",e?.message);
@@ -154,9 +155,18 @@ async function api(req, env, path) {
     if (!p.password || String(p.password).length<8 || String(p.password).length>120) return appJSON({error:'Choose a password of 8 to 120 characters'},400);
     const existing=await env.DB.prepare('SELECT id FROM users LIMIT 1').first();
     if (existing) return appJSON({error:'Owner already exists. Sign in or use the owner password reset procedure.'},409);
-    const pass=await hashPassword(String(p.password));
-    const done=await env.DB.prepare("INSERT INTO users(email,name,role,password_hash,active) SELECT ?,?,'owner',?,1 WHERE NOT EXISTS (SELECT 1 FROM users)").bind(OWNER_EMAIL,'Practice Owner',pass).run();
-    if ((done.meta?.changes??0)!==1) return appJSON({error:'Owner setup has already completed'},409);
+    // The database cursor rowsWritten includes index writes, not just inserted records.
+    // Never decide whether an owner exists from rowsWritten; verify the actual row.
+    let pass;
+    try {pass=await hashPassword(String(p.password));}
+    catch(e) {console.error('MP owner setup: password derivation',e);return appJSON({error:'Unable to secure owner password (setup step: HASH). Please contact support.',step:'HASH'},503);}
+    try {
+      await env.DB.prepare("INSERT INTO users(email,name,role,password_hash,active) SELECT ?,?,'owner',?,1 WHERE NOT EXISTS (SELECT 1 FROM users)").bind(OWNER_EMAIL,'Practice Owner',pass).run();
+    } catch(e) {console.error('MP owner setup: database insert',e);return appJSON({error:'Unable to save owner account (setup step: INSERT). Please contact support.',step:'INSERT'},503);}
+    let created;
+    try {created=await env.DB.prepare('SELECT id,email FROM users WHERE email=? LIMIT 1').bind(OWNER_EMAIL).first();}
+    catch(e) {console.error('MP owner setup: database verify',e);return appJSON({error:'Owner account could not be verified (setup step: VERIFY). Please contact support.',step:'VERIFY'},503);}
+    if(!created) return appJSON({error:'Owner account was not saved (setup step: VERIFY)',step:'VERIFY'},503);
     return appJSON({ok:true,login:OWNER_EMAIL});
   }
   if (method==='POST' && path==='/api/login') {
