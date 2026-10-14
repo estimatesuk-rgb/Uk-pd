@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { proposalPdf } from "./pdf.mjs";
+import { makePricingDefaults, resolvePricingDefaults } from "./pricing-defaults.mjs";
 export class MpSqlStore extends DurableObject {
  constructor(ctx,env){
   super(ctx,env);
@@ -196,14 +197,26 @@ async function api(req, env, path) {
   mustUser(user);
   if (path==='/api/pricing' && method==='GET') {
     const r=await env.DB.prepare('SELECT config FROM settings WHERE name=?').bind('pricing').first();
-    return appJSON({pricing:r?JSON.parse(r.config):null});
+    // Older owner records have empty fee arrays; recover all current services,
+    // without overwriting any rates the owner already saved.
+    const pricing=resolvePricingDefaults(r?JSON.parse(r.config):null);
+    return appJSON({pricing,defaults:makePricingDefaults()});
   }
   if (path==='/api/pricing' && method==='POST') {
     mustUser(user,'owner');
     const p=await req.json();
-    const pricing={buildRate:limited(p.buildRate,0,30000),buildVatRate:limited(p.buildVatRate,0,30),feeVatRate:limited(p.feeVatRate,0,30),minimumArea:25,
-      stages:(p.stages||[]).slice(0,20).map(x=>({id:clean(x.id,40),rate:limited(x.rate,0,5000),selected:!!x.selected})),
-      extras:(p.extras||[]).slice(0,40).map(x=>({id:clean(x.id,40),amount:limited(x.amount,0,1000000),selected:!!x.selected}))};
+    if(!p||typeof p!=='object'||!Array.isArray(p.stages)||!Array.isArray(p.extras))
+      return appJSON({error:'All architectural fee sections must be loaded before saving'},400);
+    const resolved=resolvePricingDefaults(p);
+    const pricing={
+      ...resolved,
+      buildRate:limited(p.buildRate,0,30000),
+      buildVatRate:limited(p.buildVatRate,0,30),
+      feeVatRate:limited(p.feeVatRate,0,30),
+      contingency:limited(p.contingency??resolved.contingency,0,100),
+      validDays:limited(p.validDays??resolved.validDays,1,365),
+      minimumArea:25
+    };
     await env.DB.prepare('INSERT INTO settings(name,config) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET config=excluded.config').bind('pricing',JSON.stringify(pricing)).run();
     return appJSON({ok:true,pricing});
   }
