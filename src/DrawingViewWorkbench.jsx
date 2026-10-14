@@ -278,6 +278,16 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
    padding:14,margin:'18px 0',gridTemplateColumns:'minmax(0,1fr)'}}>
   <h3 style={{margin:'0 0 8px'}}>Create 3D BIM from your drawing</h3>
   <p className="muted">1. Load your drawing. 2. Draw a box around the plan. 3. Confirm drawing dimensions and trace the building. 4. Generate your 3D model. We won't invent measurements missing from the drawing.</p>
+  <details open style={{padding:'12px',margin:'10px 0',border:'1px solid #b7c9d7',borderRadius:8,background:'#f6f9fc',color:'#172c40'}}>
+   <summary style={{fontWeight:700,cursor:'pointer'}}>What drawings and measurements do I need? (BIM checklist)</summary>
+   <p><strong>1. Floor plans:</strong> Upload a clear, dimensioned plan for every floor you want in the 3D model. Each floor needs its full external outline, wall positions, openings and horizontal and vertical dimensions. Draw a separate box around each plan.</p>
+   <p><strong>2. Elevations or sections:</strong> Include a dimensioned elevation or section showing floor-to-floor heights, wall/eaves heights, ridge height and roof form. These establish the third dimension (height); a floor plan alone cannot establish it.</p>
+   <p><strong>3. Construction information:</strong> Check wall thickness, floor/slab thickness, roof build-up and door/window sizes against the drawings or specifications. Do not assume missing sizes.</p>
+   <p><strong>4. Position and accuracy:</strong> Confirm drawing revision, two independent dimensions to calibrate the plan, and alignment between floors. Trace floor boundaries, walls and roof faces, then check each element before adding it.</p>
+   <p><strong>Inside each drawn box:</strong> ONE complete floor plan, every outside corner and extension, plus legible X and Y dimension lines and their numbers. <strong>Outside:</strong> other plans, elevations, title blocks and unrelated notes. Draw additional boxes for other views.</p>
+   <p><strong>What happens next?</strong> Load drawing → draw box → check two dimensions → trace parts → enter verified heights → approve parts → Generate 3D BIM (IFC4).</p>
+   <p><strong>Important:</strong> This tool currently builds IFC4 from manually verified and traced elements. It does not automatically read all construction details or produce a complete BIM model from a single box. Missing information must be supplied and checked.</p>
+  </details>
   <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'end'}}>
    <label>Drawing<select value={docId} onChange={e=>{setDocId(e.target.value);setPage(1);setSheet(null);setPreview(null)}}>{docs.map(d=><option key={d.id} value={d.id}>{d.document_no||d.title||d.file_path}</option>)}</select></label>
    <label>PDF page<input type="number" min="1" max={pages} value={page} onChange={e=>{setPage(Math.max(1,Number(e.target.value)||1));setSheet(null);setPreview(null)}}/></label>
