@@ -93,3 +93,9 @@ test('zero-area outlines cannot produce misleading IFC solids',()=>{
  const collinear=[{x:0,y:0},{x:1,y:1},{x:2,y:2}];
  assert.throws(()=>createIfc4Model({elements:[{...ready[0],outline:collinear}]}),/zero or negligible area/);
 });
+
+test('self-intersecting IFC footprints are rejected',()=>{
+ const ready=prepareIfcElements(packageArgs).ready;
+ const crossed=[{x:0,y:0},{x:3,y:3},{x:0,y:4},{x:4,y:0}];
+ assert.throws(()=>createIfc4Model({elements:[{...ready[0],outline:crossed}]}),/crosses itself/);
+});
