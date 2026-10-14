@@ -88,7 +88,18 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
    }
    setSheet(canvas.toDataURL('image/jpeg',.87));
    setSheetDims([canvas.width,canvas.height]);setPages(count);setDocId(chosenDoc);setPage(chosenPage);
-   setDrawnBox(null);setDragBox(null);setMessage('Drag around ONE plan, elevation or section, excluding other views and the title block.');
+   setDrawnBox(null);setDragBox(null);
+   const registeredView=views.find(v=>v.id===selected&&v.document_id===chosenDoc&&v.page===chosenPage);
+   if(registeredView){
+    const crop=cropPixels(registeredView,[canvas.width,canvas.height]);
+    if(crop){
+     const isolated=document.createElement('canvas');
+     isolated.width=crop.width;isolated.height=crop.height;
+     isolated.getContext('2d').drawImage(canvas,crop.x,crop.y,crop.width,crop.height,0,0,crop.width,crop.height);
+     setPreview(isolated.toDataURL('image/jpeg',.92));setPreviewDims([crop.width,crop.height]);
+     setMessage('Drawing and saved view loaded. Select dimension endpoints or trace verified geometry.');
+    }else{setPreview(null);setPreviewDims(null);setMessage('Saved view crop is invalid. Draw a new view box.');}
+   }else{setPreview(null);setPreviewDims(null);setMessage('Drag around ONE plan, elevation or section, excluding other views and the title block.');}
   }catch(e){setMessage('Drawing preview failed: '+String(e?.message||e))}
   finally{setWorking(false)}
  }
