@@ -78,30 +78,63 @@ function mpNew() {
   currentProposalId=null; state=blank();mpRemoteDirty=false;renderAll();
   toast('New draft. An MP job reference is allocated when saved.');
 }
-function mpBase64(buffer) {
-  let binary='';const bytes=new Uint8Array(buffer);
-  for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));
-  return btoa(binary);
+async function mpPdfBlob() {
+  if(!validateClient())throw new Error('Enter the client and project details first');
+  if(!currentProposalId){const saved=await mpSave();if(!saved)throw new Error('Please save the proposal first');}
+  const response=await fetch('/api/proposals/'+currentProposalId+'/pdf',{credentials:'same-origin',cache:'no-store'});
+  if(response.status===401){location.href='/login';throw new Error('Please sign in again');}
+  if(!response.ok){const info=await response.json().catch(()=>({}));throw new Error(info.error||'PDF generation failed ('+response.status+')');}
+  const blob=await response.blob();
+  if(blob.size<500||!blob.type.includes('pdf'))throw new Error('PDF could not be generated');
+  return blob;
 }
-async function mpEmail() {
-  if (!validateClient()) return;
-  const saved = await mpSave();if(!saved)return;
+function mpPdfName(){return 'MP_Fee_Proposal_'+filePart(state.reference)+'.pdf';}
+async function mpDownloadPdf(){
+  try{
+    const saved=await mpSave();if(!saved)return;
+    const blob=await mpPdfBlob();
+    deliverBlob(mpPdfName(),blob);
+    toast('Client quotation PDF downloaded, including the acceptance page.');
+  }catch(err){toast('PDF download failed: '+err.message);}
+}
+async function mpSharePdf(){
+  try{
+    const saved=await mpSave();if(!saved)return;
+    const blob=await mpPdfBlob();
+    const file=new File([blob],mpPdfName(),{type:'application/pdf'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
+      await navigator.share({files:[file],title:'Mitchell Proctor Fee Proposal '+state.reference,
+        text:'Please see the attached PDF fee proposal and acceptance form.'});
+    }else{
+      deliverBlob(file.name,blob);
+      toast('Quotation PDF downloaded. Share it using Mail or WhatsApp.');
+    }
+  }catch(err){if(err.name!=='AbortError')toast('PDF sharing failed: '+err.message);}
+}
+async function mpEmail(){
+  if(!validateClient())return;
+  const saved=await mpSave();if(!saved)return;
   const subj='architect fee proposal - '+state.client+' - '+state.address.replace(/\n/g,', ');
-  const status = await mpAPI('/api/status');
-  if (!status.emailConfigured) {
-    const t=totals(),pay=paymentSchedule(t);
-    const body='Dear '+state.client+',\n\nPlease find attached our architectural fee proposal and acceptance form for '+state.address+'.\n\nTotal professional fee including VAT: '+money2(t.feeGross)+'\n50% deposit: '+money2(pay.depositGross)+'\n50% before submission: '+money2(pay.balanceGross)+'\n\nMitchell Proctor Architects';
-    const blob=await buildWord(); deliverBlob('MP_Fee_Proposal_'+filePart(state.reference)+'.docx',blob);
-    window.location.href='mailto:'+encodeURIComponent(state.clientEmail)+'?bcc='+encodeURIComponent('enquiries@ukestimates.com')+'&subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(body);
-    toast('Word downloaded and email prepared. Attach Word before sending.'); return;
-  }
-  if(!confirm('Send the Word proposal to '+state.clientEmail+' and a BCC office copy to enquiries@ukestimates.com?\nSubject: '+subj))return;
-  try {
-    toast('Preparing Word attachment...');
-    const blob=await buildWord();
-    const result=await mpAPI('/api/proposals/'+currentProposalId+'/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true,docxBase64:mpBase64(await blob.arrayBuffer())})});
-    toast('Email submitted: '+result.recipient+' + office copy.');await mpRefreshProjects();
-  }catch(err){ toast('Email not sent: '+err.message); }
+  try{
+    const status=await mpAPI('/api/status');
+    if(!status.emailConfigured){
+      const pdf=await mpPdfBlob();
+      deliverBlob(mpPdfName(),pdf);
+      const fees=totals(),schedule=paymentSchedule(fees);
+      const body='Dear '+state.client+',\n\nPlease find attached our architectural fee proposal in PDF format for '+state.address+'.\n\nProfessional fee incl. VAT: '+money2(fees.feeGross)+'\nDeposit (50%): '+money2(schedule.depositGross)+'\nBalance before submission: '+money2(schedule.balanceGross)+'\n\nKind regards,\nMitchell Proctor Architects';
+      const mailto='mailto:'+encodeURIComponent(state.clientEmail)+'?bcc='+encodeURIComponent('enquiries@ukestimates.com')+'&subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(body);
+      toast('PDF downloaded. Attach the PDF to the prepared email before sending.');
+      window.location.href=mailto;
+      return;
+    }
+    if(!confirm('Send the PDF quotation to '+state.clientEmail+' with a practice office BCC?\nSubject: '+subj))return;
+    toast('Sending PDF proposal…');
+    const sent=await mpAPI('/api/proposals/'+currentProposalId+'/send',{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true})
+    });
+    toast('PDF email sent to '+sent.recipient+' with office copy.');
+    await mpRefreshProjects();
+  }catch(err){toast('PDF email failed: '+err.message);}
 }
 function mpAddHeader() {
   const mast=document.querySelector('.mast-actions')||document.querySelector('.masthead');
@@ -130,23 +163,24 @@ async function mpConnect() {
     }
     // No locally generated numbers may be used as authoritative references.
     if(!currentProposalId && /^MP-\d{4}-\d+$/.test(state.reference))state.reference='DRAFT - save to allocate number';
-    if(pricingDefaults && !requestedId && !localStorage.getItem('mp_cloud_rates_loaded')) {
+    if(pricingDefaults && !requestedId) {
       // Use global pricing defaults on first app load; later drafts retain their chosen rates.
       state.buildRate=pricingDefaults.buildRate;state.buildVatRate=pricingDefaults.buildVatRate;state.feeVatRate=pricingDefaults.feeVatRate;
       state.stages.forEach(s=>{const v=pricingDefaults.stages.find(x=>x.id===s.id);if(v){s.rate=v.rate;s.selected=v.selected;}});
       state.extras.forEach(s=>{const v=pricingDefaults.extras.find(x=>x.id===s.id);if(v){s.amount=v.amount;s.selected=v.selected;}});
-      localStorage.setItem('mp_cloud_rates_loaded','1');
     }
     renderAll();
   }catch(err){console.warn('Could not connect to Cloudflare workspace',err);toast('Cloud connection error: '+err.message);}
 }
-// Replace ONLY cloud-critical handlers. All local Word, print, measurements,
-// stage selection and WhatsApp facilities remain in the original app.
+// Override cloud-critical handlers; PDF is the only client quotation attachment.
+// Local measurement, print and WhatsApp facilities remain unchanged.
 $('#saveBtn').onclick=mpSave;
 $('#newBtn').onclick=mpNew;
 $('#loadBtn').onclick=mpLoad;
 $('#deleteBtn').onclick=mpDelete;
 $('#emailBtn').onclick=mpEmail;
+$('#wordBtn').onclick=mpDownloadPdf;
+$('#shareBtn').onclick=mpSharePdf;
 $('#savedProjects').addEventListener('change',()=>{});
 document.querySelector('.controls').addEventListener('input',()=>{mpRemoteDirty=true});
 mpConnect();
