@@ -1,3 +1,43 @@
+import { DurableObject } from "cloudflare:workers";
+export class MpSqlStore extends DurableObject {
+ constructor(ctx,env){
+  super(ctx,env);
+  this.sql=ctx.storage.sql;
+  this.sql.exec("CREATE TABLE IF NOT EXISTS users (\n id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL UNIQUE COLLATE NOCASE,\n name TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('owner','staff')),\n password_hash TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,\n created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n);\nCREATE TABLE IF NOT EXISTS sessions (\n token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,\n expires_at TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n);\nCREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);\nCREATE TABLE IF NOT EXISTS login_attempts (\n id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, ip TEXT NOT NULL,\n created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n);\nCREATE INDEX IF NOT EXISTS idx_login_attempts ON login_attempts(email,ip,created_at);\nCREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, config TEXT NOT NULL);\nCREATE TABLE IF NOT EXISTS proposals (\n id INTEGER PRIMARY KEY AUTOINCREMENT, reference TEXT UNIQUE,\n created_by INTEGER NOT NULL REFERENCES users(id),\n payload TEXT NOT NULL, client TEXT NOT NULL,client_email TEXT NOT NULL,\n site_address TEXT NOT NULL, fee_ex_vat REAL NOT NULL DEFAULT 0,\n status TEXT NOT NULL DEFAULT 'draft', last_email_id TEXT,\n created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n);\nCREATE INDEX IF NOT EXISTS idx_proposals_creator ON proposals(created_by);");
+ }
+ async fetch(request){
+  try{
+   const {query,params=[],operation}=await request.json();
+   if(typeof query!=="string" || !["first","all","run"].includes(operation) || !Array.isArray(params))return new Response("Invalid query request",{status:400});
+   const cursor=this.sql.exec(query,...params);
+   const rows=cursor.toArray();
+   const meta={changes:cursor.rowsWritten,last_row_id:this.sql.exec("SELECT last_insert_rowid() AS id").one().id};
+   return Response.json(operation==="first"?(rows[0]||null):operation==="all"?{results:rows}:{success:true,meta});
+  }catch(e){
+   console.error("MP internal database error",e?.message);
+   return Response.json({error:"Database operation failed"},{status:500});
+  }
+ }
+}
+function bindDurableSql(env){
+ const stub=env.MP_DATA.get(env.MP_DATA.idFromName("practice"));
+ const run=async(query,params,operation)=>{
+  const res=await stub.fetch("https://mp-store.internal/query",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({query,params,operation})});
+  if(!res.ok)throw Object.assign(new Error("Database request failed"),{status:500});
+  return res.json();
+ };
+ return {prepare(query){
+  let params=[];
+  const statement={
+   bind(...values){params=values;return statement},
+   first(){return run(query,params,"first")},
+   all(){return run(query,params,"all")},
+   run(){return run(query,params,"run")}
+  };
+  return statement;
+ }};
+}
+
 // Mitchell Proctor Fee Proposal - Cloudflare Workers + D1.
 // Secrets (SETUP_TOKEN / RESEND_API_KEY) are supplied through Wrangler, never committed.
 const OWNER_EMAIL = 'enquiries@ukestimates.com';
@@ -234,6 +274,7 @@ async function api(req, env, path) {
 }
 export default {
   async fetch(request, env) {
+    env={...env,DB:bindDurableSql(env)};
     try {
       const url=new URL(request.url);const path=url.pathname;
       if(path.startsWith('/api/'))return securityHeaders(await api(request,env,path));
@@ -243,7 +284,7 @@ export default {
         const asset=path.startsWith('/setup')?'/setup.html':'/login.html';
         return securityHeaders(await env.ASSETS.fetch(new Request(new URL(asset,request.url),request)));
       }
-      if(['/manifest.webmanifest','/mp-icon.png','/favicon.ico','/portal.css'].includes(path))return securityHeaders(await env.ASSETS.fetch(request));
+      if(['/manifest.webmanifest','/mp-icon.svg','/favicon.ico','/portal.css'].includes(path))return securityHeaders(await env.ASSETS.fetch(request));
       if(!user)return Response.redirect(new URL('/login',url).toString(),302);
       if(path==='/cloud-sync.js')return securityHeaders(await env.ASSETS.fetch(request));
       if(path==='/owner'||path==='/owner.html'){
