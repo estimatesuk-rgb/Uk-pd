@@ -81,12 +81,28 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
    }else{
     const res=await fetch(data.signedUrl);
     if(!res.ok)throw Error('Could not load image');
-    const bitmap=await createImageBitmap(await res.blob());
-    const scale=Math.min(1,2400/Math.max(bitmap.width,bitmap.height));
-    canvas.width=Math.max(1,Math.round(bitmap.width*scale));
-    canvas.height=Math.max(1,Math.round(bitmap.height*scale));
-    canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);
-    bitmap.close?.();
+    const blob=await res.blob();
+    let image;
+    let release=()=>{};
+    if(typeof createImageBitmap==='function'){
+     try{image=await createImageBitmap(blob);release=()=>image.close?.()}catch{}
+    }
+    if(!image){
+     const objectUrl=URL.createObjectURL(blob);
+     try{
+      image=new Image();image.src=objectUrl;
+      await image.decode();
+     }catch(error){URL.revokeObjectURL(objectUrl);throw error}
+     release=()=>URL.revokeObjectURL(objectUrl);
+    }
+    try{
+     const width=image.width||image.naturalWidth,height=image.height||image.naturalHeight;
+     if(!width||!height)throw Error('Image has no usable dimensions');
+     const scale=Math.min(1,2400/Math.max(width,height));
+     canvas.width=Math.max(1,Math.round(width*scale));
+     canvas.height=Math.max(1,Math.round(height*scale));
+     canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);
+    }finally{release()}
    }
    setSheet(canvas.toDataURL('image/jpeg',.87));
    setSheetDims([canvas.width,canvas.height]);setPages(count);setDocId(chosenDoc);setPage(chosenPage);
