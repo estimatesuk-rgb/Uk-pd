@@ -243,7 +243,8 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
  function exportIfc(){
   if(bim.issues.length)return setMessage('IFC export held: '+bim.issues.map(x=>x.reason).join('; '));
   try{
-   const text=createIfc4Model({projectName:project.name||'UKPD partial BIM',elements:bim.models});
+   if(!bim.models.length)return setMessage('No verified BIM elements yet. Save a checked slab or wall before generating IFC4.');
+   const text=createIfc4Model({projectName:project?.name||'UKPD partial BIM',elements:bim.models});
    const url=URL.createObjectURL(new Blob([text],{type:'application/x-step'}));
    const link=document.createElement('a');link.href=url;link.download='UKPD-checked-elements.ifc';link.click();
    setTimeout(()=>URL.revokeObjectURL(url),2000);
