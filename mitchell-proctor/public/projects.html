@@ -11,8 +11,8 @@
   <style>
     .projects-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap}
     .projects-heading h1{margin:5px 0;font-family:Georgia,serif;font-size:clamp(29px,5vw,43px);font-weight:400}
-    .projects-tools{display:grid;grid-template-columns:minmax(190px,1fr) auto;gap:12px;align-items:end}
-    .project-card{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:18px;background:#fff}
+    .projects-tools{display:grid;grid-template-columns:minmax(230px,1fr) minmax(145px,200px) auto;gap:12px;align-items:end}
+    .project-card{display:grid;grid-template-columns:minmax(0,1fr) minmax(170px,205px);gap:16px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:18px;background:#fff}.project-actions{display:flex;flex-direction:column;gap:9px;min-width:0}.project-actions select{margin-top:4px}.project-actions .button{width:100%}.delete-project{border:1px solid #a43c36;background:white;color:#992d27}.delete-project:hover{background:#fff2f0}.status-won{border-left:5px solid #44835c}.status-lost{border-left:5px solid #9b5049}.status-pending{border-left:5px solid #ae9272}
     .project-card strong{display:block;font-size:17px}
     .project-card p{margin:5px 0;color:var(--muted);overflow-wrap:anywhere}
     .project-meta{display:flex;flex-wrap:wrap;gap:9px 16px;color:var(--muted);font-size:12px;margin-top:10px}
@@ -22,7 +22,7 @@
     .field-query{margin:0}
     .field-query input{font-size:16px}
     #resultsCount{margin:0 0 12px;color:var(--muted);font-size:13px}
-    @media(max-width:640px){.projects-tools{grid-template-columns:1fr}.project-card{grid-template-columns:1fr}.project-open{justify-self:start}}
+    @media(max-width:720px){.projects-tools{grid-template-columns:1fr}.project-card{grid-template-columns:1fr}.project-actions{display:grid;grid-template-columns:1fr 1fr;align-items:end}.project-actions label{grid-column:1/-1}}
   </style>
 </head>
 <body>
@@ -44,6 +44,9 @@
       <label class="field-query" for="projectSearch">Search by proposal reference, client, project or site address
         <input id="projectSearch" type="search" placeholder="Search saved projects…" autocomplete="off" disabled>
       </label>
+      <label class="field-query" for="statusFilter">Job status
+        <select id="statusFilter" disabled><option value="all">All statuses</option><option value="pending">Pending</option><option value="won">Won</option><option value="lost">Lost</option></select>
+      </label>
       <button id="refresh" type="button" class="outline" disabled>Refresh list</button>
     </div>
   </section>
@@ -61,6 +64,7 @@ const list=document.getElementById('projectList');
 const count=document.getElementById('resultsCount');
 const search=document.getElementById('projectSearch');
 const refresh=document.getElementById('refresh');
+const statusFilter=document.getElementById('statusFilter');
 let allProjects=[];
 let isOwner=false;
 const pounds=new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'});
@@ -79,7 +83,7 @@ function element(tag,cls,content){
 }
 function render(){
   const q=search.value.trim().toLocaleLowerCase('en-GB');
-  const filtered=allProjects.filter(p=>[p.reference,p.name,p.data?.client,p.data?.address,p.key,p.status].some(v=>String(v||'').toLocaleLowerCase('en-GB').includes(q)));
+  const filtered=allProjects.filter(p=>(statusFilter.value==='all'||(p.jobStatus||'pending')===statusFilter.value)&&[p.reference,p.name,p.data?.client,p.data?.address,p.key,p.status,p.jobStatus].some(v=>String(v||'').toLocaleLowerCase('en-GB').includes(q)));
   count.textContent=filtered.length+' saved project'+(filtered.length===1?'':'s')+(q?' matching your search':'');
   list.replaceChildren();
   if(!filtered.length){
@@ -87,7 +91,7 @@ function render(){
     list.append(none);return;
   }
   for(const p of filtered){
-    const card=element('article','project-card');
+    const card=element('article','project-card status-'+(p.jobStatus||'pending'));
     const info=element('div');
     const ref=element('div','project-ref',p.reference||'Draft');
     const title=element('strong',null,p.name||p.client||'Unnamed project');
@@ -95,14 +99,45 @@ function render(){
     const meta=element('div','project-meta');
     meta.append(
       element('span',null,'Fee ex VAT: '+pounds.format(Number(p.fee)||0)),
-      element('span',null,'Status: '+String(p.status||'draft')),
+      element('span',null,'Quotation: '+String(p.status||'draft')),
+      element('span',null,'Job: '+String(p.jobStatus||'pending').toUpperCase()),
       element('span',null,p.updatedAt?'Updated: '+p.updatedAt:'')
     );
     info.append(ref,title,address,meta);
     const action=element('a','button project-open','Open proposal →');
     action.href='/?proposal='+encodeURIComponent(String(p.id));
     action.setAttribute('aria-label','Open saved proposal '+String(p.reference||p.name||p.id));
-    card.append(info,action);list.append(card);
+    const actions=element('div','project-actions');
+    const statusLabel=element('label',null,'Job status');
+    const statusSelect=element('select');
+    for(const status of ['pending','won','lost']){const option=element('option',null,status[0].toUpperCase()+status.slice(1));option.value=status;statusSelect.append(option);}
+    statusSelect.value=p.jobStatus||'pending';
+    statusSelect.setAttribute('aria-label','Job status for '+String(p.reference));
+    statusSelect.addEventListener('change',async()=>{
+      const previous=p.jobStatus||'pending',next=statusSelect.value;
+      statusSelect.disabled=true;
+      try{
+        await api('/api/proposals/'+p.id+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobStatus:next})});
+        p.jobStatus=next;render();
+      }catch(err){statusSelect.value=previous;alert('Could not update job status: '+err.message);}
+      finally{statusSelect.disabled=false;}
+    });
+    statusLabel.append(statusSelect);
+    const remove=element('button','delete-project','Delete project');
+    remove.type='button';
+    remove.setAttribute('aria-label','Permanently delete '+String(p.reference));
+    remove.addEventListener('click',async()=>{
+      if(!confirm('Permanently delete '+p.reference+'? This cannot be undone.'))return;
+      const password=prompt('Enter your own account password to confirm deletion:');
+      if(!password)return;
+      remove.disabled=true;
+      try{
+        await api('/api/proposals/'+p.id+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password})});
+        allProjects=allProjects.filter(item=>item.id!==p.id);render();
+      }catch(err){alert('Could not delete project: '+err.message);remove.disabled=false;}
+    });
+    actions.append(statusLabel,action,remove);
+    card.append(info,actions);list.append(card);
   }
 }
 async function load(){
@@ -110,7 +145,7 @@ async function load(){
   try {
     const data=await api('/api/proposals');
     allProjects=Array.isArray(data.projects)?data.projects:[];
-    search.disabled=false;refresh.disabled=false;
+    search.disabled=false;statusFilter.disabled=false;refresh.disabled=false;
     render();
   }catch(err){
     count.textContent='Unable to load saved projects';
@@ -122,6 +157,7 @@ document.getElementById('signout').onclick=async()=>{
   try{await api('/api/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});}finally{location.replace('/login');}
 };
 search.addEventListener('input',render);
+statusFilter.addEventListener('change',render);
 refresh.addEventListener('click',load);
 (async()=>{
   try{
