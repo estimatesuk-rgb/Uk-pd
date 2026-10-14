@@ -109,7 +109,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
   if(!startRef.current||!sheetNode.current)return;
   const a=startRef.current,b=pos(e,sheetNode.current);startRef.current=null;setDragBox(null);
   const bounds={x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),w:Math.abs(a.x-b.x),h:Math.abs(a.y-b.y)};
-  if(bounds.w<.03||bounds.h<.03)return setMessage('Draw a larger rectangle around exactly one view.');
+  if(bounds.w<.03||bounds.h<.03){setDrawnBox(null);return setMessage('Draw a larger rectangle around exactly one view.');}
   setDrawnBox(bounds);setMessage('Choose the view type, name it, then Save drawing view.');
  }
  async function saveView(){
@@ -268,7 +268,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
    <button type="button" disabled={working||!docId} onClick={()=>loadSheet()}>Load drawing</button>
   </div>
   {sheet&&<div><strong>1. Draw a box around one separate drawing view</strong>
-   <div ref={sheetNode} onPointerDown={e=>{startRef.current=pos(e,e.currentTarget);e.currentTarget.setPointerCapture(e.pointerId)}}
+   <div ref={sheetNode} onPointerDown={e=>{if(e.pointerType==='mouse'&&e.button!==0)return;const p=pos(e,e.currentTarget);startRef.current=p;setDrawnBox(null);setDragBox({x:p.x,y:p.y,w:0,h:0});try{e.currentTarget.setPointerCapture(e.pointerId)}catch{}}
      onPointerMove={e=>{if(!startRef.current)return;const a=startRef.current,b=pos(e,e.currentTarget);setDragBox({x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),w:Math.abs(a.x-b.x),h:Math.abs(a.y-b.y)})}} onPointerUp={pointerEnd} onPointerCancel={()=>{startRef.current=null;setDragBox(null)}} style={{position:'relative',cursor:'crosshair',touchAction:'none',maxWidth:1000,
        border:'1px solid #8190a5',margin:'8px 0'}}>
     <img src={sheet} alt="Original drawing sheet" draggable={false} style={{display:'block',width:'100%',height:'auto'}}/>
