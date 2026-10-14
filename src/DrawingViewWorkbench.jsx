@@ -88,7 +88,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
    }
    setSheet(canvas.toDataURL('image/jpeg',.87));
    setSheetDims([canvas.width,canvas.height]);setPages(count);setDocId(chosenDoc);setPage(chosenPage);
-   setDrawnBox(null);setMessage('Drag around ONE plan, elevation or section, excluding other views and the title block.');
+   setDrawnBox(null);setDragBox(null);setMessage('Drag around ONE plan, elevation or section, excluding other views and the title block.');
   }catch(e){setMessage('Drawing preview failed: '+String(e?.message||e))}
   finally{setWorking(false)}
  }
@@ -152,7 +152,8 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
   if(points.length!==2)return setMessage('Click both ends of a printed dimension INSIDE the isolated view.');
   const dx=Math.abs((points[1].x-points[0].x)*previewDims[0]);
   const dy=Math.abs((points[1].y-points[0].y)*previewDims[1]);
-  const first=calibration?.status!=='first-dimension';
+  const first=!scaleCheck.ok&&calibration?.status!=='first-dimension';
+  if(scaleCheck.ok)return setMessage('Both dimensions are already verified. Choose Trace slab/floor perimeter or Trace wall centre-line.');
   if(first&&dx<=dy*2)return setMessage('Step 1: choose a HORIZONTAL X-axis printed dimension.');
   if(!first&&dy<=dx*2)return setMessage('Step 2: choose a VERTICAL Y-axis printed dimension.');
   const result=saveViewScaleCheck({view,document:viewDoc,previous:calibration,
