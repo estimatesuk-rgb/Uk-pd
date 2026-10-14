@@ -298,6 +298,9 @@ export default {
       if(['/manifest.webmanifest','/mp-icon.svg','/favicon.ico','/portal.css'].includes(path))return securityHeaders(await env.ASSETS.fetch(request));
       if(!user)return Response.redirect(new URL('/login',url).toString(),302);
       if(path==='/cloud-sync.js')return securityHeaders(await env.ASSETS.fetch(request));
+      if(path==='/projects'||path==='/projects.html'){
+        return securityHeaders(await env.ASSETS.fetch(new Request(new URL('/projects.html',request.url),request)));
+      }
       if(path==='/owner'||path==='/owner.html'){
         if(user.role!=='owner')return new Response('Owner only',{status:403});
         return securityHeaders(await env.ASSETS.fetch(new Request(new URL('/owner.html',request.url),request)));
