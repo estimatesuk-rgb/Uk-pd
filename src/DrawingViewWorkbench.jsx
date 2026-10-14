@@ -284,7 +284,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
    <button type="button" disabled={working||!docId} onClick={()=>loadSheet()}>{working?'Loading…':'1. Load drawing'}</button>
   </div>
   {sheet&&<div><strong>2. Draw a box around the floor plan</strong>
-   <div ref={sheetNode} onPointerDown={e=>{if(e.pointerType==='mouse'&&e.button!==0)return;const p=pos(e,e.currentTarget);startRef.current=p;setDrawnBox(null);setDragBox({x:p.x,y:p.y,w:0,h:0});try{e.currentTarget.setPointerCapture(e.pointerId)}catch{}}
+   <div ref={sheetNode} onPointerDown={e=>{if(e.pointerType==='mouse'&&e.button!==0)return;const p=pos(e,e.currentTarget);startRef.current=p;setDrawnBox(null);setDragBox({x:p.x,y:p.y,w:0,h:0});try{e.currentTarget.setPointerCapture(e.pointerId)}catch{}}}
      onPointerMove={e=>{if(!startRef.current)return;const a=startRef.current,b=pos(e,e.currentTarget);setDragBox({x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),w:Math.abs(a.x-b.x),h:Math.abs(a.y-b.y)})}} onPointerUp={pointerEnd} onPointerCancel={()=>{startRef.current=null;setDragBox(null)}} style={{position:'relative',cursor:'crosshair',touchAction:'none',maxWidth:1000,
        border:'1px solid #8190a5',margin:'8px 0'}}>
     <img src={sheet} alt="Original drawing sheet" draggable={false} style={{display:'block',width:'100%',height:'auto'}}/>
