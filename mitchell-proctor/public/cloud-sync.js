@@ -10,6 +10,8 @@ blank = function () {
     s.buildRate = pricingDefaults.buildRate;
     s.buildVatRate = pricingDefaults.buildVatRate;
     s.feeVatRate = pricingDefaults.feeVatRate;
+    s.contingency = pricingDefaults.contingency ?? 0;
+    s.validDays = pricingDefaults.validDays ?? 30;
     for (const entry of s.stages) {
       const found = pricingDefaults.stages?.find(a => a.id === entry.id);
       if (found) { entry.rate = found.rate; entry.selected = found.selected; }
@@ -73,10 +75,14 @@ async function mpDelete() {
     await mpRefreshProjects(); toast('Project deleted.');
   } catch(err){ toast('Delete failed: '+err.message); }
 }
-function mpNew() {
+async function mpNew() {
   if(mpRemoteDirty && !confirm('Current changes are not saved to the shared workspace. Start a new job?'))return;
-  currentProposalId=null; state=blank();mpRemoteDirty=false;renderAll();
-  toast('New draft. An MP job reference is allocated when saved.');
+  try{
+    const result=await mpAPI('/api/pricing');
+    if(result.pricing)pricingDefaults=result.pricing;
+  }catch(err){toast('Could not refresh practice fees: '+err.message);return;}
+  currentProposalId=null;state=blank();mpRemoteDirty=false;renderAll();
+  toast('New blank proposal uses the latest practice-wide pricing. Save to allocate a job reference.');
 }
 async function mpPdfBlob() {
   if(!validateClient())throw new Error('Enter the client and project details first');
@@ -163,9 +169,12 @@ async function mpConnect() {
     }
     // No locally generated numbers may be used as authoritative references.
     if(!currentProposalId && /^MP-\d{4}-\d+$/.test(state.reference))state.reference='DRAFT - save to allocate number';
-    if(pricingDefaults && !requestedId) {
-      // Use global pricing defaults on first app load; later drafts retain their chosen rates.
+    if(pricingDefaults && !currentProposalId) {
+      // New and unsaved quotations use the latest owner-managed practice rates.
+      // A loaded saved proposal always keeps its own negotiated prices.
       state.buildRate=pricingDefaults.buildRate;state.buildVatRate=pricingDefaults.buildVatRate;state.feeVatRate=pricingDefaults.feeVatRate;
+      state.contingency=pricingDefaults.contingency ?? 0;
+      state.validDays=pricingDefaults.validDays ?? 30;
       state.stages.forEach(s=>{const v=pricingDefaults.stages.find(x=>x.id===s.id);if(v){s.rate=v.rate;s.selected=v.selected;}});
       state.extras.forEach(s=>{const v=pricingDefaults.extras.find(x=>x.id===s.id);if(v){s.amount=v.amount;s.selected=v.selected;}});
     }
