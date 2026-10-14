@@ -80,3 +80,10 @@ test('duplicate BIM element identifiers are rejected before export',()=>{
  assert.throws(()=>createIfc4Model({elements:[ready[0],{...ready[0]}]}),/unique ID/);
  assert.throws(()=>createIfc4Model({elements:[{...ready[0],id:''}]}),/unique ID/);
 });
+
+test('invalid IFC coordinates and incomplete openings fail before file generation',()=>{
+ const ready=prepareIfcElements(packageArgs).ready;
+ assert.throws(()=>createIfc4Model({elements:[{...ready[0],outline:[...ready[0].outline.slice(0,3),{x:NaN,y:2}]}]}),/invalid coordinates/);
+ assert.throws(()=>createIfc4Model({elements:[{...ready[0],base_m:Infinity}]}),/base elevation/);
+ assert.throws(()=>createIfc4Model({elements:[{...ready[0],element:'window',host_id:'missing'}]}),/verified host and dimensions/);
+});
