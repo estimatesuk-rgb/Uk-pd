@@ -3,7 +3,32 @@
 <body><header><div class="brand"><img src="/mp-icon.svg" alt="MP logo"><div><strong>MITCHELL PROCTOR</strong><small>ARCHITECTS · OWNER PORTAL</small></div></div><div class="actions"><a href="/" class="button outline" style="color:#22201e">Fee proposals</a><a href="/projects" class="button" style="background:#b69a7d;color:#1e1c1a;border-color:#b69a7d">📁 Saved Projects</a><button id="signout" class="outline" type="button">Sign out</button></div></header>
 <main class="container stack"><div><div class="eyebrow">Private practice administration</div><h1 class="heading">Owner dashboard.</h1><p class="muted">Manage staff access, pricing defaults, issued proposals and software changes. Your practice-wide updates are available on every connected device.</p></div>
 <div id="error" class="notice error" role="alert"></div><div id="success" class="notice" role="status"></div>
-<section class="card"><div class="eyebrow">01 / Rates &amp; charging</div><h2>Practice-wide fee defaults</h2><p>These figures are the starting point for <strong>new</strong> fee proposals. Previously issued documents keep the fee values they were issued with.</p><form id="ratesForm"><div class="cols"><label>Construction budget (£ per m²)<input type="number" name="buildRate" min="100" max="30000" step=".01" required></label><label>Construction VAT (%)<input type="number" name="buildVatRate" min="0" max="30" step=".1" required></label><label>Architectural fees VAT (%)<input type="number" name="feeVatRate" min="0" max="30" step=".1" required></label><label>Minimum charging area (m²)<input type="number" name="minimumArea" value="25" disabled title="Fixed to the agreed 25 m² minimum"></label></div><h3>Services priced per m²</h3><div id="stageRates"></div><h3>Optional fixed fees</h3><div id="extraRates"></div><div class="actions" style="margin-top:20px"><button type="submit">Save rates for all devices</button><span class="muted">Only the owner can change these defaults.</span></div></form></section>
+<section class="card" id="pricingSection"><div class="eyebrow">01 / Architectural price settings</div><h2>All architects' pricing defaults</h2><p>Set the standard fees the whole practice uses for <strong>new</strong> quotations. Staff can adjust individual job quotations without changing these master prices. Existing saved projects retain their own rates.</p>
+<form id="ratesForm">
+<h3>Construction and tax allowances</h3>
+<div class="cols">
+<label>Construction allowance (£ per m²)<input type="number" name="buildRate" min="0" max="30000" step=".01" required></label>
+<label>Construction VAT (%)<input type="number" name="buildVatRate" min="0" max="30" step=".1" required></label>
+<label>Architectural fees VAT (%)<input type="number" name="feeVatRate" min="0" max="30" step=".1" required></label>
+<label>Default construction contingency (%)<input type="number" name="contingency" min="0" max="100" step=".1" required></label>
+<label>Quotation valid for (days)<input type="number" name="validDays" min="1" max="365" step="1" required></label>
+<label>Minimum charging area (m²)<input type="number" name="minimumArea" value="25" disabled title="The agreed minimum 25 m² fee rule remains fixed"></label>
+</div>
+<h3>Architectural stages — £ per m² excluding VAT</h3>
+<p class="muted">Edit the rate for every work stage. Tick <strong>Include by default</strong> to have that stage selected when staff start a new quotation.</p>
+<div class="row" style="font-size:12px;font-weight:700;color:#756f67" aria-hidden="true"><span>Architectural service</span><span>£/m² ex VAT</span><span>Include?</span></div>
+<div id="stageRates"><p>Loading architectural fees…</p></div>
+<h3 style="margin-top:30px">Additional architectural services — fixed fees excluding VAT</h3>
+<p class="muted">Set a standard fixed fee for each optional service. These are not automatically included unless you tick them.</p>
+<div class="row" style="font-size:12px;font-weight:700;color:#756f67" aria-hidden="true"><span>Additional service</span><span>Fixed fee £</span><span>Include?</span></div>
+<div id="extraRates"><p>Loading additional fees…</p></div>
+<div class="actions" style="margin-top:24px">
+<button id="saveRates" type="submit" disabled>Save all default prices</button>
+<button id="resetRates" type="button" class="outline" disabled>Restore standard prices</button>
+<span class="muted" id="rateHelp">Only the practice owner can save these rates.</span>
+</div>
+<p class="muted" style="font-size:12px">Restoring standard prices only changes this form until you click <strong>Save all default prices</strong>. The agreed 25 m² minimum rule is unchanged.</p>
+</form></section>
 <section class="card"><div class="eyebrow">02 / Access control</div><h2>Staff usernames and passwords</h2><p>Staff can prepare and save proposals, but cannot change practice-wide rates or manage other users.</p><form id="newStaffForm"><div class="cols"><label>Staff member’s name<input name="name" required maxlength="150" placeholder="e.g. Stephen Haslam"></label><label>Email used as username<input type="email" name="email" required autocomplete="off" placeholder="name@mitchellproctor.co.uk"></label></div><label>Initial staff password<input name="password" type="password" minlength="10" required autocomplete="new-password" placeholder="At least 10 characters"></label><button type="submit">Create staff login</button></form><div id="staffList" class="list" style="margin-top:24px"><p>Loading accounts…</p></div></section>
 <section class="card"><div class="eyebrow">03 / Saved fees</div><h2>All architectural proposals</h2><p>Job numbers are allocated centrally, in sequence, when a proposal is first saved. <a href="/projects">Open searchable Saved Projects →</a></p><div id="proposalList" class="list"><p>Loading proposals…</p></div></section>
 <section class="card"><div class="eyebrow">04 / Owner security</div><h2>Change owner password</h2><form id="passwordForm"><div class="cols"><label>Current password<input type="password" name="current" required autocomplete="current-password"></label><label>New password<input type="password" name="next" required minlength="10" autocomplete="new-password"></label></div><button type="submit">Change password</button></form></section>
@@ -11,15 +36,70 @@
 </main><footer class="site-footer">Mitchell Proctor Architects · 01246 203196 · architects@mitchellproctor.co.uk</footer>
 <script>
 const $$=s=>document.querySelector(s),money=n=>Number(n).toLocaleString('en-GB',{style:'currency',currency:'GBP'});
-let pricing={buildRate:2500,buildVatRate:20,feeVatRate:20,minimumArea:25,stages:[],extras:[]};
+let pricing=null;
+let factoryPricing=null;
 function notice(message,bad=false){const el=$$(bad?'#error':'#success');el.textContent=message;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),6500);if(bad)window.scrollTo({top:0,behavior:'smooth'})}
 async function api(url,options={}){const res=await fetch(url,{credentials:'same-origin',...options});const body=await res.json().catch(()=>({error:'Unexpected server response'}));if(res.status===401){location.href='/login';throw Error('Sign in required')}if(!res.ok)throw Error(body.error||'Request failed');return body}
 const post=(url,data)=>api(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-function renderPriceLines(container,list,type){container.innerHTML='';for(const item of list){const row=document.createElement('div');row.className='row';const name=document.createElement('span');name.textContent=item.title||item.id;const rate=document.createElement('input');rate.type='number';rate.min='0';rate.max=type==='stage'?'5000':'1000000';rate.step='.01';rate.value=type==='stage'?item.rate:item.amount;rate.setAttribute('aria-label',(item.title||item.id)+' rate');rate.oninput=()=>{item[type==='stage'?'rate':'amount']=Number(rate.value)};const label=document.createElement('label');label.style.margin='0';label.style.fontSize='11px';label.style.textAlign='center';label.textContent='Default ';const check=document.createElement('input');check.type='checkbox';check.checked=!!item.selected;check.onchange=()=>item.selected=check.checked;label.append(check);row.append(name,rate,label);container.append(row)}}
-async function loadPricing(){const d=await api('/api/pricing');if(d.pricing){pricing={...pricing,...d.pricing}}const f=$$('#ratesForm');f.elements.buildRate.value=pricing.buildRate;f.elements.buildVatRate.value=pricing.buildVatRate;f.elements.feeVatRate.value=pricing.feeVatRate;renderPriceLines($$('#stageRates'),pricing.stages,'stage');renderPriceLines($$('#extraRates'),pricing.extras,'extra')}
+function renderPriceLines(container,list,type){
+  container.replaceChildren();
+  for(const item of list){
+    const row=document.createElement('div');row.className='row';
+    const name=document.createElement('span');name.textContent=item.title||item.id;
+    const rate=document.createElement('input');rate.type='number';rate.min='0';
+    rate.max=type==='stage'?'5000':'1000000';rate.step='.01';
+    rate.required=true;rate.value=type==='stage'?item.rate:item.amount;
+    rate.setAttribute('aria-label',(item.title||item.id)+(type==='stage'?' rate in pounds per m2':' fixed fee in pounds'));
+    rate.oninput=()=>{item[type==='stage'?'rate':'amount']=Number(rate.value);markPricingEdited()};
+    const label=document.createElement('label');label.style.margin='0';label.style.fontSize='11px';
+    label.style.textAlign='center';label.textContent='Include';
+    const check=document.createElement('input');check.type='checkbox';check.checked=!!item.selected;
+    check.setAttribute('aria-label','Include '+(item.title||item.id)+' by default');
+    check.onchange=()=>{item.selected=check.checked;markPricingEdited()};
+    label.append(check);row.append(name,rate,label);container.append(row);
+  }
+}
+function markPricingEdited(){const el=$('#rateHelp');if(el)el.textContent='Unsaved changes — click Save all default prices.';}
+function showPricing(){
+  if(!pricing)return;
+  const f=$('#ratesForm');
+  for(const field of ['buildRate','buildVatRate','feeVatRate','contingency','validDays']){
+    f.elements.namedItem(field).value=pricing[field];
+  }
+  renderPriceLines($('#stageRates'),pricing.stages,'stage');
+  renderPriceLines($('#extraRates'),pricing.extras,'extra');
+  $('#saveRates').disabled=false;$('#resetRates').disabled=false;
+  $('#rateHelp').textContent='These prices are used across the practice for new quotations.';
+}
+async function loadPricing(){
+  const d=await api('/api/pricing');
+  if(!d.pricing||!Array.isArray(d.pricing.stages)||!d.pricing.stages.length||!Array.isArray(d.pricing.extras)||!d.pricing.extras.length)
+    throw Error('Architect fee defaults did not load. Please refresh before saving.');
+  pricing=d.pricing;factoryPricing=d.defaults||null;
+  showPricing();
+}
 async function loadStaff(){const data=await api('/api/staff');const root=$$('#staffList');root.replaceChildren();for(const user of data.staff){const row=document.createElement('div');row.className='list-item';const label=document.createElement('div');label.innerHTML='<b></b><small></small>';label.querySelector('b').textContent=user.name+(user.role==='owner'?' (owner)':'');label.querySelector('small').textContent=user.email+' · '+(user.active?'Active':'Disabled');row.append(label);if(user.role!=='owner'){const actions=document.createElement('div');actions.className='actions';const button=document.createElement('button');button.type='button';button.textContent=user.active?'Disable':'Enable';button.className='outline';button.onclick=async()=>{if(!confirm((user.active?'Disable':'Enable')+' access for '+user.name+'?'))return;try{await post('/api/staff',{action:'active',id:user.id,active:!user.active});notice('Staff access updated');await loadStaff()}catch(e){notice(e.message,true)}};const reset=document.createElement('button');reset.className='outline';reset.type='button';reset.textContent='Set new password';reset.onclick=async()=>{const pw=prompt('Enter a NEW password (10 characters minimum) for '+user.name+':');if(!pw)return;try{await post('/api/staff',{action:'reset',id:user.id,password:pw});notice('Password changed for '+user.name)}catch(e){notice(e.message,true)}};actions.append(button,reset);row.append(actions)}root.append(row)}if(!data.staff.length)root.textContent='No accounts created yet.'}
 async function loadProposals(){const data=await api('/api/proposals');const root=$$('#proposalList');root.replaceChildren();for(const p of data.projects){const row=document.createElement('div');row.className='list-item';const x=document.createElement('div');const strong=document.createElement('strong');strong.textContent=p.reference+' · '+(p.data?.client||p.name);const small=document.createElement('small');small.textContent=(p.data?.address||'')+' · '+money(p.fee||0)+' · '+p.status;x.append(strong,small);const open=document.createElement('a');open.href='/?proposal='+encodeURIComponent(p.id);open.className='button outline';open.textContent='Open job';row.append(x,open);root.append(row)}if(!data.projects.length)root.textContent='No saved fee proposals yet.'}
-$$('#ratesForm').onsubmit=async e=>{e.preventDefault();const f=e.currentTarget;pricing.buildRate=Number(f.elements.buildRate.value);pricing.buildVatRate=Number(f.elements.buildVatRate.value);pricing.feeVatRate=Number(f.elements.feeVatRate.value);try{await post('/api/pricing',pricing);notice('Pricing defaults saved. New jobs on all devices will use these rates.')}catch(e){notice(e.message,true)}};
+$('#ratesForm').onsubmit=async e=>{
+  e.preventDefault();
+  if(!pricing||!pricing.stages?.length||!pricing.extras?.length){notice('Wait for all architect fees to load before saving',true);return;}
+  const f=e.currentTarget;
+  if(!f.reportValidity())return;
+  for(const field of ['buildRate','buildVatRate','feeVatRate','contingency','validDays'])pricing[field]=Number(f.elements.namedItem(field).value);
+  const button=$('#saveRates');button.disabled=true;
+  try{
+    const result=await post('/api/pricing',pricing);
+    pricing=result.pricing;showPricing();
+    notice('All '+pricing.stages.length+' architectural stages and '+pricing.extras.length+' extra fees saved for new quotations on every device.');
+  }catch(err){notice(err.message,true)}
+  finally{button.disabled=false;}
+};
+$('#resetRates').onclick=()=>{
+  if(!factoryPricing)return;
+  if(!confirm('Restore the original price list in this form? The current saved prices will not change until you press Save all default prices.'))return;
+  pricing=structuredClone(factoryPricing);showPricing();markPricingEdited();
+};
+$('#ratesForm').addEventListener('input',event=>{if(['buildRate','buildVatRate','feeVatRate','contingency','validDays'].includes(event.target.name))markPricingEdited()});
 $$('#newStaffForm').onsubmit=async e=>{e.preventDefault();const f=e.currentTarget,p=Object.fromEntries(new FormData(f));try{await post('/api/staff',{action:'create',...p});f.reset();notice('Staff account created');await loadStaff()}catch(e){notice(e.message,true)}};
 $$('#passwordForm').onsubmit=async e=>{e.preventDefault();const f=e.currentTarget,p=Object.fromEntries(new FormData(f));if(p.current===p.next){notice('Choose a different password',true);return}try{await post('/api/owner/password',p);f.reset();notice('Owner password updated')}catch(e){notice(e.message,true)}};
 $$('#signout').onclick=async()=>{try{await post('/api/logout',{})}finally{location.href='/login'}};
