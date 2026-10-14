@@ -387,7 +387,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
      <label><input type="checkbox" checked={approved} onChange={e=>setApproved(e.target.checked)}/> I have checked the dimensions, revision, alignment, source section and element position</label>
      {!approved&&<p style={{fontWeight:700,color:'#855800'}}>⬆ Tick the confirmation box above before adding this part.</p>}
      <button type="button" style={approved&&scaleCheck.ok?{outline:'4px solid #f4b400',outlineOffset:3}:undefined} disabled={working||!scaleCheck.ok||!approved} onClick={addElement}>Add to 3D model</button>
-     {message&&<p role="alert" style={{padding:10,border:'2px solid #d69e28',borderRadius:6,fontWeight:700}}>{message}</p>
+     {message&&<p role="alert" style={{padding:10,border:'2px solid #d69e28',borderRadius:6,fontWeight:700}}>{message}</p>}
     </>}
    </>}
   </div>}
