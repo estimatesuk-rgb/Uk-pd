@@ -38,15 +38,17 @@ test('model source is IFC4 with semantic entities, extrusions, metre units and p
  assert.match(ifc,/IFCPROPERTYSET\(/);
  assert.match(ifc,/IFCSIUNIT\(\*,\.LENGTHUNIT\.,\$,\.METRE\.\)/);
 });
-test('no inferred BIM generated for AI unverified, missing heights or first-only scale',()=>{
- let r=prepareIfcElements({...packageArgs,bim_specs:{s:{...approved.s,qs_checked:false}}});
- assert.equal(r.ready.length,0);
+test('unverified elements are excluded without discarding separately approved parts',()=>{
+ let r=prepareIfcElements({...packageArgs,bim_specs:{...approved,s:{...approved.s,qs_checked:false}}});
+ assert.equal(r.ready.some(el=>el.element==='slab'),false);
+ assert.equal(r.ready.some(el=>el.element==='wall'),true);
  assert.ok(r.issues.length>0);
  r=prepareIfcElements({...packageArgs,calibrations:{[id+'#1']:{...calibration,crosscheck_verified:false}}});
  assert.equal(r.ready.length,0);
  assert.match(r.issues[0].reason,/second independent/);
- r=prepareIfcElements({...packageArgs,bim_specs:{w:{...approved.w,height_m:''}}});
- assert.equal(r.ready.length,0);
+ r=prepareIfcElements({...packageArgs,bim_specs:{...approved,w:{...approved.w,height_m:''}}});
+ assert.equal(r.ready.some(el=>el.element==='wall'),false);
+ assert.equal(r.ready.some(el=>el.element==='slab'),true);
  r=prepareIfcElements({...packageArgs,docs:[{...docs[0],revision:'P03'}]});
  assert.equal(r.ready.length,0);
 });
