@@ -1,0 +1,42 @@
+name: Deploy Mitchell Proctor Fee Proposal to Cloudflare
+on:
+  push:
+    branches: [mitchell-proctor-live]
+    paths:
+      - "mitchell-proctor/**"
+      - ".github/workflows/deploy-mitchell-proctor.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mitchell-proctor-cloudflare-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Publish independent MP Worker + D1
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Check out deployment branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install Cloudflare Wrangler
+        working-directory: mitchell-proctor
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Validate app source
+        working-directory: mitchell-proctor
+        run: npm run check
+      - name: Publish with existing Cloudflare credentials
+        working-directory: mitchell-proctor
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npm run deploy

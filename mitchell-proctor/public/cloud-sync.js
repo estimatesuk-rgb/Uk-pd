@@ -1,0 +1,152 @@
+/* Cloudflare sync layer over the existing branded MP Fee Studio. */
+let currentProposalId = null;
+let pricingDefaults = null;
+let mpRemoteDirty = false;
+const mpBaseBlank = blank;
+blank = function () {
+  const s = mpBaseBlank();
+  s.reference = 'DRAFT - save to allocate number';
+  if (pricingDefaults) {
+    s.buildRate = pricingDefaults.buildRate;
+    s.buildVatRate = pricingDefaults.buildVatRate;
+    s.feeVatRate = pricingDefaults.feeVatRate;
+    for (const entry of s.stages) {
+      const found = pricingDefaults.stages?.find(a => a.id === entry.id);
+      if (found) { entry.rate = found.rate; entry.selected = found.selected; }
+    }
+    for (const entry of s.extras) {
+      const found = pricingDefaults.extras?.find(a => a.id === entry.id);
+      if (found) { entry.amount = found.amount; entry.selected = found.selected; }
+    }
+  }
+  return s;
+};
+async function mpAPI(path, options = {}) {
+  const r = await fetch(path, { credentials: 'same-origin', ...options });
+  let data; try { data = await r.json(); } catch { data = { error: 'Unexpected server response' }; }
+  if (r.status === 401) { location.href = '/login'; throw new Error('Please sign in'); }
+  if (!r.ok) throw new Error(data.error || `Request failed (${r.status})`);
+  return data;
+}
+async function mpRefreshProjects() {
+  const d = await mpAPI('/api/proposals');
+  projects = Array.isArray(d.projects) ? d.projects : [];
+  renderSaved();
+}
+async function mpSave() {
+  if (!validateClient()) return null;
+  try {
+    const result = await mpAPI('/api/proposals', {
+      method: 'POST', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ id:currentProposalId, data:state })
+    });
+    currentProposalId = result.id;
+    state.reference = result.reference;
+    mpRemoteDirty = false;
+    await mpRefreshProjects();
+    refresh();
+    toast('Saved to Cloudflare as ' + result.reference + '. Available on all authorised devices.');
+    return result;
+  } catch(err) { toast('Save failed: '+err.message); return null; }
+}
+async function mpLoad() {
+  const ix = $('#savedProjects').value;
+  if (ix === '' || !projects[Number(ix)]) { toast('Select a saved proposal'); return; }
+  const p = projects[Number(ix)];
+  currentProposalId = p.id;
+  state = sanitizeState(p.data);
+  state.reference = p.reference;
+  mpRemoteDirty = false;
+  renderAll();
+  toast('Loaded ' + p.reference + ' from Cloudflare.');
+}
+async function mpDelete() {
+  const ix = $('#savedProjects').value;
+  if (ix === '' || !projects[Number(ix)]) { toast('Select a proposal first.'); return; }
+  const p = projects[Number(ix)];
+  if(!confirm('Permanently delete '+p.reference+'? This will remove it for all users.')) return;
+  const password = prompt('Confirm with your account password to delete this job:');
+  if (!password) return;
+  try {
+    await mpAPI('/api/proposals/'+p.id+'/delete', { method:'POST', headers:{'Content-Type':'application/json'},body:JSON.stringify({password}) });
+    if (currentProposalId===p.id) {currentProposalId=null;state=blank();renderAll();}
+    await mpRefreshProjects(); toast('Project deleted.');
+  } catch(err){ toast('Delete failed: '+err.message); }
+}
+function mpNew() {
+  if(mpRemoteDirty && !confirm('Current changes are not saved to the shared workspace. Start a new job?'))return;
+  currentProposalId=null; state=blank();mpRemoteDirty=false;renderAll();
+  toast('New draft. An MP job reference is allocated when saved.');
+}
+function mpBase64(buffer) {
+  let binary='';const bytes=new Uint8Array(buffer);
+  for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));
+  return btoa(binary);
+}
+async function mpEmail() {
+  if (!validateClient()) return;
+  const saved = await mpSave();if(!saved)return;
+  const subj='architect fee proposal - '+state.client+' - '+state.address.replace(/\n/g,', ');
+  const status = await mpAPI('/api/status');
+  if (!status.emailConfigured) {
+    const t=totals(),pay=paymentSchedule(t);
+    const body='Dear '+state.client+',\n\nPlease find attached our architectural fee proposal and acceptance form for '+state.address+'.\n\nTotal professional fee including VAT: '+money2(t.feeGross)+'\n50% deposit: '+money2(pay.depositGross)+'\n50% before submission: '+money2(pay.balanceGross)+'\n\nMitchell Proctor Architects';
+    const blob=await buildWord(); deliverBlob('MP_Fee_Proposal_'+filePart(state.reference)+'.docx',blob);
+    window.location.href='mailto:'+encodeURIComponent(state.clientEmail)+'?bcc='+encodeURIComponent('enquiries@ukestimates.com')+'&subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(body);
+    toast('Word downloaded and email prepared. Attach Word before sending.'); return;
+  }
+  if(!confirm('Send the Word proposal to '+state.clientEmail+' and a BCC office copy to enquiries@ukestimates.com?\nSubject: '+subj))return;
+  try {
+    toast('Preparing Word attachment...');
+    const blob=await buildWord();
+    const result=await mpAPI('/api/proposals/'+currentProposalId+'/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true,docxBase64:mpBase64(await blob.arrayBuffer())})});
+    toast('Email submitted: '+result.recipient+' + office copy.');await mpRefreshProjects();
+  }catch(err){ toast('Email not sent: '+err.message); }
+}
+function mpAddHeader() {
+  const mast=document.querySelector('.mast-actions')||document.querySelector('.masthead');
+  if(!mast)return;
+  const wrap=document.createElement('span');
+  wrap.style.display='inline-flex';wrap.style.gap='8px';wrap.style.alignItems='center';
+  wrap.innerHTML='<span style="color:#ddd;font-size:12px" id="mpAccountName">Signed in</span>'+
+    '<a id="mpOwnerLink" href="/owner" class="btn ghost small" style="display:none">Owner settings</a>'+
+    '<button id="mpSignOut" type="button" class="btn ghost small">Sign out</button>';
+  mast.append(wrap);
+  document.getElementById('mpSignOut').onclick=async()=>{await mpAPI('/api/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});location.href='/login'};
+}
+async function mpConnect() {
+  mpAddHeader();
+  try {
+    const me=await mpAPI('/api/session');
+    if(!me.authenticated){location.href='/login';return;}
+    const el=document.getElementById('mpAccountName');if(el)el.textContent=me.user.name;
+    if(me.user.role==='owner')document.getElementById('mpOwnerLink').style.display='inline-flex';
+    const result=await mpAPI('/api/pricing');pricingDefaults=result.pricing;
+    await mpRefreshProjects();
+    const requestedId = new URLSearchParams(location.search).get('proposal');
+    if (requestedId && /^\d+$/.test(requestedId)) {
+      const requested = projects.find(p => String(p.id) === requestedId);
+      if(requested){ currentProposalId = requested.id; state = sanitizeState(requested.data); state.reference = requested.reference; mpRemoteDirty = false; }
+    }
+    // No locally generated numbers may be used as authoritative references.
+    if(!currentProposalId && /^MP-\d{4}-\d+$/.test(state.reference))state.reference='DRAFT - save to allocate number';
+    if(pricingDefaults && !requestedId && !localStorage.getItem('mp_cloud_rates_loaded')) {
+      // Use global pricing defaults on first app load; later drafts retain their chosen rates.
+      state.buildRate=pricingDefaults.buildRate;state.buildVatRate=pricingDefaults.buildVatRate;state.feeVatRate=pricingDefaults.feeVatRate;
+      state.stages.forEach(s=>{const v=pricingDefaults.stages.find(x=>x.id===s.id);if(v){s.rate=v.rate;s.selected=v.selected;}});
+      state.extras.forEach(s=>{const v=pricingDefaults.extras.find(x=>x.id===s.id);if(v){s.amount=v.amount;s.selected=v.selected;}});
+      localStorage.setItem('mp_cloud_rates_loaded','1');
+    }
+    renderAll();
+  }catch(err){console.warn('Could not connect to Cloudflare workspace',err);toast('Cloud connection error: '+err.message);}
+}
+// Replace ONLY cloud-critical handlers. All local Word, print, measurements,
+// stage selection and WhatsApp facilities remain in the original app.
+$('#saveBtn').onclick=mpSave;
+$('#newBtn').onclick=mpNew;
+$('#loadBtn').onclick=mpLoad;
+$('#deleteBtn').onclick=mpDelete;
+$('#emailBtn').onclick=mpEmail;
+$('#savedProjects').addEventListener('change',()=>{});
+document.querySelector('.controls').addEventListener('input',()=>{mpRemoteDirty=true});
+mpConnect();
