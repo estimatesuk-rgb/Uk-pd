@@ -70,9 +70,9 @@ test('IFC output preserves exact reviewed metric footprint and wall height',()=>
  assert.equal(wallElement.depth,2.7);
  assert.equal(wallElement.base_m,0.15);
  const ifc=createIfc4Model({elements:prepared.ready});
- assert.match(ifc,/IFCSLAB\\(/);
- assert.match(ifc,/IFCWALL\\(/);
- assert.match(ifc,/IFCPROPERTYSINGLEVALUE\\('Checked dimension reference'/);
+ assert.match(ifc,/IFCSLAB\(/);
+ assert.match(ifc,/IFCWALL\(/);
+ assert.match(ifc,/IFCPROPERTYSINGLEVALUE\('Checked dimension reference'/);
 });
 
 test('duplicate BIM element identifiers are rejected before export',()=>{
