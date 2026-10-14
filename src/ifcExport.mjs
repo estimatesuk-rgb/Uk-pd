@@ -118,6 +118,11 @@ export function createIfc4Model({projectName='UKPD partial BIM',elements=[],now=
   put('IFCRELAGGREGATES',guid()+',$,$,$,'+parent+',('+child+')');
  const extrudeDir=put('IFCDIRECTION','(0.,0.,1.)');
  const contained=[],entities=new Map();
+ const seenIds=new Set();
+ for(const element of elements){
+  if(!element.id||seenIds.has(element.id))throw Error('Each verified BIM element requires a unique ID');
+  seenIds.add(element.id);
+ }
  function brepRoof(el){
   if(!['x','y'].includes(el.slope_axis)||!valid(el.high_m,-10,150)||
      !valid(el.rise_m,0,40)||el.holes?.length)
