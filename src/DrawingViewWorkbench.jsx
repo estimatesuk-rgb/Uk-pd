@@ -283,7 +283,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
  return <div id="ukpd-drawing-view-workbench" tabIndex={-1} className="estimateForm" style={{border:'2px solid #577997',borderRadius:12,
    padding:14,margin:'18px 0',gridTemplateColumns:'minmax(0,1fr)'}}>
   <h3 style={{margin:'0 0 8px'}}>Create 3D BIM from your drawing</h3>
-  <p role="status" aria-live="polite" style={{padding:16,border:'3px solid #1774a8',borderRadius:8,background:'#eaf4fb',color:'#173a55',fontSize:'1.2rem',fontWeight:800}}>⬇ {nextHint}</p>
+  <p role="status" aria-live="polite" style={{padding:12,border:'2px solid #1774a8',borderRadius:8,background:'#eaf4fb',color:'#173a55',fontWeight:800}}>⬇ {nextHint}</p>
   <p className="muted">Follow the arrow. Complete one action at a time.</p>
   <details style={{padding:'12px',margin:'10px 0',border:'1px solid #b7c9d7',borderRadius:8,background:'#f6f9fc',color:'#172c40'}}>
    <summary style={{fontWeight:700,cursor:'pointer'}}>What drawings and measurements do I need? (BIM checklist)</summary>
@@ -301,10 +301,10 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
    <button type="button" disabled={working||!docId} onClick={()=>loadSheet()}>{working?'Loading…':'1. Load drawing'}</button>
   </div>
   {sheet&&<div><strong>⬇ 2. Draw a box around ONE complete floor plan</strong>
-   <p style={{margin:'8px 0'}}><strong>Include inside the box:</strong> all external walls and corners of that floor, any extensions or projections, and at least one readable horizontal and one readable vertical dimension line (with their numbers). Leave a little space around the drawing so nothing is cut off.</p>
+   <details><summary>Need help selecting the plan?</summary><p style={{margin:'8px 0'}}><strong>Include inside the box:</strong> all external walls and corners of that floor, any extensions or projections, and at least one readable horizontal and one readable vertical dimension line (with their numbers). Leave a little space around the drawing so nothing is cut off.</p>
    <p className="muted" style={{margin:'6px 0'}}><strong>Leave outside:</strong> other floor plans, elevations, sections, title blocks and unrelated notes. Select those separately if needed. For a new build, use the proposed floor plan; for an extension, select existing and proposed plans separately.</p>
    <p className="muted" style={{margin:'6px 0'}}><strong>Important:</strong> the box only selects the drawing. It does not automatically recognise walls or generate a complete 3D building. You will still confirm scale, trace the outline and enter heights from a section or elevation.</p>
-   <div style={{position:'relative',maxWidth:1000}}><div ref={sheetNode} onPointerDown={e=>{if(e.pointerType==='mouse'&&e.button!==0)return;const p=pos(e,e.currentTarget);startRef.current=p;setDrawnBox(null);setDragBox({x:p.x,y:p.y,w:0,h:0});try{e.currentTarget.setPointerCapture(e.pointerId)}catch{}}}
+   </details><div style={{position:'relative',maxWidth:1000}}><div ref={sheetNode} onPointerDown={e=>{if(e.pointerType==='mouse'&&e.button!==0)return;const p=pos(e,e.currentTarget);startRef.current=p;setDrawnBox(null);setDragBox({x:p.x,y:p.y,w:0,h:0});try{e.currentTarget.setPointerCapture(e.pointerId)}catch{}}}
      onPointerMove={e=>{if(!startRef.current)return;const a=startRef.current,b=pos(e,e.currentTarget);setDragBox({x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),w:Math.abs(a.x-b.x),h:Math.abs(a.y-b.y)})}} onPointerUp={pointerEnd} onPointerCancel={()=>{startRef.current=null;setDragBox(null)}} style={{position:'relative',cursor:'crosshair',touchAction:'none',maxWidth:1000,
        border:'1px solid #8190a5',margin:'8px 0'}}>
     <img src={sheet} alt="Original drawing sheet" draggable={false} style={{display:'block',width:'100%',height:'auto'}}/>
@@ -332,7 +332,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
    {!preview&&<p>Load the matching drawing and select this registered view again to see its isolated crop.</p>}
    {preview&&<>
     <div style={{display:'flex',gap:10,alignItems:'end',flexWrap:'wrap'}}>
-     <label>Tool<select value={mode} onChange={e=>{const next=e.target.value;setMode(next);setPoints([]);setBimType(next==='opening'?'window':next==='roof'?'roof':next==='wall'?'wall':'slab')}}>
+     <label>What are you drawing?<select value={mode} onChange={e=>{const next=e.target.value;setMode(next);setPoints([]);setBimType(next==='opening'?'window':next==='roof'?'roof':next==='wall'?'wall':'slab')}}>
       <option value="scale">Select dimension endpoints</option>
       <option value="slab">Trace slab/floor perimeter</option>
       <option value="wall">Trace wall centre-line</option>
