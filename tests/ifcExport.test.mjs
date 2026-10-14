@@ -56,3 +56,21 @@ test('different drawing pages cannot be silently combined in same IFC origin',()
   calibrations:{...calibrations,[id+'#2']:{...calibration}}});
  assert.ok(r.issues.some(x=>x.id==='sheets'));
 });
+
+test('IFC output preserves exact reviewed metric footprint and wall height',()=>{
+ const prepared=prepareIfcElements(packageArgs);
+ assert.deepEqual(prepared.issues,[]);
+ const slabElement=prepared.ready.find(e=>e.element==='slab');
+ const wallElement=prepared.ready.find(e=>e.element==='wall');
+ const xs=slabElement.outline.map(p=>p.x),ys=slabElement.outline.map(p=>p.y);
+ const measuredArea=(Math.max(...xs)-Math.min(...xs))*(Math.max(...ys)-Math.min(...ys));
+ // Normalised trace: 200px x 80px at 0.02m/px = 4m x 1.6m.
+ assert.ok(Math.abs(measuredArea-6.4)<1e-9);
+ assert.equal(slabElement.depth,0.15);
+ assert.equal(wallElement.depth,2.7);
+ assert.equal(wallElement.base_m,0.15);
+ const ifc=createIfc4Model({elements:prepared.ready});
+ assert.match(ifc,/IFCSLAB\\(/);
+ assert.match(ifc,/IFCWALL\\(/);
+ assert.match(ifc,/IFCPROPERTYSINGLEVALUE\\('Checked dimension reference'/);
+});
