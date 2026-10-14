@@ -106,3 +106,8 @@ test('a zero-length segment rejects the entire multi-segment wall',()=>{
  assert.equal(result.ready.length,0);
  assert.ok(result.issues.some(issue=>/Zero-length wall segment/.test(issue.reason)));
 });
+
+test('malformed void coordinates are rejected before IFC output',()=>{
+ const ready=prepareIfcElements(packageArgs).ready;
+ assert.throws(()=>createIfc4Model({elements:[{...ready[0],holes:[[{x:0,y:0},{x:1,y:0},{x:NaN,y:1}]]}]}),/void contains invalid coordinates/);
+});
