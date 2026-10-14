@@ -79,14 +79,16 @@ export function prepareIfcElements({highlights=[],bim_specs={},calibrations={},d
    if(!valid(Number(spec.thickness_m),.05,1.5)||!valid(Number(spec.height_m),.3,20)){
     fail('Enter verified wall thickness and height (m)');continue;
    }
+   const segments=[];
    for(let i=0;i<outline.length-1;i++){
     const rectangle=widthPolygon(outline[i],outline[i+1],Number(spec.thickness_m));
-    if(!rectangle){fail('Zero-length wall segment');continue;}
-    ready.push({id:mark.id+'-'+i,name:label+(outline.length>2?' segment '+(i+1):''),
+    if(!rectangle){fail('Zero-length wall segment: no part of this wall has been exported');segments.length=0;break;}
+    segments.push({id:mark.id+'-'+i,name:label+(outline.length>2?' segment '+(i+1):''),
       element:'wall',base_m:base,depth:Number(spec.height_m),outline:rectangle,holes:[],
       source:doc.document_no||doc.title||doc.file_path,page:mark.page,
       evidence:spec.evidence.trim(),drawing_id:mark.drawing_id});
    }
+   ready.push(...segments);
   }
   sources.add(mark.drawing_id+'#'+mark.page);
  }
