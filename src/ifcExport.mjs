@@ -116,6 +116,11 @@ export function createIfc4Model({projectName='UKPD partial BIM',elements=[],now=
     throw Error('BIM outline crosses itself');
   }
   if((el.element==='door'||el.element==='window')&&(!el.host_id||!valid(el.width_m,.25,5)||!valid(el.height_m,.3,6)))throw Error('Opening requires a verified host and dimensions');
+  if(el.holes!==undefined){
+   if(!Array.isArray(el.holes)||el.holes.some(h=>!Array.isArray(h)||h.length<3||h.some(p=>!p||!finite(p.x)||!finite(p.y))))
+    throw Error('BIM void contains invalid coordinates');
+   if(el.element==='roof'&&el.holes.length)throw Error('Roof openings require separately verified geometry');
+  }
  }
  const lines=[],put=(type,args)=>{const n=lines.length+1;lines.push('#'+n+'='+type+'('+args+');');return '#'+n;};
  const guid=()=>quote(newGuid());
