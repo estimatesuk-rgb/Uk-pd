@@ -260,14 +260,14 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
  }
  return <div id="ukpd-drawing-view-workbench" tabIndex={-1} className="estimateForm" style={{border:'2px solid #577997',borderRadius:12,
    padding:14,margin:'18px 0',gridTemplateColumns:'minmax(0,1fr)'}}>
-  <h3 style={{margin:'0 0 8px'}}>Drawing-view workbench — measured take-off + IFC4 BIM</h3>
-  <p className="muted">Isolate a plan or roof view, verify two independent dimensions, then model checked slabs, walls, roof planes, doors and windows. Missing geometry or heights are never inferred.</p>
+  <h3 style={{margin:'0 0 8px'}}>Create 3D BIM from your drawing</h3>
+  <p className="muted">1. Load your drawing. 2. Draw a box around the plan. 3. Confirm drawing dimensions and trace the building. 4. Generate your 3D model. We won't invent measurements missing from the drawing.</p>
   <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'end'}}>
    <label>Drawing<select value={docId} onChange={e=>{setDocId(e.target.value);setPage(1);setSheet(null);setPreview(null)}}>{docs.map(d=><option key={d.id} value={d.id}>{d.document_no||d.title||d.file_path}</option>)}</select></label>
    <label>PDF page<input type="number" min="1" max={pages} value={page} onChange={e=>{setPage(Math.max(1,Number(e.target.value)||1));setSheet(null);setPreview(null)}}/></label>
-   <button type="button" disabled={working||!docId} onClick={()=>loadSheet()}>Load drawing</button>
+   <button type="button" disabled={working||!docId} onClick={()=>loadSheet()}>{working?'Loading…':'1. Load drawing'}</button>
   </div>
-  {sheet&&<div><strong>1. Draw a box around one separate drawing view</strong>
+  {sheet&&<div><strong>2. Draw a box around the floor plan</strong>
    <div ref={sheetNode} onPointerDown={e=>{if(e.pointerType==='mouse'&&e.button!==0)return;const p=pos(e,e.currentTarget);startRef.current=p;setDrawnBox(null);setDragBox({x:p.x,y:p.y,w:0,h:0});try{e.currentTarget.setPointerCapture(e.pointerId)}catch{}}
      onPointerMove={e=>{if(!startRef.current)return;const a=startRef.current,b=pos(e,e.currentTarget);setDragBox({x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),w:Math.abs(a.x-b.x),h:Math.abs(a.y-b.y)})}} onPointerUp={pointerEnd} onPointerCancel={()=>{startRef.current=null;setDragBox(null)}} style={{position:'relative',cursor:'crosshair',touchAction:'none',maxWidth:1000,
        border:'1px solid #8190a5',margin:'8px 0'}}>
@@ -279,7 +279,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
     <label>View type<select value={viewKind} onChange={e=>setViewKind(e.target.value)}>
      {VIEW_KINDS.map(k=><option key={k.id} value={k.id}>{k.label}</option>)}</select></label>
     <label>View label<input value={viewName} onChange={e=>setViewName(e.target.value)} placeholder="e.g. Plot 18 ground floor"/></label>
-    <button type="button" disabled={!drawnBox||working} onClick={saveView}>Save drawing view</button>
+    <button type="button" disabled={!drawnBox||working} onClick={saveView}>{working?'Saving…':'Use this box →'}</button>
    </div>
   </div>}
   <div><strong>2. Registered views ({views.length})</strong>
@@ -291,7 +291,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
     </div>)}
   </div>
   {view&&<div>
-   <strong>3. Calibrate or trace: {view.name}</strong>
+   <strong>3. Check dimensions and outline: {view.name}</strong>
    {!preview&&<p>Load the matching drawing and select this registered view again to see its isolated crop.</p>}
    {preview&&<>
     <div style={{display:'flex',gap:10,alignItems:'end',flexWrap:'wrap'}}>
@@ -351,13 +351,13 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
    </>}
   </div>}
   <div>
-   <strong>4. IFC4 BIM model · {bim.models.length} model element(s)</strong>
+   <strong>4. Your 3D BIM · {bim.models.length} verified part(s)</strong>
    <p className="muted">Checked floors, walls, roof faces and door/window openings only. Any unmodelled elements, structural details and services remain outstanding. Verify the whole model in a dedicated IFC/BIM viewer.</p>
    {elements.map(e=><p key={e.id}>{e.name} — {e.type} · source {views.find(v=>v.id===e.view_id)?.name||'missing'}</p>)}
    {features.map(f=><p key={f.id}>{f.name} — {f.type} · verified dimensions recorded</p>)}
    {bim.issues.length>0&&<p role="alert">{bim.issues.slice(0,6).map(x=>x.label+': '+x.reason).join(' | ')}</p>}
    {bim.models.length>0&&<BimScene3D elements={bim.models}/>}
-   <button type="button" onClick={exportIfc} disabled={working}>Generate IFC4 3D BIM file</button>
+   <button type="button" onClick={exportIfc} disabled={working}>Generate 3D BIM (IFC4)</button>
    {(!bim.models.length||bim.issues.length>0)&&<p role="status">{!bim.models.length?'No verified model elements yet. Save a calibrated and checked slab or wall first. ':''}{bim.issues.length?bim.issues.length+' BIM issue(s) need resolving before export.':''}</p>}
   </div>
   {message&&<p role="status" className="notice">{message}</p>}
