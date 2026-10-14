@@ -107,9 +107,18 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
    bounds:drawnBox,common_origin_verified:false};
   const check=validateDrawingView(registered,currentDoc);
   if(!check.ok)return setMessage(check.error);
-  try{await saveUpdate('drawing_views',[...views,registered]);setSelected(registered.id);
-    setDrawnBox(null);setMessage('View registered. Select it and check two independent printed dimensions.')}
-  catch{}
+  try{
+   await saveUpdate('drawing_views',[...views,registered]);
+   setSelected(registered.id);setDrawnBox(null);setPoints([]);setMode('scale');
+   const px=cropPixels(registered,sheetDims);
+   if(!px)throw Error('Saved view has invalid crop dimensions');
+   const bitmap=new Image();bitmap.src=sheet;await bitmap.decode();
+   const cropped=document.createElement('canvas');
+   cropped.width=px.width;cropped.height=px.height;
+   cropped.getContext('2d').drawImage(bitmap,px.x,px.y,px.width,px.height,0,0,px.width,px.height);
+   setPreview(cropped.toDataURL('image/jpeg',.92));setPreviewDims([px.width,px.height]);
+   setMessage('View saved and opened. Click both ends of the horizontal X dimension to begin calibration.');
+  }catch(e){setMessage('View saved, but preview could not open: '+String(e?.message||e))}
  }
  async function chooseView(id){
   const v=views.find(x=>x.id===id);if(!v)return;
