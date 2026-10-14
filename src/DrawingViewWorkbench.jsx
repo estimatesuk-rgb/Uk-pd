@@ -298,14 +298,14 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
     <button type="button" disabled={!drawnBox||working} onClick={saveView}>{working?'Saving…':'Use this box →'}</button>
    </div>
   </div>}
-  <div><strong>2. Registered views ({views.length})</strong>
+  <details><summary>Previously saved drawing views ({views.length})</summary>
    {views.length===0&&<p>Start by drawing a rectangle around a ground floor plan, first floor plan or elevation above.</p>}
    {views.map(v=><div key={v.id} style={{padding:6,display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',borderBottom:'1px solid #cdd5e2'}}>
      <button type="button" className={selected===v.id?'selected':'outline'} disabled={working} onClick={()=>chooseView(v.id)}>{v.name} · p{v.page}</button>
      <small>{VIEW_KINDS.find(k=>k.id===v.kind)?.label} · {viewCalibrationStatus(v,docs.find(d=>d.id===v.document_id),calibrations[v.id]).ok?'Two scales checked':'Scale not verified'}</small>
      <label style={{display:'flex',gap:5,alignItems:'center'}}><input type="checkbox" disabled={working} checked={v.common_origin_verified===true} onChange={e=>setAligned(v,e.target.checked)}/> Common model origin verified</label>
     </div>)}
-  </div>
+  </details>
   {view&&<div>
    <strong>3. Check dimensions and outline: {view.name}</strong>
    {!preview&&<p>Load the matching drawing and select this registered view again to see its isolated crop.</p>}
@@ -338,13 +338,13 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
      {mode==='slab'&&<p role="status"><strong>Step 3 — Measure floor area:</strong> Click the floor perimeter corners in order (four corners for a rectangular floor). The area updates below as you click. Use Undo if needed. Confirm whether the boundary is internal or external before saving. Then proceed to heights (Z) from the elevations or sections.</p>}
       <p><strong>{mode==='opening'?'Host wall opening':mode==='roof'?'Roof face trace':'Deterministic trace'}:</strong> {mode==='opening'?'Choose a checked host wall and enter the opening dimensions.':measures?.ok?(mode==='slab'?'Measured floor area: ':'')+format(measures.quantity)+' '+measures.unit:'Click at least three floor corners on a calibrated drawing to calculate area.'}</p>
      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-      <label>Element<input value={bimName} onChange={e=>setBimName(e.target.value)} placeholder="e.g. Plot 18 ground floor slab"/></label>
-      <label>IFC class<select value={bimType} onChange={e=>setBimType(e.target.value)}>{mode==='opening'?<><option value="window">IfcWindow</option><option value="door">IfcDoor</option></>:mode==='roof'?<option value="roof">IfcRoof</option>:mode==='wall'?<option value="wall">IfcWall</option>:<option value="slab">IfcSlab</option>}</select></label>
+      <label>Building part<input value={bimName} onChange={e=>setBimName(e.target.value)} placeholder="e.g. Plot 18 ground floor slab"/></label>
+      <label>Type<select value={bimType} onChange={e=>setBimType(e.target.value)}>{mode==='opening'?<><option value="window">IfcWindow</option><option value="door">IfcDoor</option></>:mode==='roof'?<option value="roof">IfcRoof</option>:mode==='wall'?<option value="wall">IfcWall</option>:<option value="slab">IfcSlab</option>}</select></label>
       {mode!=='opening'&&<>
        <label>{mode==='roof'?'Eaves level (m)':'Base level (m)'}<input type="number" step=".001" value={base} onChange={e=>setBase(e.target.value)}/></label>
        <label>{mode==='roof'?'Roof thickness (m)':'Thickness (m)'}<input type="number" step=".001" value={thickness} onChange={e=>setThickness(e.target.value)}/></label>
-       <label>Common origin X (m)<input type="number" step=".001" value={xOrigin} onChange={e=>setXOrigin(e.target.value)}/></label>
-       <label>Common origin Y (m)<input type="number" step=".001" value={yOrigin} onChange={e=>setYOrigin(e.target.value)}/></label>
+       <label style={{display:'none'}}>Common origin X (m)<input type="number" step=".001" value={xOrigin} onChange={e=>setXOrigin(e.target.value)}/></label>
+       <label style={{display:'none'}}>Common origin Y (m)<input type="number" step=".001" value={yOrigin} onChange={e=>setYOrigin(e.target.value)}/></label>
       </>}
       {(mode==='wall'||mode==='opening')&&<label>{mode==='opening'?'Opening height (m)':'Wall height (m)'}<input type="number" step=".001" value={height} onChange={e=>setHeight(e.target.value)}/></label>}
       {mode==='roof'&&<>
@@ -357,12 +357,12 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
        <label>Opening width (m)<input type="number" step=".001" value={openingWidth} onChange={e=>setOpeningWidth(e.target.value)} /></label>
        <label>Sill above host wall base (m)<input type="number" step=".001" value={openingSill} onChange={e=>setOpeningSill(e.target.value)} /></label>
       </>}
-      {mode==='slab'&&<label>Known floor area for comparison (m², optional)<input type="number" step=".01" value={expectedArea} onChange={e=>setExpectedArea(e.target.value)} placeholder="e.g. 31.88"/></label>}
+      {mode==='slab'&&<label style={{display:'none'}}>Known floor area for comparison (m², optional)<input type="number" step=".01" value={expectedArea} onChange={e=>setExpectedArea(e.target.value)} placeholder="e.g. 31.88"/></label>}
      </div>
-     <p style={{flexBasis:'100%'}}><strong>Step 3: Height (Z).</strong> Refer to the elevation or section and enter measured wall heights, eaves and ridge levels. Do not guess missing values.</p>
-      <label>Dimension source / section reference<input value={sourceNote} onChange={e=>setSourceNote(e.target.value)} placeholder="Drawing C3, 5006 mm by 6368 mm, Section A-A"/></label>
+     <p className="muted">Enter heights from the elevations or sections. Do not guess missing dimensions.</p>
+      <label>Drawing or section reference<input value={sourceNote} onChange={e=>setSourceNote(e.target.value)} placeholder="Drawing C3, 5006 mm by 6368 mm, Section A-A"/></label>
      <label><input type="checkbox" checked={approved} onChange={e=>setApproved(e.target.checked)}/> I have checked the dimensions, revision, alignment, source section and element position</label>
-     <button type="button" disabled={working||!scaleCheck.ok||!approved} onClick={addElement}>Save verified IFC {bimType}</button>
+     <button type="button" disabled={working||!scaleCheck.ok||!approved} onClick={addElement}>Add to 3D model</button>
     </>}
    </>}
   </div>}
