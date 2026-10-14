@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { proposalPdf } from "./pdf.mjs";
 export class MpSqlStore extends DurableObject {
  constructor(ctx,env){
   super(ctx,env);
@@ -223,7 +224,7 @@ async function api(req, env, path) {
     await env.DB.prepare('UPDATE proposals SET reference=? WHERE id=?').bind(reference,id).run();
     return appJSON({ok:true,id,reference,fee});
   }
-  const proposal=path.match(/^\/api\/proposals\/(\d+)(?:\/(send|delete|status))?$/);
+  const proposal=path.match(/^\/api\/proposals\/(\d+)(?:\/(send|delete|status|pdf))?$/);
   if (proposal) {
     const id=Number(proposal[1]);const action=proposal[2];const row=await quoteRow(env.DB,id,user);
     if(method==='GET'&&!action)return appJSON({proposal:{id:row.id,reference:row.reference,data:{...JSON.parse(row.payload),reference:row.reference},status:row.status,jobStatus:row.job_status||"pending"}});
@@ -238,15 +239,26 @@ async function api(req, env, path) {
       if(!await verifyPassword(String(p.password||''),account.password_hash))return appJSON({error:'Password confirmation failed'},403);
       await env.DB.prepare('DELETE FROM proposals WHERE id=?').bind(id).run();return appJSON({ok:true});
     }
+    if(method==='GET'&&action==='pdf'){
+      const bytes=await proposalPdf(row);
+      return new Response(bytes,{status:200,headers:{
+        'Content-Type':'application/pdf',
+        'Content-Disposition':'attachment; filename="'+row.reference+'_Fee_Proposal.pdf"',
+        'Cache-Control':'private, no-store',
+        'X-Content-Type-Options':'nosniff'
+      }});
+    }
     if(method==='POST'&&action==='send'){
-      if(!env.RESEND_API_KEY || !env.MAIL_FROM)return appJSON({error:'Automatic email is not configured. Download and attach the Word document using the email draft instead.'},503);
+      if(!env.RESEND_API_KEY || !env.MAIL_FROM)return appJSON({error:'Automatic email not configured. Download and attach the PDF to the prepared email draft instead.'},503);
       const p=await req.json();if(p.confirm!==true)return appJSON({error:'Please confirm sending'},400);
       if(!validEmail(row.client_email))return appJSON({error:'Client email invalid'},400);
-      if(!/^[a-zA-Z0-9+/_=-]+$/.test(String(p.docxBase64||''))||String(p.docxBase64).length>4500000)return appJSON({error:'Word attachment missing or too large'},400);
       const subject=subjectFor({client:row.client,address:row.site_address});
-      const quote = JSON.parse(row.payload);
-      const body=`Dear ${row.client},\n\nPlease find attached our architectural fee proposal for ${row.site_address}, including the fee breakdown, exclusions, payment schedule and client acceptance form.\n\nKind regards,\nMitchell Proctor Architects\n01246 203196`;
-      const mail={from:env.MAIL_FROM,to:[row.client_email],bcc:[OWNER_EMAIL],subject,text:body,attachments:[{filename:row.reference+'_Fee_Proposal.docx',content:p.docxBase64,content_type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}]};
+      const bytes=await proposalPdf(row);
+      // Resend requires base64 attachment content. Convert safe-sized chunks, no client-supplied attachments.
+      const chunks=[];for(let off=0;off<bytes.length;off+=8192)chunks.push(String.fromCharCode(...bytes.subarray(off,off+8192)));
+      const pdfBase64=btoa(chunks.join(''));
+      const body='Dear '+row.client+',\n\nPlease find attached our architectural fee proposal for '+row.site_address+', including the fee breakdown, staged payment schedule and client acceptance form.\n\nKind regards,\nMitchell Proctor Architects\n01246 203196';
+      const mail={from:env.MAIL_FROM,to:[row.client_email],bcc:[OWNER_EMAIL],subject,text:body,attachments:[{filename:row.reference+'_Fee_Proposal.pdf',content:pdfBase64,content_type:'application/pdf'}]};
       const remote=await fetch('https://api.resend.com/emails',{method:'POST',headers:{'Authorization':'Bearer '+env.RESEND_API_KEY,'Content-Type':'application/json'},body:JSON.stringify(mail)});
       const sent=await remote.json().catch(()=>({}));
       if(!remote.ok||!sent.id)return appJSON({error:'Mail service rejected send: '+clean(sent.message||remote.status,220)},502);
