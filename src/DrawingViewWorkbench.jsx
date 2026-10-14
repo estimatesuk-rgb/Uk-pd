@@ -341,7 +341,8 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
    {features.map(f=><p key={f.id}>{f.name} — {f.type} · verified dimensions recorded</p>)}
    {bim.issues.length>0&&<p role="alert">{bim.issues.slice(0,6).map(x=>x.label+': '+x.reason).join(' | ')}</p>}
    {bim.models.length>0&&<BimScene3D elements={bim.models}/>}
-   <button type="button" onClick={exportIfc} disabled={working||bim.issues.length>0||!bim.models.length}>Generate IFC4 3D BIM file</button>
+   <button type="button" onClick={exportIfc} disabled={working}>Generate IFC4 3D BIM file</button>
+   {(!bim.models.length||bim.issues.length>0)&&<p role="status">{!bim.models.length?'No verified model elements yet. Save a calibrated and checked slab or wall first. ':''}{bim.issues.length?bim.issues.length+' BIM issue(s) need resolving before export.':''}</p>}
   </div>
   {message&&<p role="status" className="notice">{message}</p>}
  </div>;
