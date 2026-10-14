@@ -79,7 +79,7 @@ function element(tag,cls,content){
 }
 function render(){
   const q=search.value.trim().toLocaleLowerCase('en-GB');
-  const filtered=allProjects.filter(p=>[p.reference,p.name,p.client,p.site_address,p.key,p.status].some(v=>String(v||'').toLocaleLowerCase('en-GB').includes(q)));
+  const filtered=allProjects.filter(p=>[p.reference,p.name,p.data?.client,p.data?.address,p.key,p.status].some(v=>String(v||'').toLocaleLowerCase('en-GB').includes(q)));
   count.textContent=filtered.length+' saved project'+(filtered.length===1?'':'s')+(q?' matching your search':'');
   list.replaceChildren();
   if(!filtered.length){
@@ -91,8 +91,7 @@ function render(){
     const info=element('div');
     const ref=element('div','project-ref',p.reference||'Draft');
     const title=element('strong',null,p.name||p.client||'Unnamed project');
-    const address=element('p',null,p.key&&p.key.includes('::')?p.key.split('::').slice(1).join(' · '):'');
-    // The API includes site address only in the stored proposal; avoid displaying guessed data.
+    const address=element('p',null,p.data?.address||p.data?.client||'');
     const meta=element('div','project-meta');
     meta.append(
       element('span',null,'Fee ex VAT: '+pounds.format(Number(p.fee)||0)),
