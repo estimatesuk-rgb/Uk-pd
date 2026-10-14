@@ -103,6 +103,16 @@ export function createIfc4Model({projectName='UKPD partial BIM',elements=[],now=
   if(!finite(el.base_m)||!valid(el.depth,.001,25))throw Error('BIM height or base elevation is invalid');
   const signedArea=el.outline.reduce((sum,p,i)=>{const q=el.outline[(i+1)%el.outline.length];return sum+p.x*q.y-q.x*p.y;},0)/2;
   if(!finite(signedArea)||Math.abs(signedArea)<0.0001)throw Error('BIM outline has zero or negligible area');
+  const orient=(a,b,c)=>(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
+  const crosses=(a,b,c,d)=>{
+   const o1=orient(a,b,c),o2=orient(a,b,d),o3=orient(c,d,a),o4=orient(c,d,b);
+   return ((o1>1e-9&&o2< -1e-9)||(o1< -1e-9&&o2>1e-9))&&((o3>1e-9&&o4< -1e-9)||(o3< -1e-9&&o4>1e-9));
+  };
+  for(let i=0;i<el.outline.length;i++)for(let j=i+1;j<el.outline.length;j++){
+   if(j===i+1||(i===0&&j===el.outline.length-1))continue;
+   if(crosses(el.outline[i],el.outline[(i+1)%el.outline.length],el.outline[j],el.outline[(j+1)%el.outline.length]))
+    throw Error('BIM outline crosses itself');
+  }
   if((el.element==='door'||el.element==='window')&&(!el.host_id||!valid(el.width_m,.25,5)||!valid(el.height_m,.3,6)))throw Error('Opening requires a verified host and dimensions');
  }
  const lines=[],put=(type,args)=>{const n=lines.length+1;lines.push('#'+n+'='+type+'('+args+');');return '#'+n;};
