@@ -5,9 +5,12 @@
   "type": "module",
   "scripts": {
     "deploy": "node scripts/ci-deploy.mjs",
-    "check": "node --check src/index.mjs && node --check public/cloud-sync.js"
+    "check": "node --check src/index.mjs && node --check src/pdf.mjs && node --check public/cloud-sync.js && node tests/pdf-smoke.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"
+  },
+  "dependencies": {
+    "pdf-lib": "^1.17.1"
   }
 }
