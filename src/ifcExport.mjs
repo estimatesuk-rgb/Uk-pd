@@ -122,6 +122,12 @@ export function createIfc4Model({projectName='UKPD partial BIM',elements=[],now=
    if(el.element==='roof'&&el.holes.length)throw Error('Roof openings require separately verified geometry');
   }
  }
+ const knownWalls=new Set();
+ for(const el of elements){
+  if(el.element==='wall')knownWalls.add(el.id);
+  if((el.element==='door'||el.element==='window')&&!knownWalls.has(el.host_id))
+   throw Error('Opening requires a verified, preceding IFC wall element');
+ }
  const lines=[],put=(type,args)=>{const n=lines.length+1;lines.push('#'+n+'='+type+'('+args+');');return '#'+n;};
  const guid=()=>quote(newGuid());
  const cart3=(x=0,y=0,z=0)=>put('IFCCARTESIANPOINT', '('+[x,y,z].map(numeric).join(',')+')');
