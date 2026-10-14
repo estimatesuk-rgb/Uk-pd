@@ -37,7 +37,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
  const [base,setBase]=useState(''),[thickness,setThickness]=useState(''),[height,setHeight]=useState('');
  const [roofHigh,setRoofHigh]=useState(''),[slopeAxis,setSlopeAxis]=useState('x');
  const [openingHost,setOpeningHost]=useState(''),[openingOffset,setOpeningOffset]=useState(''),[openingWidth,setOpeningWidth]=useState(''),[openingSill,setOpeningSill]=useState('');
- const [xOrigin,setXOrigin]=useState(''),[yOrigin,setYOrigin]=useState('');
+ const [xOrigin,setXOrigin]=useState('0'),[yOrigin,setYOrigin]=useState('0');
  const [sourceNote,setSourceNote]=useState(''),[expectedArea,setExpectedArea]=useState('');
  const [approved,setApproved]=useState(false),[working,setWorking]=useState(false);
  const [message,setMessage]=useState(''),startRef=useRef(null),sheetNode=useRef(null);
@@ -224,9 +224,9 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
    dimension_reference:sourceNote.trim(),checked:true,include:true,
    benchmark_m2:type==='slab'&&expectedArea.trim()?n(expectedArea):null};
   if(!el.name||!sourceNote.trim()||sourceNote.trim().length<12||
-      [base,thickness,xOrigin,yOrigin].some(v=>!String(v).trim())||
+      [base,thickness].some(v=>!String(v).trim())||
       type==='wall'&&!String(height).trim())
-   return setMessage('Enter element name, measured evidence, actual thickness, height (if wall), origin and level.');
+   return setMessage('Complete the highlighted fields: part name, drawing reference, thickness and base level (plus height for walls).');
   const validation=prepareViewBim({views,docs,calibrations,elements:[el]});
   if(validation.issues.length)return setMessage(validation.issues.map(x=>x.reason).join(' | '));
   try{await saveUpdate('view_bim_elements',[...elements,el]);setPoints([]);setApproved(false);
@@ -241,8 +241,8 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
     dimension_reference:sourceNote.trim(),checked:true,include:true};
   let feature;
   if(mode==='roof'){
-   if(!['roof'].includes(bimType)||![base,thickness,roofHigh,xOrigin,yOrigin].every(v=>String(v).trim()!=='')){
-    return setMessage('Enter the verified eaves level, high/ridge level, roof thickness and common X/Y origin.');
+   if(!['roof'].includes(bimType)||![base,thickness,roofHigh].every(v=>String(v).trim()!=='')){
+    return setMessage('Enter the verified eaves level, ridge level and roof thickness.');
    }
    if(points.length<3)return setMessage('Click the actual corners of ONE roof plane, not the whole roof silhouette.');
    feature={...common,view_id:view.id,points,
@@ -385,7 +385,9 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
      <p className="muted">Enter heights from the elevations or sections. Do not guess missing dimensions.</p>
       <label>Drawing or section reference<input value={sourceNote} onChange={e=>setSourceNote(e.target.value)} placeholder="Drawing C3, 5006 mm by 6368 mm, Section A-A"/></label>
      <label><input type="checkbox" checked={approved} onChange={e=>setApproved(e.target.checked)}/> I have checked the dimensions, revision, alignment, source section and element position</label>
+     {!approved&&<p style={{fontWeight:700,color:'#855800'}}>⬆ Tick the confirmation box above before adding this part.</p>}
      <button type="button" style={approved&&scaleCheck.ok?{outline:'4px solid #f4b400',outlineOffset:3}:undefined} disabled={working||!scaleCheck.ok||!approved} onClick={addElement}>Add to 3D model</button>
+     {message&&<p role="alert" style={{padding:10,border:'2px solid #d69e28',borderRadius:6,fontWeight:700}}>{message}</p>
     </>}
    </>}
   </div>}
