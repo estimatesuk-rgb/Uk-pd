@@ -298,7 +298,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
   <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'end'}}>
    <label>Drawing<select value={docId} onChange={e=>{setDocId(e.target.value);setPage(1);setSheet(null);setPreview(null)}}>{docs.map(d=><option key={d.id} value={d.id}>{d.document_no||d.title||d.file_path}</option>)}</select></label>
    <label>PDF page<input type="number" min="1" max={pages} value={page} onChange={e=>{setPage(Math.max(1,Number(e.target.value)||1));setSheet(null);setPreview(null)}}/></label>
-   <button type="button" disabled={working||!docId} onClick={()=>loadSheet()}>{working?'Loading…':'1. Load drawing'}</button>
+   <button type="button" style={!sheet?{outline:'4px solid #f4b400',outlineOffset:3,boxShadow:'0 0 0 7px rgba(244,180,0,.22)'}:{}} disabled={working||!docId} onClick={()=>loadSheet()}>{working?'Loading…':'1. Load drawing'}</button>
   </div>
   {sheet&&<div><strong>⬇ 2. Draw a box around ONE complete floor plan</strong>
    <details><summary>Need help selecting the plan?</summary><p style={{margin:'8px 0'}}><strong>Include inside the box:</strong> all external walls and corners of that floor, any extensions or projections, and at least one readable horizontal and one readable vertical dimension line (with their numbers). Leave a little space around the drawing so nothing is cut off.</p>
@@ -316,7 +316,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
     <label>View type<select value={viewKind} onChange={e=>setViewKind(e.target.value)}>
      {VIEW_KINDS.map(k=><option key={k.id} value={k.id}>{k.label}</option>)}</select></label>
     <label>View label<input value={viewName} onChange={e=>setViewName(e.target.value)} placeholder="e.g. Plot 18 ground floor"/></label>
-    {drawnBox&&<strong style={{color:'#176c41'}}>⬇ Box ready. Press here</strong>}<button type="button" disabled={!drawnBox||working} onClick={saveView}>{working?'Saving…':'➡ Use this box'}</button>
+    {drawnBox&&<strong style={{color:'#176c41'}}>⬇ Box ready. Press here</strong>}<button type="button" style={drawnBox?{outline:'4px solid #f4b400',outlineOffset:3,boxShadow:'0 0 0 7px rgba(244,180,0,.22)'}:{}} disabled={!drawnBox||working} onClick={saveView}>{working?'Saving…':'➡ Use this box'}</button>
    </div>
   </div>}
   <details><summary>Previously saved drawing views ({views.length})</summary>
@@ -332,7 +332,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
    {!preview&&<p>Load the matching drawing and select this registered view again to see its isolated crop.</p>}
    {preview&&<>
     <div style={{display:'flex',gap:10,alignItems:'end',flexWrap:'wrap'}}>
-     <label>What are you drawing?<select value={mode} onChange={e=>{const next=e.target.value;setMode(next);setPoints([]);setBimType(next==='opening'?'window':next==='roof'?'roof':next==='wall'?'wall':'slab')}}>
+     <label style={scaleCheck.ok?{outline:'3px solid #f4b400',outlineOffset:3,borderRadius:5}:undefined}>What are you drawing?<select value={mode} onChange={e=>{const next=e.target.value;setMode(next);setPoints([]);setBimType(next==='opening'?'window':next==='roof'?'roof':next==='wall'?'wall':'slab')}}>
       <option value="scale">Select dimension endpoints</option>
       <option value="slab">Trace slab/floor perimeter</option>
       <option value="wall">Trace wall centre-line</option>
@@ -354,8 +354,8 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
       'Unverified view scale')}.</p>
     {mode==='scale'?<div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'end'}}>
       <p style={{flexBasis:'100%'}}><strong>{scaleCheck.ok?'Step 3: Z heights':calibration?.status==='first-dimension'?'Step 2: Y-axis (vertical)':'Step 1: X-axis (horizontal)'}</strong> — {scaleCheck.ok?'Use a dimensioned elevation or section to verify wall, eaves and ridge heights before saving 3D elements.':calibration?.status==='first-dimension'?'Select the two ends of a vertical printed dimension and enter its true length.':'Select the two ends of a horizontal printed dimension and enter its true length.'}</p>
-     <label>{calibration?.status==='first-dimension'?'Y-axis printed dimension (metres)':'X-axis printed dimension (metres)'}<input type="number" min="0.001" step="0.001" value={metres} onChange={e=>setMetres(e.target.value)} placeholder="e.g. 5.006"/></label>
-     <button type="button" disabled={working||points.length!==2} onClick={storeScale}>{calibration?.status==='first-dimension'?'Verify Y-axis dimension':scaleCheck.ok?'Scale verified':'Save X-axis dimension'}</button>
+     <label style={!scaleCheck.ok&&points.length===2?{outline:'3px solid #f4b400',outlineOffset:3,borderRadius:5}:undefined}>{calibration?.status==='first-dimension'?'Y-axis printed dimension (metres)':'X-axis printed dimension (metres)'}<input type="number" min="0.001" step="0.001" value={metres} onChange={e=>setMetres(e.target.value)} placeholder="e.g. 5.006"/></label>
+     <button type="button" style={points.length===2?{outline:'4px solid #f4b400',outlineOffset:3}:undefined} disabled={working||points.length!==2} onClick={storeScale}>{calibration?.status==='first-dimension'?'Verify Y-axis dimension':scaleCheck.ok?'Scale verified':'Save X-axis dimension'}</button>
     </div>:<>
      {mode==='slab'&&<p role="status"><strong>Step 3 — Measure floor area:</strong> Click the floor perimeter corners in order (four corners for a rectangular floor). The area updates below as you click. Use Undo if needed. Confirm whether the boundary is internal or external before saving. Then proceed to heights (Z) from the elevations or sections.</p>}
       <p><strong>{mode==='opening'?'Host wall opening':mode==='roof'?'Roof face trace':'Deterministic trace'}:</strong> {mode==='opening'?'Choose a checked host wall and enter the opening dimensions.':measures?.ok?(mode==='slab'?'Measured floor area: ':'')+format(measures.quantity)+' '+measures.unit:'Click at least three floor corners on a calibrated drawing to calculate area.'}</p>
@@ -364,7 +364,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
       <label>Type<select value={bimType} onChange={e=>setBimType(e.target.value)}>{mode==='opening'?<><option value="window">IfcWindow</option><option value="door">IfcDoor</option></>:mode==='roof'?<option value="roof">IfcRoof</option>:mode==='wall'?<option value="wall">IfcWall</option>:<option value="slab">IfcSlab</option>}</select></label>
       {mode!=='opening'&&<>
        <label>{mode==='roof'?'Eaves level (m)':'Base level (m)'}<input type="number" step=".001" value={base} onChange={e=>setBase(e.target.value)}/></label>
-       <label>How thick is this {mode==='roof'?'roof':mode==='wall'?'wall':'floor/slab'}? (mm)<input type="number" min="1" step="1" value={thickness===''?'':Math.round(Number(thickness)*1000)} onChange={e=>setThickness(e.target.value===''?'':String(Number(e.target.value)/1000))} placeholder="Enter thickness from drawing in mm"/></label>
+       <label style={thickness===''?{outline:'3px solid #f4b400',outlineOffset:3,borderRadius:5}:undefined}>How thick is this {mode==='roof'?'roof':mode==='wall'?'wall':'floor/slab'}? (mm)<input type="number" min="1" step="1" value={thickness===''?'':Math.round(Number(thickness)*1000)} onChange={e=>setThickness(e.target.value===''?'':String(Number(e.target.value)/1000))} placeholder="Enter thickness from drawing in mm"/></label>
        <small style={{flexBasis:'100%'}}>Use the construction drawing or specification. Do not guess the thickness. Millimetres are converted automatically for BIM.</small>
        <label style={{display:'none'}}>Common origin X (m)<input type="number" step=".001" value={xOrigin} onChange={e=>setXOrigin(e.target.value)}/></label>
        <label style={{display:'none'}}>Common origin Y (m)<input type="number" step=".001" value={yOrigin} onChange={e=>setYOrigin(e.target.value)}/></label>
@@ -385,7 +385,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
      <p className="muted">Enter heights from the elevations or sections. Do not guess missing dimensions.</p>
       <label>Drawing or section reference<input value={sourceNote} onChange={e=>setSourceNote(e.target.value)} placeholder="Drawing C3, 5006 mm by 6368 mm, Section A-A"/></label>
      <label><input type="checkbox" checked={approved} onChange={e=>setApproved(e.target.checked)}/> I have checked the dimensions, revision, alignment, source section and element position</label>
-     <button type="button" disabled={working||!scaleCheck.ok||!approved} onClick={addElement}>Add to 3D model</button>
+     <button type="button" style={approved&&scaleCheck.ok?{outline:'4px solid #f4b400',outlineOffset:3}:undefined} disabled={working||!scaleCheck.ok||!approved} onClick={addElement}>Add to 3D model</button>
     </>}
    </>}
   </div>}
