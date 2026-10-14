@@ -283,9 +283,9 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
  return <div id="ukpd-drawing-view-workbench" tabIndex={-1} className="estimateForm" style={{border:'2px solid #577997',borderRadius:12,
    padding:14,margin:'18px 0',gridTemplateColumns:'minmax(0,1fr)'}}>
   <h3 style={{margin:'0 0 8px'}}>Create 3D BIM from your drawing</h3>
-  <p role="status" aria-live="polite" style={{padding:12,border:'2px solid #316b91',borderRadius:8,background:'#eaf4fb',color:'#173a55',fontWeight:700}}>{nextHint}</p>
-  <p className="muted">1. Load your drawing. 2. Draw a box around the plan. 3. Confirm drawing dimensions and trace the building. 4. Generate your 3D model. We won't invent measurements missing from the drawing.</p>
-  <details open style={{padding:'12px',margin:'10px 0',border:'1px solid #b7c9d7',borderRadius:8,background:'#f6f9fc',color:'#172c40'}}>
+  <p role="status" aria-live="polite" style={{padding:16,border:'3px solid #1774a8',borderRadius:8,background:'#eaf4fb',color:'#173a55',fontSize:'1.2rem',fontWeight:800}}>⬇ {nextHint}</p>
+  <p className="muted">Follow the arrow. Complete one action at a time.</p>
+  <details style={{padding:'12px',margin:'10px 0',border:'1px solid #b7c9d7',borderRadius:8,background:'#f6f9fc',color:'#172c40'}}>
    <summary style={{fontWeight:700,cursor:'pointer'}}>What drawings and measurements do I need? (BIM checklist)</summary>
    <p><strong>1. Floor plans:</strong> Upload a clear, dimensioned plan for every floor you want in the 3D model. Each floor needs its full external outline, wall positions, openings and horizontal and vertical dimensions. Draw a separate box around each plan.</p>
    <p><strong>2. Elevations or sections:</strong> Include a dimensioned elevation or section showing floor-to-floor heights, wall/eaves heights, ridge height and roof form. These establish the third dimension (height); a floor plan alone cannot establish it.</p>
@@ -300,7 +300,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
    <label>PDF page<input type="number" min="1" max={pages} value={page} onChange={e=>{setPage(Math.max(1,Number(e.target.value)||1));setSheet(null);setPreview(null)}}/></label>
    <button type="button" disabled={working||!docId} onClick={()=>loadSheet()}>{working?'Loading…':'1. Load drawing'}</button>
   </div>
-  {sheet&&<div><strong>2. Draw a box around ONE complete floor plan</strong>
+  {sheet&&<div><strong>⬇ 2. Draw a box around ONE complete floor plan</strong>
    <p style={{margin:'8px 0'}}><strong>Include inside the box:</strong> all external walls and corners of that floor, any extensions or projections, and at least one readable horizontal and one readable vertical dimension line (with their numbers). Leave a little space around the drawing so nothing is cut off.</p>
    <p className="muted" style={{margin:'6px 0'}}><strong>Leave outside:</strong> other floor plans, elevations, sections, title blocks and unrelated notes. Select those separately if needed. For a new build, use the proposed floor plan; for an extension, select existing and proposed plans separately.</p>
    <p className="muted" style={{margin:'6px 0'}}><strong>Important:</strong> the box only selects the drawing. It does not automatically recognise walls or generate a complete 3D building. You will still confirm scale, trace the outline and enter heights from a section or elevation.</p>
@@ -315,7 +315,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
     <label>View type<select value={viewKind} onChange={e=>setViewKind(e.target.value)}>
      {VIEW_KINDS.map(k=><option key={k.id} value={k.id}>{k.label}</option>)}</select></label>
     <label>View label<input value={viewName} onChange={e=>setViewName(e.target.value)} placeholder="e.g. Plot 18 ground floor"/></label>
-    <button type="button" disabled={!drawnBox||working} onClick={saveView}>{working?'Saving…':'Use this box →'}</button>
+    {drawnBox&&<strong style={{color:'#176c41'}}>⬇ Box ready. Press here</strong>}<button type="button" disabled={!drawnBox||working} onClick={saveView}>{working?'Saving…':'➡ Use this box'}</button>
    </div>
   </div>}
   <details><summary>Previously saved drawing views ({views.length})</summary>
