@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#22201e">
+  <title>Saved Projects | Mitchell Proctor Fee Proposal</title>
+  <link rel="stylesheet" href="/portal.css">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/mp-icon.svg">
+  <style>
+    .projects-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap}
+    .projects-heading h1{margin:5px 0;font-family:Georgia,serif;font-size:clamp(29px,5vw,43px);font-weight:400}
+    .projects-tools{display:grid;grid-template-columns:minmax(190px,1fr) auto;gap:12px;align-items:end}
+    .project-card{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:18px;background:#fff}
+    .project-card strong{display:block;font-size:17px}
+    .project-card p{margin:5px 0;color:var(--muted);overflow-wrap:anywhere}
+    .project-meta{display:flex;flex-wrap:wrap;gap:9px 16px;color:var(--muted);font-size:12px;margin-top:10px}
+    .project-ref{letter-spacing:.06em;font-weight:800;color:#77614f}
+    .project-open{align-self:center}
+    .empty-state{padding:32px 15px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:10px}
+    .field-query{margin:0}
+    .field-query input{font-size:16px}
+    #resultsCount{margin:0 0 12px;color:var(--muted);font-size:13px}
+    @media(max-width:640px){.projects-tools{grid-template-columns:1fr}.project-card{grid-template-columns:1fr}.project-open{justify-self:start}}
+  </style>
+</head>
+<body>
+<header>
+  <div class="brand"><img src="/mp-icon.svg" alt="Mitchell Proctor logo"><div><strong>MITCHELL PROCTOR</strong><small>ARCHITECTS | SAVED PROJECTS</small></div></div>
+  <nav class="actions" aria-label="Workspace navigation">
+    <a class="button outline" href="/" style="color:#22201e">+ New proposal</a>
+    <a class="button outline" href="/owner" id="ownerNav" style="color:#22201e;display:none">Owner dashboard</a>
+    <button type="button" class="outline" id="signout">Sign out</button>
+  </nav>
+</header>
+<main class="container stack">
+  <div class="projects-heading">
+    <div><div class="eyebrow">Mitchell Proctor practice workspace</div><h1>Saved Projects</h1><p class="muted" id="scopeNote">Loading saved proposals from Cloudflare…</p></div>
+    <a class="button" href="/">Create new proposal</a>
+  </div>
+  <section class="card" aria-label="Find saved proposals">
+    <div class="projects-tools">
+      <label class="field-query" for="projectSearch">Search by proposal reference, client, project or site address
+        <input id="projectSearch" type="search" placeholder="Search saved projects…" autocomplete="off" disabled>
+      </label>
+      <button id="refresh" type="button" class="outline" disabled>Refresh list</button>
+    </div>
+  </section>
+  <section aria-label="Saved project results">
+    <p id="resultsCount" role="status" aria-live="polite">Loading saved projects…</p>
+    <div id="projectList" class="list">
+      <div class="empty-state">Checking your account and loading saved proposals…</div>
+    </div>
+  </section>
+</main>
+<footer class="site-footer">Mitchell Proctor Architects | Cloudflare secure practice workspace</footer>
+<script>
+'use strict';
+const list=document.getElementById('projectList');
+const count=document.getElementById('resultsCount');
+const search=document.getElementById('projectSearch');
+const refresh=document.getElementById('refresh');
+let allProjects=[];
+let isOwner=false;
+const pounds=new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'});
+async function api(path,options={}){
+  const res=await fetch(path,{credentials:'same-origin',cache:'no-store',...options});
+  const data=await res.json().catch(()=>({error:'Invalid server response'}));
+  if(res.status===401){location.replace('/login');throw new Error('Please sign in');}
+  if(!res.ok)throw new Error(data.error||'Unable to load saved projects');
+  return data;
+}
+function element(tag,cls,content){
+  const node=document.createElement(tag);
+  if(cls)node.className=cls;
+  if(content!=null)node.textContent=String(content);
+  return node;
+}
+function render(){
+  const q=search.value.trim().toLocaleLowerCase('en-GB');
+  const filtered=allProjects.filter(p=>[p.reference,p.name,p.client,p.site_address,p.key,p.status].some(v=>String(v||'').toLocaleLowerCase('en-GB').includes(q)));
+  count.textContent=filtered.length+' saved project'+(filtered.length===1?'':'s')+(q?' matching your search':'');
+  list.replaceChildren();
+  if(!filtered.length){
+    const none=element('div','empty-state',q?'No saved projects match that search.':'No saved projects yet. Create a new proposal and press Save project.');
+    list.append(none);return;
+  }
+  for(const p of filtered){
+    const card=element('article','project-card');
+    const info=element('div');
+    const ref=element('div','project-ref',p.reference||'Draft');
+    const title=element('strong',null,p.name||p.client||'Unnamed project');
+    const address=element('p',null,p.key&&p.key.includes('::')?p.key.split('::').slice(1).join(' · '):'');
+    // The API includes site address only in the stored proposal; avoid displaying guessed data.
+    const meta=element('div','project-meta');
+    meta.append(
+      element('span',null,'Fee ex VAT: '+pounds.format(Number(p.fee)||0)),
+      element('span',null,'Status: '+String(p.status||'draft')),
+      element('span',null,p.updatedAt?'Updated: '+p.updatedAt:'')
+    );
+    info.append(ref,title,address,meta);
+    const action=element('a','button project-open','Open proposal →');
+    action.href='/?proposal='+encodeURIComponent(String(p.id));
+    action.setAttribute('aria-label','Open saved proposal '+String(p.reference||p.name||p.id));
+    card.append(info,action);list.append(card);
+  }
+}
+async function load(){
+  count.textContent='Refreshing saved projects…';
+  try {
+    const data=await api('/api/proposals');
+    allProjects=Array.isArray(data.projects)?data.projects:[];
+    search.disabled=false;refresh.disabled=false;
+    render();
+  }catch(err){
+    count.textContent='Unable to load saved projects';
+    list.replaceChildren(element('div','empty-state',err.message+'. Try Refresh list.'));
+    refresh.disabled=false;
+  }
+}
+document.getElementById('signout').onclick=async()=>{
+  try{await api('/api/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});}finally{location.replace('/login');}
+};
+search.addEventListener('input',render);
+refresh.addEventListener('click',load);
+(async()=>{
+  try{
+    const session=await api('/api/session');
+    if(!session.authenticated){location.replace('/login');return;}
+    isOwner=session.user?.role==='owner';
+    if(isOwner)document.getElementById('ownerNav').style.display='inline-flex';
+    document.getElementById('scopeNote').textContent=isOwner?'Practice-wide saved proposals, available across authorised devices.':'Your saved fee proposals, available across your authorised devices.';
+    await load();
+  }catch(err){
+    count.textContent='Unable to open saved projects';
+    list.replaceChildren(element('div','empty-state',err.message));
+  }
+})();
+</script>
+</body></html>
