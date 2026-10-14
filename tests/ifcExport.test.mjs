@@ -87,3 +87,9 @@ test('invalid IFC coordinates and incomplete openings fail before file generatio
  assert.throws(()=>createIfc4Model({elements:[{...ready[0],base_m:Infinity}]}),/base elevation/);
  assert.throws(()=>createIfc4Model({elements:[{...ready[0],element:'window',host_id:'missing'}]}),/verified host and dimensions/);
 });
+
+test('zero-area outlines cannot produce misleading IFC solids',()=>{
+ const ready=prepareIfcElements(packageArgs).ready;
+ const collinear=[{x:0,y:0},{x:1,y:1},{x:2,y:2}];
+ assert.throws(()=>createIfc4Model({elements:[{...ready[0],outline:collinear}]}),/zero or negligible area/);
+});
