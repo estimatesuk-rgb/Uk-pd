@@ -99,3 +99,10 @@ test('self-intersecting IFC footprints are rejected',()=>{
  const crossed=[{x:0,y:0},{x:3,y:3},{x:0,y:4},{x:4,y:0}];
  assert.throws(()=>createIfc4Model({elements:[{...ready[0],outline:crossed}]}),/crosses itself/);
 });
+
+test('a zero-length segment rejects the entire multi-segment wall',()=>{
+ const badWall={...wall,points:[{x:.1,y:.1},{x:.3,y:.1},{x:.3,y:.1}]};
+ const result=prepareIfcElements({...packageArgs,highlights:[badWall],bim_specs:{w:approved.w}});
+ assert.equal(result.ready.length,0);
+ assert.ok(result.issues.some(issue=>/Zero-length wall segment/.test(issue.reason)));
+});
