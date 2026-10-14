@@ -74,3 +74,9 @@ test('IFC output preserves exact reviewed metric footprint and wall height',()=>
  assert.match(ifc,/IFCWALL\\(/);
  assert.match(ifc,/IFCPROPERTYSINGLEVALUE\\('Checked dimension reference'/);
 });
+
+test('duplicate BIM element identifiers are rejected before export',()=>{
+ const ready=prepareIfcElements(packageArgs).ready;
+ assert.throws(()=>createIfc4Model({elements:[ready[0],{...ready[0]}]}),/unique ID/);
+ assert.throws(()=>createIfc4Model({elements:[{...ready[0],id:''}]}),/unique ID/);
+});
