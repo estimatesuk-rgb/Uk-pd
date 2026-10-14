@@ -28,7 +28,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
  const [docId,setDocId]=useState(''),[page,setPage]=useState(1);
  const [sheet,setSheet]=useState(null),[sheetDims,setSheetDims]=useState(null),[pages,setPages]=useState(1);
  const [viewName,setViewName]=useState(''),[viewKind,setViewKind]=useState('ground-floor-plan');
- const [drawnBox,setDrawnBox]=useState(null),[selected,setSelected]=useState('');
+ const [drawnBox,setDrawnBox]=useState(null),[dragBox,setDragBox]=useState(null),[selected,setSelected]=useState('');
  const [preview,setPreview]=useState(null),[previewDims,setPreviewDims]=useState(null);
  const [mode,setMode]=useState('scale'),[points,setPoints]=useState([]),[metres,setMetres]=useState('');
  const [bimName,setBimName]=useState(''),[bimType,setBimType]=useState('slab');
@@ -94,7 +94,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
  }
  function pointerEnd(e){
   if(!startRef.current||!sheetNode.current)return;
-  const a=startRef.current,b=pos(e,sheetNode.current);startRef.current=null;
+  const a=startRef.current,b=pos(e,sheetNode.current);startRef.current=null;setDragBox(null);
   const bounds={x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),w:Math.abs(a.x-b.x),h:Math.abs(a.y-b.y)};
   if(bounds.w<.03||bounds.h<.03)return setMessage('Draw a larger rectangle around exactly one view.');
   setDrawnBox(bounds);setMessage('Choose the view type, name it, then Save drawing view.');
@@ -243,11 +243,11 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
   </div>
   {sheet&&<div><strong>1. Draw a box around one separate drawing view</strong>
    <div ref={sheetNode} onPointerDown={e=>{startRef.current=pos(e,e.currentTarget);e.currentTarget.setPointerCapture(e.pointerId)}}
-     onPointerUp={pointerEnd} style={{position:'relative',cursor:'crosshair',touchAction:'none',maxWidth:1000,
+     onPointerMove={e=>{if(!startRef.current)return;const a=startRef.current,b=pos(e,e.currentTarget);setDragBox({x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),w:Math.abs(a.x-b.x),h:Math.abs(a.y-b.y)})}} onPointerUp={pointerEnd} onPointerCancel={()=>{startRef.current=null;setDragBox(null)}} style={{position:'relative',cursor:'crosshair',touchAction:'none',maxWidth:1000,
        border:'1px solid #8190a5',margin:'8px 0'}}>
     <img src={sheet} alt="Original drawing sheet" draggable={false} style={{display:'block',width:'100%',height:'auto'}}/>
-    {drawnBox&&<div style={{position:'absolute',left:drawnBox.x*100+'%',top:drawnBox.y*100+'%',
-      width:drawnBox.w*100+'%',height:drawnBox.h*100+'%',border:'2px solid #b22234',background:'rgba(190,20,40,.10)',pointerEvents:'none'}}/>}
+    {(dragBox||drawnBox)&&<div style={{position:'absolute',left:(dragBox||drawnBox).x*100+'%',top:(dragBox||drawnBox).y*100+'%',
+      width:(dragBox||drawnBox).w*100+'%',height:(dragBox||drawnBox).h*100+'%',border:'2px solid #b22234',background:'rgba(190,20,40,.10)',pointerEvents:'none'}}/>}
    </div>
    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
     <label>View type<select value={viewKind} onChange={e=>setViewKind(e.target.value)}>
