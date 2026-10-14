@@ -101,7 +101,7 @@ test('self-intersecting IFC footprints are rejected',()=>{
 });
 
 test('a zero-length segment rejects the entire multi-segment wall',()=>{
- const badWall={...wall,points:[{x:.1,y:.1},{x:.3,y:.1},{x:.3,y:.1}]};
+ const badWall={...wall,points:[{x:.1,y:.1},{x:.3,y:.1},{x:.3006,y:.1}]};
  const result=prepareIfcElements({...packageArgs,highlights:[badWall],bim_specs:{w:approved.w}});
  assert.equal(result.ready.length,0);
  assert.ok(result.issues.some(issue=>/Zero-length wall segment/.test(issue.reason)));
