@@ -111,3 +111,11 @@ test('malformed void coordinates are rejected before IFC output',()=>{
  const ready=prepareIfcElements(packageArgs).ready;
  assert.throws(()=>createIfc4Model({elements:[{...ready[0],holes:[[{x:0,y:0},{x:1,y:0},{x:NaN,y:1}]]}]}),/void contains invalid coordinates/);
 });
+
+test('openings cannot reference missing or later wall hosts',()=>{
+ const ready=prepareIfcElements(packageArgs).ready;
+ const host=ready.find(e=>e.element==='wall');
+ const opening={...host,id:'opening-1',element:'window',host_id:host.id,width_m:1.2,height_m:1.1};
+ assert.throws(()=>createIfc4Model({elements:[opening,host]}),/verified, preceding IFC wall element/);
+ assert.throws(()=>createIfc4Model({elements:[{...opening,host_id:'unknown'},host]}),/verified, preceding IFC wall element/);
+});
