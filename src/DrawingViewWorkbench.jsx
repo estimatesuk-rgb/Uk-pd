@@ -50,6 +50,12 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
    viewQuantity({view,document:viewDoc,calibration,points,kind:mode==='wall'?'length':'area'}):null;
  const bim=useMemo(()=>prepareArchitecturalBim({views,docs,calibrations,elements,features}),[views,docs,calibrations,elements,features]);
  const hostChoices=bim.models.filter(m=>m.element==='wall');
+ const nextHint=!sheet?'NEXT: Select your drawing and press Load drawing.':
+  !view?'NEXT: Draw a box around one full floor plan, then press Use this box.':
+  !preview?'NEXT: Load the saved drawing view.':
+  !scaleCheck.ok?(calibration?.status==='first-dimension'?'NEXT: Click the ends of a vertical dimension, enter its printed length, then verify Y.':'NEXT: Click the ends of a horizontal dimension, enter its printed length, then save X.'):
+  bim.models.length===0?'NEXT: Trace the floor outline, enter measured thickness and drawing reference, tick the approval box, then Add to 3D model.':
+  'NEXT: Add the remaining checked floors, walls, roofs and openings. Generate IFC4 when ready.';
  useEffect(()=>{if(!docId&&docs.length)setDocId(docs[0].id)},[docs,docId]);
  async function saveUpdate(key,value){
   setWorking(true);
@@ -148,7 +154,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
    cropped.width=px.width;cropped.height=px.height;
    cropped.getContext('2d').drawImage(bitmap,px.x,px.y,px.width,px.height,0,0,px.width,px.height);
    setPreview(cropped.toDataURL('image/jpeg',.92));setPreviewDims([px.width,px.height]);
-   setMessage('View saved and opened. Click both ends of the horizontal X dimension to begin calibration.');
+   setMessage('Box saved. NEXT: Click both ends of a horizontal printed dimension to calibrate the drawing.');
   }catch(e){setMessage('View saved, but preview could not open: '+String(e?.message||e))}
  }
  async function chooseView(id){
@@ -277,6 +283,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
  return <div id="ukpd-drawing-view-workbench" tabIndex={-1} className="estimateForm" style={{border:'2px solid #577997',borderRadius:12,
    padding:14,margin:'18px 0',gridTemplateColumns:'minmax(0,1fr)'}}>
   <h3 style={{margin:'0 0 8px'}}>Create 3D BIM from your drawing</h3>
+  <p role="status" aria-live="polite" style={{padding:12,border:'2px solid #316b91',borderRadius:8,background:'#eaf4fb',color:'#173a55',fontWeight:700}}>{nextHint}</p>
   <p className="muted">1. Load your drawing. 2. Draw a box around the plan. 3. Confirm drawing dimensions and trace the building. 4. Generate your 3D model. We won't invent measurements missing from the drawing.</p>
   <details open style={{padding:'12px',margin:'10px 0',border:'1px solid #b7c9d7',borderRadius:8,background:'#f6f9fc',color:'#172c40'}}>
    <summary style={{fontWeight:700,cursor:'pointer'}}>What drawings and measurements do I need? (BIM checklist)</summary>
