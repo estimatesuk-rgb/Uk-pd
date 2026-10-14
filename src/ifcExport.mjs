@@ -97,6 +97,12 @@ export function prepareIfcElements({highlights=[],bim_specs={},calibrations={},d
 }
 export function createIfc4Model({projectName='UKPD partial BIM',elements=[],now=new Date(),newGuid=makeGuid}={}){
  if(!elements.length)throw Error('No verified BIM elements');
+ for(const el of elements){
+  if(!el||!['slab','wall','roof','door','window'].includes(el.element))throw Error('Unsupported verified BIM element');
+  if(!Array.isArray(el.outline)||el.outline.length<3||el.outline.some(p=>!p||!finite(p.x)||!finite(p.y)))throw Error('BIM outline contains invalid coordinates');
+  if(!finite(el.base_m)||!valid(el.depth,.001,25))throw Error('BIM height or base elevation is invalid');
+  if((el.element==='door'||el.element==='window')&&(!el.host_id||!valid(el.width_m,.25,5)||!valid(el.height_m,.3,6)))throw Error('Opening requires a verified host and dimensions');
+ }
  const lines=[],put=(type,args)=>{const n=lines.length+1;lines.push('#'+n+'='+type+'('+args+');');return '#'+n;};
  const guid=()=>quote(newGuid());
  const cart3=(x=0,y=0,z=0)=>put('IFCCARTESIANPOINT', '('+[x,y,z].map(numeric).join(',')+')');
