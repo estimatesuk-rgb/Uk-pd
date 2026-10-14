@@ -101,6 +101,8 @@ export function createIfc4Model({projectName='UKPD partial BIM',elements=[],now=
   if(!el||!['slab','wall','roof','door','window'].includes(el.element))throw Error('Unsupported verified BIM element');
   if(!Array.isArray(el.outline)||el.outline.length<3||el.outline.some(p=>!p||!finite(p.x)||!finite(p.y)))throw Error('BIM outline contains invalid coordinates');
   if(!finite(el.base_m)||!valid(el.depth,.001,25))throw Error('BIM height or base elevation is invalid');
+  const signedArea=el.outline.reduce((sum,p,i)=>{const q=el.outline[(i+1)%el.outline.length];return sum+p.x*q.y-q.x*p.y;},0)/2;
+  if(!finite(signedArea)||Math.abs(signedArea)<0.0001)throw Error('BIM outline has zero or negligible area');
   if((el.element==='door'||el.element==='window')&&(!el.host_id||!valid(el.width_m,.25,5)||!valid(el.height_m,.3,6)))throw Error('Opening requires a verified host and dimensions');
  }
  const lines=[],put=(type,args)=>{const n=lines.length+1;lines.push('#'+n+'='+type+'('+args+');');return '#'+n;};
