@@ -1,5 +1,7 @@
 import React,{useEffect,useMemo,useRef,useState} from 'react';
 import * as pdfjs from 'pdfjs-dist';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+pdfjs.GlobalWorkerOptions.workerSrc=pdfWorkerUrl;
 import {VIEW_KINDS,validateDrawingView,cropPixels,saveViewScaleCheck,
   viewCalibrationStatus,viewQuantity,prepareViewBim} from './drawingViewModel.mjs';
 import {createIfc4Model} from './ifcExport.mjs';
