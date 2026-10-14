@@ -364,7 +364,8 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
       <label>Type<select value={bimType} onChange={e=>setBimType(e.target.value)}>{mode==='opening'?<><option value="window">IfcWindow</option><option value="door">IfcDoor</option></>:mode==='roof'?<option value="roof">IfcRoof</option>:mode==='wall'?<option value="wall">IfcWall</option>:<option value="slab">IfcSlab</option>}</select></label>
       {mode!=='opening'&&<>
        <label>{mode==='roof'?'Eaves level (m)':'Base level (m)'}<input type="number" step=".001" value={base} onChange={e=>setBase(e.target.value)}/></label>
-       <label>{mode==='roof'?'Roof thickness (m)':'Thickness (m)'}<input type="number" step=".001" value={thickness} onChange={e=>setThickness(e.target.value)}/></label>
+       <label>How thick is this {mode==='roof'?'roof':mode==='wall'?'wall':'floor/slab'}? (mm)<input type="number" min="1" step="1" value={thickness===''?'':Math.round(Number(thickness)*1000)} onChange={e=>setThickness(e.target.value===''?'':String(Number(e.target.value)/1000))} placeholder="Enter thickness from drawing in mm"/></label>
+       <small style={{flexBasis:'100%'}}>Use the construction drawing or specification. Do not guess the thickness. Millimetres are converted automatically for BIM.</small>
        <label style={{display:'none'}}>Common origin X (m)<input type="number" step=".001" value={xOrigin} onChange={e=>setXOrigin(e.target.value)}/></label>
        <label style={{display:'none'}}>Common origin Y (m)<input type="number" step=".001" value={yOrigin} onChange={e=>setYOrigin(e.target.value)}/></label>
       </>}
