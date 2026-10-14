@@ -283,7 +283,10 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
    <label>PDF page<input type="number" min="1" max={pages} value={page} onChange={e=>{setPage(Math.max(1,Number(e.target.value)||1));setSheet(null);setPreview(null)}}/></label>
    <button type="button" disabled={working||!docId} onClick={()=>loadSheet()}>{working?'Loading…':'1. Load drawing'}</button>
   </div>
-  {sheet&&<div><strong>2. Draw a box around the floor plan</strong>
+  {sheet&&<div><strong>2. Draw a box around ONE complete floor plan</strong>
+   <p style={{margin:'8px 0'}}><strong>Include inside the box:</strong> all external walls and corners of that floor, any extensions or projections, and at least one readable horizontal and one readable vertical dimension line (with their numbers). Leave a little space around the drawing so nothing is cut off.</p>
+   <p className="muted" style={{margin:'6px 0'}}><strong>Leave outside:</strong> other floor plans, elevations, sections, title blocks and unrelated notes. Select those separately if needed. For a new build, use the proposed floor plan; for an extension, select existing and proposed plans separately.</p>
+   <p className="muted" style={{margin:'6px 0'}}><strong>Important:</strong> the box only selects the drawing. It does not automatically recognise walls or generate a complete 3D building. You will still confirm scale, trace the outline and enter heights from a section or elevation.</p>
    <div ref={sheetNode} onPointerDown={e=>{if(e.pointerType==='mouse'&&e.button!==0)return;const p=pos(e,e.currentTarget);startRef.current=p;setDrawnBox(null);setDragBox({x:p.x,y:p.y,w:0,h:0});try{e.currentTarget.setPointerCapture(e.pointerId)}catch{}}}
      onPointerMove={e=>{if(!startRef.current)return;const a=startRef.current,b=pos(e,e.currentTarget);setDragBox({x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),w:Math.abs(a.x-b.x),h:Math.abs(a.y-b.y)})}} onPointerUp={pointerEnd} onPointerCancel={()=>{startRef.current=null;setDragBox(null)}} style={{position:'relative',cursor:'crosshair',touchAction:'none',maxWidth:1000,
        border:'1px solid #8190a5',margin:'8px 0'}}>
