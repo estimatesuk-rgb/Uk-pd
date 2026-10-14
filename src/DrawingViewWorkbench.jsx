@@ -308,7 +308,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
      onPointerMove={e=>{if(!startRef.current)return;const a=startRef.current,b=pos(e,e.currentTarget);setDragBox({x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),w:Math.abs(a.x-b.x),h:Math.abs(a.y-b.y)})}} onPointerUp={pointerEnd} onPointerCancel={()=>{startRef.current=null;setDragBox(null)}} style={{position:'relative',cursor:'crosshair',touchAction:'none',maxWidth:1000,
        border:'1px solid #8190a5',margin:'8px 0'}}>
     <img src={sheet} alt="Original drawing sheet" draggable={false} style={{display:'block',width:'100%',height:'auto'}}/>
-    {!dragBox&&!drawnBox&&<div style={{position:'absolute',top:12,left:12,zIndex:2,background:'#fff',color:'#173a55',padding:'9px 12px',border:'3px solid #1976a3',borderRadius:8,fontWeight:800,pointerEvents:'none',maxWidth:'min(340px,80%)'}}>⬇ DRAW HERE: Box the whole floor plan and its dimensions</div>}
+    {!dragBox&&!drawnBox&&<div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',zIndex:2,background:'rgba(255,255,255,.95)',color:'#173a55',padding:'9px 12px',border:'3px solid #1976a3',borderRadius:8,fontWeight:800,pointerEvents:'none',maxWidth:'min(340px,80%)'}}>⬇ DRAW HERE: Box the whole floor plan and its dimensions</div>}
     {(dragBox||drawnBox)&&<div style={{position:'absolute',left:(dragBox||drawnBox).x*100+'%',top:(dragBox||drawnBox).y*100+'%',
       width:(dragBox||drawnBox).w*100+'%',height:(dragBox||drawnBox).h*100+'%',border:'2px solid #b22234',background:'rgba(190,20,40,.10)',pointerEvents:'none'}}/>}
    </div></div>
@@ -343,7 +343,7 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
      <button type="button" className="outline" onClick={()=>setPoints([])}>Clear trace</button>
     </div>
     <div style={{position:'relative',maxWidth:1000,border:'1px solid #8190a5',margin:'8px 0'}}>
-     <div style={{position:'absolute',top:8,left:8,zIndex:2,pointerEvents:'none',background:'#fff',border:'2px solid #1976a3',borderRadius:8,padding:'8px 10px',maxWidth:'min(340px,85%)',fontWeight:800,color:'#173a55'}}>⬇ {mode==='scale'?(calibration?.status==='first-dimension'?'CLICK BOTH ENDS OF A VERTICAL DIMENSION':'CLICK BOTH ENDS OF A HORIZONTAL DIMENSION'):mode==='slab'?'CLICK EACH OUTSIDE CORNER OF THE FLOOR':mode==='wall'?'CLICK ALONG THE WALL CENTRE-LINE':mode==='roof'?'CLICK EACH CORNER OF ONE ROOF FACE':'SELECT A VERIFIED WALL BELOW'}</div>
+     <div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',zIndex:2,pointerEvents:'none',background:'rgba(255,255,255,.95)',border:'2px solid #1976a3',borderRadius:8,padding:'8px 10px',maxWidth:'min(340px,85%)',fontWeight:800,color:'#173a55'}}>⬇ {mode==='scale'?(calibration?.status==='first-dimension'?'CLICK BOTH ENDS OF A VERTICAL DIMENSION':'CLICK BOTH ENDS OF A HORIZONTAL DIMENSION'):mode==='slab'?'CLICK EACH OUTSIDE CORNER OF THE FLOOR':mode==='wall'?'CLICK ALONG THE WALL CENTRE-LINE':mode==='roof'?'CLICK EACH CORNER OF ONE ROOF FACE':'SELECT A VERIFIED WALL BELOW'}</div>
      <img src={preview} alt={'Isolated '+view.name+' drawing view; click vertices'}
       draggable={false} onClick={viewClick} style={{display:'block',width:'100%',cursor:'crosshair',touchAction:'manipulation'}}/>
      <Overlay points={points} closed={mode==='slab'||mode==='roof'}/>
