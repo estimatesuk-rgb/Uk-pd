@@ -4,6 +4,9 @@ export class MpSqlStore extends DurableObject {
   super(ctx,env);
   this.sql=ctx.storage.sql;
   this.sql.exec("CREATE TABLE IF NOT EXISTS users (\n id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL UNIQUE COLLATE NOCASE,\n name TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('owner','staff')),\n password_hash TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,\n created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n);\nCREATE TABLE IF NOT EXISTS sessions (\n token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,\n expires_at TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n);\nCREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);\nCREATE TABLE IF NOT EXISTS login_attempts (\n id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, ip TEXT NOT NULL,\n created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n);\nCREATE INDEX IF NOT EXISTS idx_login_attempts ON login_attempts(email,ip,created_at);\nCREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, config TEXT NOT NULL);\nCREATE TABLE IF NOT EXISTS proposals (\n id INTEGER PRIMARY KEY AUTOINCREMENT, reference TEXT UNIQUE,\n created_by INTEGER NOT NULL REFERENCES users(id),\n payload TEXT NOT NULL, client TEXT NOT NULL,client_email TEXT NOT NULL,\n site_address TEXT NOT NULL, fee_ex_vat REAL NOT NULL DEFAULT 0,\n status TEXT NOT NULL DEFAULT 'draft', last_email_id TEXT,\n created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n);\nCREATE INDEX IF NOT EXISTS idx_proposals_creator ON proposals(created_by);");
+  // Non-destructive migration for existing live practices and saved proposals.
+  const columns=this.sql.exec("PRAGMA table_info(proposals)").toArray();
+  if(!columns.some(c=>c.name==="job_status"))this.sql.exec("ALTER TABLE proposals ADD COLUMN job_status TEXT NOT NULL DEFAULT 'pending'");
  }
  async fetch(request){
   try{
@@ -128,7 +131,7 @@ export function calculateFee(payload, minArea = 25) {
   return Math.max(0,Math.round((stage+extras+adjustments)*100)/100);
 }
 async function quoteRow(db, id, user) {
-  const row = await db.prepare('SELECT id,reference,created_by,payload,fee_ex_vat,client_email,client,site_address,status,created_at FROM proposals WHERE id=?').bind(id).first();
+  const row = await db.prepare('SELECT id,reference,created_by,payload,fee_ex_vat,client_email,client,site_address,status,job_status,created_at FROM proposals WHERE id=?').bind(id).first();
   if (!row || (user.role !== 'owner' && row.created_by !== user.id)) throw Object.assign(new Error('Quotation not found'), {status:404});
   return row;
 }
@@ -204,8 +207,8 @@ async function api(req, env, path) {
     return appJSON({ok:true,pricing});
   }
   if(path==='/api/proposals' && method==='GET'){
-    const rows=user.role==='owner'?await env.DB.prepare('SELECT id,reference,client,site_address,fee_ex_vat,updated_at,payload,status FROM proposals ORDER BY id DESC LIMIT 300').all():await env.DB.prepare('SELECT id,reference,client,site_address,fee_ex_vat,updated_at,payload,status FROM proposals WHERE created_by=? ORDER BY id DESC LIMIT 300').bind(user.id).all();
-    return appJSON({projects:rows.results.map(r=>({id:r.id,key:r.reference+'::'+r.client,reference:r.reference,name:JSON.parse(r.payload).projectName||r.client,fee:Number(r.fee_ex_vat),updatedAt:r.updated_at,data:{...JSON.parse(r.payload),reference:r.reference},status:r.status}))});
+    const rows=user.role==='owner'?await env.DB.prepare('SELECT id,reference,client,site_address,fee_ex_vat,updated_at,payload,status,job_status FROM proposals ORDER BY id DESC LIMIT 300').all():await env.DB.prepare('SELECT id,reference,client,site_address,fee_ex_vat,updated_at,payload,status,job_status FROM proposals WHERE created_by=? ORDER BY id DESC LIMIT 300').bind(user.id).all();
+    return appJSON({projects:rows.results.map(r=>({id:r.id,key:r.reference+'::'+r.client,reference:r.reference,name:JSON.parse(r.payload).projectName||r.client,fee:Number(r.fee_ex_vat),updatedAt:r.updated_at,data:{...JSON.parse(r.payload),reference:r.reference},status:r.status,jobStatus:r.job_status||"pending"}))});
   }
   if(path==='/api/proposals' && method==='POST'){
     const p=await req.json(); const data=safePayload(p.data);
@@ -220,10 +223,16 @@ async function api(req, env, path) {
     await env.DB.prepare('UPDATE proposals SET reference=? WHERE id=?').bind(reference,id).run();
     return appJSON({ok:true,id,reference,fee});
   }
-  const proposal=path.match(/^\/api\/proposals\/(\d+)(?:\/(send|delete))?$/);
+  const proposal=path.match(/^\/api\/proposals\/(\d+)(?:\/(send|delete|status))?$/);
   if (proposal) {
     const id=Number(proposal[1]);const action=proposal[2];const row=await quoteRow(env.DB,id,user);
-    if(method==='GET'&&!action)return appJSON({proposal:{id:row.id,reference:row.reference,data:{...JSON.parse(row.payload),reference:row.reference},status:row.status}});
+    if(method==='GET'&&!action)return appJSON({proposal:{id:row.id,reference:row.reference,data:{...JSON.parse(row.payload),reference:row.reference},status:row.status,jobStatus:row.job_status||"pending"}});
+    if(method==='POST'&&action==='status'){
+      const input=await req.json();
+      if(!['pending','won','lost'].includes(input.jobStatus))return appJSON({error:'Select Pending, Won or Lost'},400);
+      await env.DB.prepare('UPDATE proposals SET job_status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(input.jobStatus,id).run();
+      return appJSON({ok:true,id,jobStatus:input.jobStatus});
+    }
     if(method==='POST'&&action==='delete'){
       const p=await req.json();const account=await env.DB.prepare('SELECT password_hash FROM users WHERE id=?').bind(user.id).first();
       if(!await verifyPassword(String(p.password||''),account.password_hash))return appJSON({error:'Password confirmation failed'},403);
