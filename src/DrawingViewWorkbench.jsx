@@ -109,7 +109,9 @@ export default function DrawingViewWorkbench({db,project,docs=[],estimate={},onC
   if(!check.ok)return setMessage(check.error);
   try{
    await saveUpdate('drawing_views',[...views,registered]);
-   setSelected(registered.id);setDrawnBox(null);setPoints([]);setMode('scale');
+  }catch{return;}
+  setSelected(registered.id);setDrawnBox(null);setPoints([]);setMode('scale');
+  try{
    const px=cropPixels(registered,sheetDims);
    if(!px)throw Error('Saved view has invalid crop dimensions');
    const bitmap=new Image();bitmap.src=sheet;await bitmap.decode();
