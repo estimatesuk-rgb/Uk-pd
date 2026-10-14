@@ -23,6 +23,8 @@ test('only verified independent sheet dimensions and manually accepted geometry 
  assert.equal(result.ready[1].depth,2.7);
  assert.equal(result.ready[0].outline[0].x,2);
  assert.equal(result.ready[0].outline[0].y,-1.6);
+ assert.equal(result.ready[0].outline[1].x,6);
+ assert.equal(result.ready[0].outline[2].y,-3.2);
 });
 test('model source is IFC4 with semantic entities, extrusions, metre units and provenance',()=>{
  const result=prepareIfcElements(packageArgs);
