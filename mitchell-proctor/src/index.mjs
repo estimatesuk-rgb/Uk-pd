@@ -3,6 +3,7 @@ import { proposalPdf } from "./pdf.mjs";
 import { makePricingDefaults, resolvePricingDefaults, validBand, BAND_IDS } from "./pricing-defaults.mjs";
 import { calculateProfessionalFee } from "./fee-math.mjs";
 import {isOutlookConfigured,OUTLOOK_SCOPES,OUTLOOK_DASHBOARD,redirectFor,randomUrlToken,outlookAuthorizeUrl,microsoftTokenRequest,graphCall,encryptOutlookTokens,decryptOutlookTokens,outlookEmailMessage,safeOutlookHtmlToText,nextOutlookSubjectRef} from "./outlook-graph.mjs";
+import {activeOutlookAccount,syncOutlookInbox} from "./outlook-service.mjs";
 import { chaseIsDue,nextChaseDate,officeChaseSubject,officeChaseBody,clientChaseBody,CHASE_ROUNDS } from "./chase-policy.mjs";
 export class MpSqlStore extends DurableObject {
  constructor(ctx,env){
@@ -294,6 +295,50 @@ async function api(req, env, path) {
     const out=appJSON({ok:true});out.headers.append('Set-Cookie',headersForCookie('mp_session','',0));return out;
   }
   mustUser(user);
+  if(path==='/api/outlook/status'&&method==='GET'){
+    const connected=isOutlookConfigured(env)?await env.DB.prepare('SELECT mailbox,last_synced_at FROM outlook_connections WHERE user_id=?').bind(user.id).first():null;
+    return appJSON({configured:isOutlookConfigured(env),connected:!!connected,mailbox:connected?.mailbox||null,lastSyncedAt:connected?.last_synced_at||null,
+      outlookUrl:OUTLOOK_DASHBOARD,needsSetup:!isOutlookConfigured(env)});
+  }
+  if(path==='/api/outlook/start'&&method==='GET'){
+    if(!isOutlookConfigured(env))return Response.redirect(new URL('/outlook?setup=required',req.url),302);
+    const state=randomUrlToken(),verifier=randomUrlToken(48);
+    await env.DB.prepare('DELETE FROM outlook_oauth_states WHERE expires_at<?').bind(new Date().toISOString()).run();
+    await env.DB.prepare('INSERT INTO outlook_oauth_states(state,user_id,verifier,expires_at) VALUES(?,?,?,?)')
+      .bind(state,user.id,verifier,new Date(Date.now()+10*60000).toISOString()).run();
+    return Response.redirect(await outlookAuthorizeUrl(env,req.url,state,verifier),302);
+  }
+  if(path==='/api/outlook/callback'&&method==='GET'){
+    const source=new URL(req.url),code=source.searchParams.get('code'),state=source.searchParams.get('state');
+    const error=source.searchParams.get('error');
+    if(error||!code||!state)return Response.redirect(new URL('/outlook?result=cancelled',req.url),302);
+    const record=await env.DB.prepare('SELECT user_id,verifier,expires_at FROM outlook_oauth_states WHERE state=?').bind(state).first();
+    if(!record||Number(record.user_id)!==Number(user.id)||record.expires_at<new Date().toISOString())
+      return Response.redirect(new URL('/outlook?result=invalid-state',req.url),302);
+    await env.DB.prepare('DELETE FROM outlook_oauth_states WHERE state=?').bind(state).run();
+    const grant=await microsoftTokenRequest(env,{
+      grant_type:'authorization_code',code,redirect_uri:redirectFor(req.url),code_verifier:record.verifier,scope:OUTLOOK_SCOPES
+    });
+    const me=await graphCall(grant.access_token,'/me?$select=id,mail,userPrincipalName,displayName');
+    if(!me.ok)return appJSON({error:'Microsoft account profile could not be retrieved; check User.Read permission'},502);
+    const profile=await me.json(),mailbox=String(profile.mail||profile.userPrincipalName||'').toLowerCase().trim();
+    if(!validEmail(mailbox)||!profile.id)return appJSON({error:'Microsoft did not return a usable Outlook mailbox'},502);
+    const expires=Date.now()+Number(grant.expires_in||3600)*1000;
+    const secured=await encryptOutlookTokens(env,{access_token:grant.access_token,refresh_token:grant.refresh_token});
+    await env.DB.prepare('INSERT INTO outlook_connections(user_id,account_id,mailbox,secret_cipher,expires_at) VALUES(?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET account_id=excluded.account_id,mailbox=excluded.mailbox,secret_cipher=excluded.secret_cipher,expires_at=excluded.expires_at,updated_at=CURRENT_TIMESTAMP')
+      .bind(user.id,String(profile.id),mailbox,secured,expires).run();
+    return Response.redirect(new URL('/outlook?result=connected',req.url),302);
+  }
+  if(path==='/api/outlook/disconnect'&&method==='POST'){
+    const p=await req.json();if(p.confirm!==true)return appJSON({error:'Confirm Outlook disconnect'},400);
+    await env.DB.prepare('DELETE FROM outlook_connections WHERE user_id=?').bind(user.id).run();
+    return appJSON({ok:true,disconnected:true});
+  }
+  if(path==='/api/outlook/sync'&&method==='POST'){
+    if(!isOutlookConfigured(env))return appJSON({error:'Microsoft 365 Outlook is not configured for this app'},503);
+    const result=await syncOutlookInbox(env,user.id,recordProjectEvent);
+    return appJSON({ok:true,...result});
+  }
   if(path==='/api/my-draft'&&method==='GET'){
     const saved=await env.DB.prepare('SELECT payload,updated_at FROM staff_drafts WHERE user_id=?').bind(user.id).first();
     return appJSON({draft:saved?JSON.parse(saved.payload):null,updatedAt:saved?.updated_at||null});
