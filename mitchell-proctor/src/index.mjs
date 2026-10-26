@@ -310,13 +310,13 @@ async function api(req, env, path) {
     await recordProjectEvent(env.DB,id,user,'quotation',p.silent===true?'Initial quotation autosaved':'Initial quotation saved');
     return appJSON({ok:true,id,reference,fee,revision:1});
   }
-  const workspacePath=path.match(/^\/api\/proposals\/(\d+)\/(workspace|events|files|stage|accept|note-draft|follow-up|chase-control|chase-complete|chase-send)(?:\/(\d+))?$/);
+  const workspacePath=path.match(/^\/api\/proposals\/(\d+)\/(workspace|events|files|file-start|file-chunk|file-finish|stage|accept|note-draft|follow-up|chase-control|chase-complete|chase-send)(?:\/(\d+))?$/);
   if(workspacePath){
     const id=Number(workspacePath[1]),action=workspacePath[2],fileId=Number(workspacePath[3]);
     const row=await quoteRow(env.DB,id,user);
     if(method==='GET'&&action==='workspace'){
       const events=await env.DB.prepare('SELECT e.id,e.event_type,e.body,e.occurred_at,e.created_at,u.name AS author FROM project_events e LEFT JOIN users u ON u.id=e.created_by WHERE e.proposal_id=? ORDER BY e.id DESC LIMIT 500').bind(id).all();
-      const docs=await env.DB.prepare('SELECT id,file_name,mime_type,kind,size_bytes,created_at FROM project_files WHERE proposal_id=? ORDER BY id DESC LIMIT 200').bind(id).all();
+      const docs=await env.DB.prepare('SELECT id,file_name,mime_type,kind,size_bytes,created_at FROM project_files WHERE proposal_id=? AND ready=1 ORDER BY id DESC LIMIT 300').bind(id).all();
       const noteDraft=await env.DB.prepare('SELECT event_type,body,updated_at FROM project_note_drafts WHERE proposal_id=? AND user_id=?').bind(id,user.id).first();
       const chases=await env.DB.prepare('SELECT round,status,sent_at,completed_at,completion_note,email_id,client_email_id FROM chase_reminders WHERE proposal_id=? ORDER BY round').bind(id).all();
       return appJSON({project:{id,reference:row.reference,client:row.client,address:row.site_address,status:row.status,jobStatus:row.job_status||'pending',jobStage:row.job_stage||'enquiry',fee:Number(row.fee_ex_vat),agreedFee:row.agreed_fee_ex_vat,agreedAt:row.agreed_at,lostReason:row.lost_reason||'',nextAction:row.next_action||'',nextActionDue:row.next_action_due||'',chaseEnabled:!!row.chase_enabled,chaseCount:Number(row.chase_sent_count||0),chaseStartedAt:row.chase_started_at||null,nextChaseAt:row.chase_enabled?nextChaseDate(row.chase_started_at,Number(row.chase_sent_count||0))?.toISOString()||null:null,createdAt:row.created_at},events:events.results,files:docs.results,chases:chases.results,phases:JOB_PHASES,noteDraft,emailConfigured:!!(env.RESEND_API_KEY&&env.MAIL_FROM)});
@@ -419,6 +419,48 @@ async function api(req, env, path) {
       await recordProjectEvent(env.DB,id,user,'appointment','Agreed fee proposal archived at '+Number(row.fee_ex_vat).toFixed(2)+' GBP excluding VAT; this PDF is an immutable record.');
       return appJSON({ok:true,agreedFee:row.fee_ex_vat});
     }
+    if(method==='POST'&&action==='file-start'){
+      const p=await req.json();
+      const fileName=String(p.fileName||'').trim().replace(/[\/\\\x00-\x1f\x7f]/g,'_').slice(0,150);
+      const ext=fileName.toLowerCase().split('.').pop();
+      const types={pdf:'application/pdf',docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',eml:'message/rfc822',
+        msg:'application/vnd.ms-outlook',txt:'text/plain',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',
+        dwg:'application/acad',dxf:'application/dxf',ifc:'application/octet-stream',zip:'application/zip'};
+      const kind=['document','email','signed_agreement','site_photo','drawing','report'].includes(p.kind)?p.kind:'document';
+      const size=Number(p.sizeBytes);
+      if(!fileName||!types[ext])return appJSON({error:'Select a supported PDF, Office, email, image, drawing or ZIP file'},400);
+      if(!Number.isInteger(size)||size<1||size>25*1024*1024)return appJSON({error:'Maximum individual file size is currently 25 MB'},413);
+      const capacity=await env.DB.prepare('SELECT COALESCE(SUM(size_bytes),0) AS bytes FROM project_files WHERE proposal_id=?').bind(id).first();
+      if(Number(capacity?.bytes||0)+size>200*1024*1024)return appJSON({error:'This project has reached the 200 MB document storage safeguard'},413);
+      const inserted=await env.DB.prepare("INSERT INTO project_files(proposal_id,file_name,mime_type,kind,size_bytes,content_base64,uploaded_by,storage_kind,ready) VALUES(?,?,?,?,?,'',?,'chunked',0)")
+        .bind(id,fileName,types[ext],kind,size,user.id).run();
+      return appJSON({ok:true,fileId:inserted.meta.last_row_id,partBytes:262144,totalParts:Math.ceil(size/262144)});
+    }
+    if(method==='POST'&&action==='file-chunk'){
+      const p=await req.json(),fileId=Number(p.fileId),part=Number(p.part),encoded=String(p.contentBase64||'');
+      const doc=await env.DB.prepare('SELECT size_bytes,storage_kind,ready,uploaded_by FROM project_files WHERE id=? AND proposal_id=?').bind(fileId,id).first();
+      if(!doc||doc.storage_kind!=='chunked'||doc.ready||Number(doc.uploaded_by)!==Number(user.id))return appJSON({error:'Upload session not found or completed'},404);
+      const expectedCount=Math.ceil(doc.size_bytes/262144);
+      if(!Number.isInteger(part)||part<0||part>=expectedCount)return appJSON({error:'Invalid file part index'},400);
+      if(!/^[a-zA-Z0-9+/]+={0,2}$/.test(encoded)||encoded.length>360000)return appJSON({error:'Invalid upload chunk'},400);
+      let decoded;try{decoded=bytesFromBase64(encoded)}catch{return appJSON({error:'Invalid base64 chunk'},400)}
+      const expected=part===expectedCount-1?doc.size_bytes-part*262144:262144;
+      if(decoded.length!==expected)return appJSON({error:'Upload chunk has an unexpected size'},400);
+      await env.DB.prepare('INSERT INTO project_file_chunks(file_id,part,content_base64,raw_bytes) VALUES(?,?,?,?) ON CONFLICT(file_id,part) DO UPDATE SET content_base64=excluded.content_base64,raw_bytes=excluded.raw_bytes')
+        .bind(fileId,part,encoded,decoded.length).run();
+      return appJSON({ok:true,part});
+    }
+    if(method==='POST'&&action==='file-finish'){
+      const p=await req.json(),fileId=Number(p.fileId);
+      const doc=await env.DB.prepare('SELECT size_bytes,ready,storage_kind,uploaded_by,file_name,kind FROM project_files WHERE id=? AND proposal_id=?').bind(fileId,id).first();
+      if(!doc||doc.ready||doc.storage_kind!=='chunked'||Number(doc.uploaded_by)!==Number(user.id))return appJSON({error:'Upload session not available'},409);
+      const stats=await env.DB.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(raw_bytes),0) AS bytes FROM project_file_chunks WHERE file_id=?').bind(fileId).first();
+      if(Number(stats.n)!==Math.ceil(doc.size_bytes/262144)||Number(stats.bytes)!==doc.size_bytes)return appJSON({error:'Some file parts are missing; please retry'},409);
+      await env.DB.prepare('UPDATE project_files SET ready=1 WHERE id=? AND proposal_id=? AND ready=0').bind(fileId,id).run();
+      await recordProjectEvent(env.DB,id,user,'document','Uploaded '+doc.kind.replaceAll('_',' ')+': '+doc.file_name+' ('+Math.ceil(doc.size_bytes/1024)+' KB)');
+      return appJSON({ok:true,fileId,name:doc.file_name,size:doc.size_bytes});
+    }
     if(method==='POST'&&action==='files'){
       const p=await req.json();
       const fileName=String(p.fileName||'').trim().replace(/[\\/\x00-\x1f\x7f]/g,'_').slice(0,150);
@@ -436,8 +478,18 @@ async function api(req, env, path) {
       return appJSON({ok:true,name:fileName,size:bytes.length});
     }
     if(method==='GET'&&action==='files'&&fileId){
-      const doc=await env.DB.prepare('SELECT file_name,mime_type,content_base64 FROM project_files WHERE id=? AND proposal_id=?').bind(fileId,id).first();
+      const doc=await env.DB.prepare('SELECT file_name,mime_type,content_base64,storage_kind,ready FROM project_files WHERE id=? AND proposal_id=? AND ready=1').bind(fileId,id).first();
       if(!doc)return appJSON({error:'Document not found'},404);
+      if(doc.storage_kind==='chunked'){
+        const privateStore=env.MP_DATA.get(env.MP_DATA.idFromName('practice'));
+        const stream=await privateStore.fetch('https://mp-store.internal/file/'+fileId);
+        if(!stream.ok)return appJSON({error:'Unable to read stored file'},502);
+        return new Response(stream.body,{headers:{
+          'Content-Type':'application/octet-stream',
+          'Content-Disposition':'attachment; filename="'+doc.file_name.replace(/["\r\n]/g,'_')+'"',
+          'Cache-Control':'private,no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':'sandbox'
+        }});
+      }
       return new Response(bytesFromBase64(doc.content_base64),{headers:{
         'Content-Type':'application/octet-stream','Content-Disposition':'attachment; filename="'+doc.file_name.replace(/["\r\n]/g,'_')+'"',
         'Cache-Control':'private,no-store','X-Content-Type-Options':'nosniff',
@@ -465,6 +517,7 @@ async function api(req, env, path) {
       const p=await req.json();const account=await env.DB.prepare('SELECT password_hash FROM users WHERE id=?').bind(user.id).first();
       if(!await verifyPassword(String(p.password||''),account.password_hash))return appJSON({error:'Password confirmation failed'},403);
       await env.DB.prepare('DELETE FROM project_events WHERE proposal_id=?').bind(id).run();
+      await env.DB.prepare('DELETE FROM project_file_chunks WHERE file_id IN (SELECT id FROM project_files WHERE proposal_id=?)').bind(id).run();
       await env.DB.prepare('DELETE FROM project_files WHERE proposal_id=?').bind(id).run();
       await env.DB.prepare('DELETE FROM project_note_drafts WHERE proposal_id=?').bind(id).run();
       await env.DB.prepare('DELETE FROM chase_reminders WHERE proposal_id=?').bind(id).run();
