@@ -144,8 +144,23 @@
    <section class="card">
     <div class="eyebrow">06 / At the client meeting</div><h2>Ready to issue</h2>
     <p class="job-intro">Download the current PDF quotation, or return to the fee studio to prepare email and WhatsApp delivery. Record any client instruction in the timeline above.</p>
-    <div class="job-actions"><button id="sendOutlookJob" class="button" type="button">Email PDF through Outlook</button><a id="quoteShare" class="button outline" href="/">Other email / WhatsApp</a><a id="quoteDownload" class="button outline" href="#" download>PDF quotation</a><a href="/outlook" class="button outline">Outlook connection</a></div>
-    <p id="outlookJobStatus" class="muted" role="status">Direct Outlook sending requires one-time account connection. On compatible phones, Share PDF hands the actual attachment to Outlook.</p>
+    <div class="job-actions"><button id="jobPrepareShare" type="button" class="button">Prepare PDF for WhatsApp / Outlook</button><button id="sendOutlookJob" class="button outline" type="button">Email PDF through Outlook</button><a id="quoteShare" class="button outline" href="/">Other email / WhatsApp</a><a id="quoteDownload" class="button outline" href="#" download>PDF quotation</a><a href="/outlook" class="button outline">Outlook connection</a></div>
+    <p id="outlookJobStatus" class="muted" role="status">First prepare the PDF, then tap Share Now and choose WhatsApp or Outlook. On desktop, download and attach the PDF yourself. Direct Outlook sending requires one-time account connection.</p>
+    <div id="jobShareReady" style="display:none;border:1px solid #c2a98c;border-radius:9px;padding:18px;margin:15px 0;background:#f8f3ec">
+     <h3>PDF attachment ready</h3><p id="jobShareInfo" class="muted"></p>
+     <div class="job-actions">
+      <button id="jobShareNow" type="button">Share PDF attachment now</button>
+      <button id="jobShareDownload" type="button" class="outline">Download PDF</button>
+      <a id="jobShareOutlook" class="button outline" target="_blank" rel="noopener noreferrer">Outlook draft (attach downloaded PDF)</a>
+      <a id="jobShareWhatsapp" class="button outline" target="_blank" rel="noopener noreferrer">WhatsApp chat (attach downloaded PDF)</a>
+     </div>
+     <p class="muted" style="font-size:12px">Native sharing includes the actual PDF, but the recipient must still be chosen and Send pressed in WhatsApp or Outlook. Draft/chat links cannot attach documents automatically.</p>
+     <label>After you really send it, how was the quotation sent?
+      <select id="jobShareMethod"><option value="whatsapp">WhatsApp</option><option value="outlook">Outlook</option><option value="email">Other email</option><option value="other">Other method</option></select>
+     </label>
+     <div class="job-actions"><button id="jobShareConfirm" type="button" class="outline">Confirm sent and archive issued PDF</button></div>
+     <p id="jobShareStatus" role="status" class="muted"></p>
+    </div>
     <div class="job-actions"><button id="syncOutlookJob" class="outline" type="button">Check Outlook replies for this job</button></div>
    </section>
   </div>
@@ -157,7 +172,7 @@
 const $=id=>document.getElementById(id);
 const id=new URLSearchParams(location.search).get('id');
 const gbp=n=>new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'}).format(Number(n)||0);
-let record=null, noteSaveTimer=null;
+let record=null, noteSaveTimer=null,preparedJobShare=null;
 function alertMsg(message,failed=false){
   const el=$('feedback');el.textContent=message;el.className='job-banner '+(failed?'error':'ok');
 }
@@ -183,6 +198,9 @@ async function load(){
  try{
   const data=await api('/api/proposals/'+id+'/workspace');
   record=data.project;
+  if(preparedJobShare&&preparedJobShare.revision!==record.revision){
+    preparedJobShare=null;$('jobShareReady').style.display='none';
+  }
   $('jobTitle').textContent=record.client||'Client project';
   $('jobAddress').textContent=record.address||'Address not provided';
   $('jobReference').textContent=record.reference;
@@ -383,6 +401,63 @@ $('uploadForm').onsubmit=async event=>{
     alertMsg(err.message,true);
   }finally{button.disabled=false}
 };
+async function prepareJobShare(){
+ const button=$('jobPrepareShare');button.disabled=true;
+ try{
+  if(!record?.id)throw Error('Open a saved job first');
+  const response=await fetch('/api/proposals/'+id+'/pdf',{credentials:'same-origin',cache:'no-store'});
+  if(!response.ok){const info=await response.json().catch(()=>({}));throw Error(info.error||'Unable to prepare quotation PDF')}
+  const pdf=await response.blob();
+  if(await pdf.slice(0,5).text()!=='%PDF-')throw Error('PDF generation returned an invalid file');
+  const file=new File([pdf],String(record.reference).replace(/[^A-Za-z0-9_-]/g,'_')+'_Fee_Proposal.pdf',{type:'application/pdf'});
+  const subject='Mitchell Proctor Architects | Fee proposal '+record.reference;
+  const text='Dear '+record.client+',\n\nPlease find our architectural fee proposal '+record.reference+' for '+record.address+' attached as a PDF.\n\nKind regards,\nMitchell Proctor Architects';
+  preparedJobShare={file,subject,text,revision:record.revision};
+  $('jobShareReady').style.display='block';
+  $('jobShareInfo').textContent=file.name+' ('+Math.ceil(pdf.size/1024)+' KB) • Client: '+record.client+' • '+record.clientEmail;
+  $('jobShareNow').style.display=navigator.canShare?.({files:[file]})?'inline-flex':'none';
+  $('jobShareOutlook').href='https://outlook.office.com/mail/deeplink/compose?to='+encodeURIComponent(record.clientEmail)+'&subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(text);
+  let phone=String(record.clientPhone||'').replace(/\D/g,'');
+  if(/^4407\d{9}$/.test(phone))phone=phone.slice(0,2)+phone.slice(3);
+  if(/^07\d{9}$/.test(phone))phone='44'+phone.slice(1);
+  $('jobShareWhatsapp').style.display=phone.length>=9&&phone.length<=15?'inline-flex':'none';
+  $('jobShareWhatsapp').href='https://wa.me/'+phone+'?text='+encodeURIComponent(text);
+  $('jobShareStatus').textContent='PDF ready. Share the file using the button above, or download and attach manually.';
+  $('jobShareReady').scrollIntoView({block:'nearest',behavior:'smooth'});
+ }catch(err){alertMsg('Could not prepare PDF: '+err.message,true)}
+ finally{button.disabled=false}
+}
+$('jobPrepareShare').onclick=prepareJobShare;
+$('jobShareNow').onclick=()=>{
+ if(!preparedJobShare){$('jobShareStatus').textContent='Prepare a PDF first.';return}
+ if(!navigator.share||!navigator.canShare?.({files:[preparedJobShare.file]})){
+  $('jobShareStatus').textContent='This browser cannot share a file directly. Download the PDF and attach it manually.';return;
+ }
+ // Web Share requires a direct user click, with NO await/fetch before this call.
+ try{
+  const request=navigator.share({files:[preparedJobShare.file],title:preparedJobShare.subject,text:preparedJobShare.text});
+  Promise.resolve(request).then(()=>$('jobShareStatus').textContent='PDF passed to the selected app. Verify recipient, press Send, then confirm below.')
+    .catch(err=>{if(err.name!=='AbortError')$('jobShareStatus').textContent='Share failed: '+err.message});
+ }catch(err){$('jobShareStatus').textContent='Could not share: '+err.message}
+};
+$('jobShareDownload').onclick=()=>{
+ if(!preparedJobShare)return;
+ const url=URL.createObjectURL(preparedJobShare.file),a=document.createElement('a');
+ a.href=url;a.download=preparedJobShare.file.name;document.body.append(a);a.click();a.remove();
+ setTimeout(()=>URL.revokeObjectURL(url),30000);
+ $('jobShareStatus').textContent='PDF downloaded. Attach that file in the Outlook or WhatsApp message.';
+};
+$('jobShareConfirm').onclick=async()=>{
+ if(!preparedJobShare){$('jobShareStatus').textContent='Prepare a PDF first.';return}
+ const medium=$('jobShareMethod').value;
+ if(!confirm('Have you ACTUALLY sent this PDF quotation by '+medium+'? This will save the issue date and permanently archive the PDF on the job.'))return;
+ const button=$('jobShareConfirm');button.disabled=true;
+ try{
+  const result=await post('/api/proposals/'+id+'/delivery-log',{confirm:true,revision:preparedJobShare.revision,medium});
+  $('jobShareStatus').textContent=result.message;
+  await load();alertMsg('Quotation issue recorded with PDF snapshot in the Job File.');
+ }catch(err){$('jobShareStatus').textContent='Could not record send: '+err.message;button.disabled=false}
+};
 $('sendOutlookJob').onclick=async()=>{
  const button=$('sendOutlookJob');button.disabled=true;
  try{
@@ -394,20 +469,7 @@ $('sendOutlookJob').onclick=async()=>{
    await load();alertMsg('Outlook accepted the email with the PDF attached. Job history updated.');
    return;
   }
-  const response=await fetch('/api/proposals/'+id+'/pdf',{credentials:'same-origin'});
-  if(!response.ok)throw Error('Could not prepare PDF quotation');
-  const pdf=await response.blob(),file=new File([pdf],record.reference+'_Fee_Proposal.pdf',{type:'application/pdf'});
-  const subject='Mitchell Proctor Architects | Fee proposal '+record.reference;
-  const body='Dear '+record.client+',\n\nPlease find attached our architectural fee proposal for '+record.address+'.\n\nKind regards,\nMitchell Proctor Architects';
-  if(navigator.canShare&&navigator.canShare({files:[file]})){
-    await navigator.share({files:[file],title:subject,text:body+'\nRecipient: '+record.clientEmail});
-    $('outlookJobStatus').textContent='PDF handed to share sheet. Verify that Outlook received it and press Send. An external send cannot be automatically confirmed here.';
-    return;
-  }
-  const url=URL.createObjectURL(pdf),a=document.createElement('a');a.href=url;a.download=file.name;a.click();setTimeout(()=>URL.revokeObjectURL(url),25000);
-  const outlookUrl='https://outlook.office.com/mail/deeplink/compose?to='+encodeURIComponent(record.clientEmail)+'&subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body);
-  const link=elem('a','Open prepared Outlook email','button outline');link.href=outlookUrl;link.target='_blank';link.rel='noopener noreferrer';
-  $('outlookJobStatus').replaceChildren(document.createTextNode('PDF downloaded. Open Outlook, ATTACH the downloaded PDF, and press Send. '),link);
+  await prepareJobShare();
  }catch(err){if(err.name!=='AbortError'){alertMsg('Outlook send: '+err.message,true)}}
  finally{button.disabled=false}
 };
