@@ -420,7 +420,7 @@ async function api(req, env, path) {
       const docs=await env.DB.prepare('SELECT id,file_name,mime_type,kind,size_bytes,created_at FROM project_files WHERE proposal_id=? AND ready=1 ORDER BY id DESC LIMIT 300').bind(id).all();
       const noteDraft=await env.DB.prepare('SELECT event_type,body,updated_at FROM project_note_drafts WHERE proposal_id=? AND user_id=?').bind(id,user.id).first();
       const chases=await env.DB.prepare('SELECT round,status,sent_at,completed_at,completion_note,email_id,client_email_id FROM chase_reminders WHERE proposal_id=? ORDER BY round').bind(id).all();
-      return appJSON({project:{id,reference:row.reference,client:row.client,clientEmail:row.client_email,address:row.site_address,status:row.status,jobStatus:row.job_status||'pending',jobStage:row.job_stage||'enquiry',fee:Number(row.fee_ex_vat),agreedFee:row.agreed_fee_ex_vat,agreedAt:row.agreed_at,lostReason:row.lost_reason||'',nextAction:row.next_action||'',nextActionDue:row.next_action_due||'',chaseEnabled:!!row.chase_enabled,chaseCount:Number(row.chase_sent_count||0),chaseStartedAt:row.chase_started_at||null,nextChaseAt:row.chase_enabled?nextChaseDate(row.chase_started_at,Number(row.chase_sent_count||0))?.toISOString()||null:null,createdAt:row.created_at},events:events.results,files:docs.results,chases:chases.results,phases:JOB_PHASES,noteDraft,emailConfigured:!!(env.RESEND_API_KEY&&env.MAIL_FROM)});
+      return appJSON({project:{id,reference:row.reference,client:row.client,clientEmail:row.client_email,clientPhone:String(JSON.parse(row.payload).clientPhone||''),revision:row.revision,address:row.site_address,status:row.status,jobStatus:row.job_status||'pending',jobStage:row.job_stage||'enquiry',fee:Number(row.fee_ex_vat),agreedFee:row.agreed_fee_ex_vat,agreedAt:row.agreed_at,lostReason:row.lost_reason||'',nextAction:row.next_action||'',nextActionDue:row.next_action_due||'',chaseEnabled:!!row.chase_enabled,chaseCount:Number(row.chase_sent_count||0),chaseStartedAt:row.chase_started_at||null,nextChaseAt:row.chase_enabled?nextChaseDate(row.chase_started_at,Number(row.chase_sent_count||0))?.toISOString()||null:null,createdAt:row.created_at},events:events.results,files:docs.results,chases:chases.results,phases:JOB_PHASES,noteDraft,emailConfigured:!!(env.RESEND_API_KEY&&env.MAIL_FROM)});
     }
     if(method==='POST'&&action==='note-draft'){
       const p=await req.json();
@@ -636,6 +636,8 @@ async function api(req, env, path) {
     if(method==='POST'&&action==='delivery-log'){
       const input=await req.json();
       if(input.confirm!==true)return appJSON({error:'Confirm that the client has actually been sent the quotation'},400);
+      if(!Number.isInteger(Number(input.revision))||Number(input.revision)!==Number(row.revision))
+        return appJSON({error:'This quotation was revised since the PDF was prepared. Reopen the job and prepare the latest PDF before confirming it sent.'},409);
       const medium=String(input.medium||'');
       if(!['whatsapp','outlook','email','other'].includes(medium))return appJSON({error:'Select the actual sending method'},400);
       if(row.job_status==='lost')return appJSON({error:'The job is Lost. Reopen it before recording a fresh client quotation.'},409);
