@@ -64,13 +64,25 @@
       <option value="enquiry">Enquiry</option><option value="proposal">Fee proposal</option><option value="appointed">Appointed</option><option value="survey">Survey</option><option value="design">Design development</option><option value="planning">Planning submission</option><option value="building_regulations">Building Regulations</option><option value="construction">Construction</option><option value="on_hold">On hold</option><option value="completed">Completed / handover</option>
      </select></label>
     </div>
+    <label id="lostReasonWrap" style="display:none;margin-top:12px">Why was this job lost?
+     <textarea id="lostReason" maxlength="500" rows="2" placeholder="e.g. Client postponed / price / another architect / planning difficulty"></textarea>
+    </label>
     <div class="job-actions" style="margin-top:13px">
      <button type="button" id="saveStatus">Save outcome</button>
      <button type="button" id="saveStage" class="outline">Save project stage</button>
     </div>
    </section>
    <section class="card">
-    <div class="eyebrow">02 / Agreed fee and appointment</div><h2>Lock in the agreed quotation</h2>
+    <div class="eyebrow">02 / Next action and follow-up</div><h2>Keep every enquiry moving</h2>
+    <p class="job-intro">Set the next action and a due date. It's visible to everyone in Saved Projects and recorded in this job's timeline.</p>
+    <form id="followForm" class="job-form">
+     <label>Next action<input id="nextAction" maxlength="500" placeholder="Call client, revise quotation, submit planning…"></label>
+     <label>Due date<input id="nextActionDue" type="date"></label>
+     <button type="submit">Save next action</button>
+    </form>
+   </section>
+   <section class="card">
+    <div class="eyebrow">03 / Agreed fee and appointment</div><h2>Lock in the agreed quotation</h2>
     <p class="job-intro">Once the client has instructed the practice, mark this job Won and select <strong>Archive agreed fee proposal</strong>. The app saves a permanent PDF snapshot and the agreed fee. It does not send anything to the client or create a contract by itself.</p>
     <button type="button" id="agree" disabled>Archive agreed fee proposal</button>
     <p id="agreementDate" class="muted" style="font-size:12px">No agreement recorded</p>
@@ -158,6 +170,10 @@ async function load(){
   $('agreedFee').textContent=record.agreedFee==null?'Not agreed':gbp(record.agreedFee);
   $('currentStage').textContent=nameOfStage(record.jobStage);
   $('status').value=record.jobStatus;$('stage').value=record.jobStage;
+  $('lostReason').value=record.lostReason||'';
+  $('lostReasonWrap').style.display=record.jobStatus==='lost'?'block':'none';
+  $('nextAction').value=record.nextAction||'';
+  $('nextActionDue').value=record.nextActionDue||'';
   $('agree').disabled=record.jobStatus!=='won'||!!record.agreedAt;
   $('agree').textContent=record.agreedAt?'Agreed proposal archived':'Archive agreed fee proposal';
   $('agreementDate').textContent=record.agreedAt?'Agreement recorded: '+record.agreedAt:'No agreement recorded';
@@ -190,9 +206,25 @@ async function load(){
   alertMsg('Project record loaded from the shared Cloudflare workspace.');
  }catch(e){alertMsg(e.message,true)}
 }
+$('status').addEventListener('change',()=>{
+  $('lostReasonWrap').style.display=$('status').value==='lost'?'block':'none';
+});
 $('saveStatus').onclick=async()=>{
- try{await post('/api/proposals/'+id+'/status',{jobStatus:$('status').value});await load();alertMsg('Job status saved for all staff.')}
- catch(e){alertMsg(e.message,true)}
+ try{
+  const jobStatus=$('status').value;
+  if(jobStatus==='lost'&&!$('lostReason').value.trim()){
+    alertMsg('Please record why the quotation was lost; it helps the practice improve future pricing.',true);return;
+  }
+  await post('/api/proposals/'+id+'/status',{jobStatus,lostReason:$('lostReason').value.trim()});
+  await load();alertMsg('Job outcome and lost-job reason saved for all staff.');
+ }catch(e){alertMsg(e.message,true)}
+};
+$('followForm').onsubmit=async event=>{
+ event.preventDefault();
+ try{
+   await post('/api/proposals/'+id+'/follow-up',{nextAction:$('nextAction').value,nextActionDue:$('nextActionDue').value});
+   await load();alertMsg('Next action and follow-up date saved to the shared job timeline.');
+ }catch(e){alertMsg(e.message,true)}
 };
 $('saveStage').onclick=async()=>{
  try{await post('/api/proposals/'+id+'/stage',{stage:$('stage').value});await load();alertMsg('Project stage recorded in the timeline.')}
