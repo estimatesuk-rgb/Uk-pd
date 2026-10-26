@@ -101,6 +101,7 @@ function render(){
       element('span',null,'Fee ex VAT: '+pounds.format(Number(p.fee)||0)),
       element('span',null,'Quotation: '+String(p.status||'draft')),
       element('span',null,'Job: '+String(p.jobStatus||'pending').toUpperCase()),
+      element('span',null,'Stage: '+String(p.jobStage||'enquiry').replaceAll('_',' ')),
       element('span',null,p.updatedAt?'Updated: '+p.updatedAt:'')
     );
     info.append(ref,title,address,meta);
@@ -108,6 +109,9 @@ function render(){
     action.href='/?proposal='+encodeURIComponent(String(p.id));
     action.setAttribute('aria-label','Open saved proposal '+String(p.reference||p.name||p.id));
     const actions=element('div','project-actions');
+    const job=element('a','button project-open',p.jobStatus==='won'?'Open live Job File →':'Open Job File / Timeline →');
+    job.href='/job?id='+encodeURIComponent(String(p.id));
+    job.setAttribute('aria-label','Open shared project record '+String(p.reference));
     const statusLabel=element('label',null,'Job status');
     const statusSelect=element('select');
     for(const status of ['pending','won','lost']){const option=element('option',null,status[0].toUpperCase()+status.slice(1));option.value=status;statusSelect.append(option);}
@@ -150,7 +154,8 @@ function render(){
         allProjects=allProjects.filter(item=>item.id!==p.id);render();
       }catch(err){alert('Could not delete project: '+err.message);remove.disabled=false;}
     });
-    actions.append(statusLabel,action,pdf,remove);
+    actions.append(statusLabel,job,action,pdf);
+    if(isOwner)actions.append(remove);
     card.append(info,actions);list.append(card);
   }
 }
@@ -179,7 +184,7 @@ refresh.addEventListener('click',load);
     if(!session.authenticated){location.replace('/login');return;}
     isOwner=session.user?.role==='owner';
     if(isOwner)document.getElementById('ownerNav').style.display='inline-flex';
-    document.getElementById('scopeNote').textContent=isOwner?'Practice-wide saved proposals, available across authorised devices.':'Your saved fee proposals, available across your authorised devices.';
+    document.getElementById('scopeNote').textContent='All practice quotations and project records, shared across authorised staff logins.';
     await load();
   }catch(err){
     count.textContent='Unable to open saved projects';
