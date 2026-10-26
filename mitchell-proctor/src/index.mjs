@@ -799,6 +799,7 @@ export default {
       }
       if(['/manifest.webmanifest','/mp-icon.svg','/favicon.ico','/portal.css'].includes(path))return securityHeaders(await env.ASSETS.fetch(request));
       if(!user)return Response.redirect(new URL('/login',url).toString(),302);
+      if(path==='/outlook'||path==='/outlook.html')return securityHeaders(await env.ASSETS.fetch(new Request(new URL('/outlook.html',request.url),request)));
       if(path==='/cloud-sync.js')return securityHeaders(await env.ASSETS.fetch(request));
       if(path==='/job'||path==='/job.html'){
         return securityHeaders(await env.ASSETS.fetch(new Request(new URL('/job.html',request.url),request)));
