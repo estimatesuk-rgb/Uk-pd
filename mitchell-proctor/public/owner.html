@@ -14,7 +14,11 @@
 <label>Quotation valid for (days)<input type="number" name="validDays" min="1" max="365" step="1" required></label>
 <label>Minimum charging area (m²)<input type="number" name="minimumArea" value="25" disabled title="The agreed minimum 25 m² fee rule remains fixed"></label>
 </div>
-<h3>Architectural stages — £ per m² excluding VAT</h3>
+<style>.mp-grid{overflow-x:auto;max-width:100%;margin:12px 0 28px;border:1px solid #ddd6cf;border-radius:9px}.mp-grid table{width:100%;min-width:780px;border-collapse:collapse;font-size:12px}.mp-grid th,.mp-grid td{padding:9px 7px;border-bottom:1px solid #eee6df;text-align:right}.mp-grid th:first-child,.mp-grid td:first-child{text-align:left;width:210px}.mp-grid thead th{background:#efeae3}.mp-grid input{padding:8px;min-width:85px;text-align:right}</style>
+<div class="cols"><label>New quotation pricing method<select name="feeMode"><option value="band">Fixed fee by project category</option><option value="sqm">Traditional £/m²</option></select></label><label>Reference category<select name="defaultBand"><option value="micro">Micro</option><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option><option value="extra">Extra large</option></select></label></div>
+<h3>Fixed architectural service prices by project size</h3><p class="muted">All figures exclude VAT. Adjust each fee and select inclusion defaults using the existing checkboxes below.</p><div id="bandStages"></div>
+<h3>Fixed additional-service prices by project size</h3><div id="bandExtras"></div>
+<h3>£/m² comparison rates</h3><p class="muted">Retain the previous pricing as an alternative for unusually sized or complex jobs.</p><h3>Architectural stages — £ per m² excluding VAT</h3>
 <p class="muted">Edit the rate for every work stage. Tick <strong>Include by default</strong> to have that stage selected when staff start a new quotation.</p>
 <div class="row" style="font-size:12px;font-weight:700;color:#756f67" aria-hidden="true"><span>Architectural service</span><span>£/m² ex VAT</span><span>Include?</span></div>
 <div id="stageRates"><p>Loading architectural fees…</p></div>
@@ -59,6 +63,27 @@ function renderPriceLines(container,list,type){
     label.append(check);row.append(name,rate,label);container.append(row);
   }
 }
+const SIZE_BANDS=[['micro','Micro'],['small','Small'],['medium','Medium'],['large','Large'],['extra','Extra large']];
+function renderMatrix(root,items){
+  root.replaceChildren();
+  const wrapper=document.createElement('div');wrapper.className='mp-grid';
+  const tbl=document.createElement('table'),thead=document.createElement('thead'),head=document.createElement('tr');
+  for(const title of ['Service',...SIZE_BANDS.map(b=>b[1])]){const th=document.createElement('th');th.textContent=title;head.append(th)}
+  thead.append(head);tbl.append(thead);
+  const body=document.createElement('tbody');
+  for(const item of items){
+    const tr=document.createElement('tr'),title=document.createElement('th');title.textContent=item.title||item.id;tr.append(title);
+    for(const [id,label] of SIZE_BANDS){
+      const cell=document.createElement('td'),input=document.createElement('input');
+      input.type='number';input.min='0';input.max='1000000';input.step='.01';input.required=true;
+      input.value=item.bandFees?.[id]??0;input.setAttribute('aria-label',item.title+' '+label+' fee');
+      input.oninput=()=>{item.bandFees??={};item.bandFees[id]=input.value===''?null:Number(input.value);markPricingEdited()};
+      cell.append(input);tr.append(cell);
+    }
+    body.append(tr);
+  }
+  tbl.append(body);wrapper.append(tbl);root.append(wrapper);
+}
 function markPricingEdited(){const el=$('#rateHelp');if(el)el.textContent='Unsaved changes — click Save all default prices.';}
 function showPricing(){
   if(!pricing)return;
@@ -66,6 +91,10 @@ function showPricing(){
   for(const field of ['buildRate','buildVatRate','feeVatRate','contingency','validDays']){
     f.elements.namedItem(field).value=pricing[field];
   }
+  renderMatrix($('#bandStages'),pricing.stages);
+  renderMatrix($('#bandExtras'),pricing.extras);
+  f.elements.namedItem('feeMode').value=pricing.feeMode||'band';
+  f.elements.namedItem('defaultBand').value=pricing.defaultBand||'medium';
   renderPriceLines($('#stageRates'),pricing.stages,'stage');
   renderPriceLines($('#extraRates'),pricing.extras,'extra');
   $('#saveRates').disabled=false;$('#resetRates').disabled=false;
@@ -86,6 +115,7 @@ $('#ratesForm').onsubmit=async e=>{
   const f=e.currentTarget;
   if(!f.reportValidity())return;
   for(const field of ['buildRate','buildVatRate','feeVatRate','contingency','validDays'])pricing[field]=Number(f.elements.namedItem(field).value);
+  pricing.feeMode=f.elements.namedItem('feeMode').value;pricing.defaultBand=f.elements.namedItem('defaultBand').value;
   const button=$('#saveRates');button.disabled=true;
   try{
     const result=await post('/api/pricing',pricing);
