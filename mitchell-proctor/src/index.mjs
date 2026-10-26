@@ -232,6 +232,16 @@ function base64FromBytes(bytes){
   let value='';for(let i=0;i<bytes.length;i+=8192)value+=String.fromCharCode(...bytes.subarray(i,i+8192));
   return btoa(value);
 }
+async function archiveIssuedQuotation(db,id,user,reference,bytes,method){
+  if(!bytes||bytes.length<5||bytes.length>1024*1024)return false;
+  const stamp=new Date().toISOString().replace(/[:.]/g,'-');
+  const filename=reference+'_Issued_'+method+'_'+stamp+'.pdf';
+  try{
+    await db.prepare("INSERT INTO project_files(proposal_id,file_name,mime_type,kind,size_bytes,content_base64,uploaded_by) VALUES(?,?,?,?,?,?,?)")
+      .bind(id,filename,'application/pdf','sent_proposal',bytes.length,base64FromBytes(bytes),user.id).run();
+    return true;
+  }catch(error){console.error('Fee proposal sent but PDF archive failed for '+reference,error);return false}
+}
 async function quoteRow(db, id, user) {
   const row = await db.prepare('SELECT id,reference,created_by,payload,fee_ex_vat,client_email,client,site_address,status,job_status,job_stage,agreed_fee_ex_vat,agreed_at,revision,lost_reason,next_action,next_action_due,chase_enabled,chase_started_at,chase_sent_count,created_at FROM proposals WHERE id=?').bind(id).first();
   if (!row) throw Object.assign(new Error('Quotation not found'), {status:404});
@@ -659,6 +669,7 @@ async function api(req, env, path) {
         const detail=await request.json().catch(()=>({}));
         return appJSON({error:'Microsoft Outlook could not accept the email ('+request.status+'). '+clean(detail.error?.message||'',180)},502);
       }
+      const archived=await archiveIssuedQuotation(env.DB,id,user,row.reference,pdf,'Outlook');
       await env.DB.prepare('INSERT INTO outlook_sent(proposal_id,user_id,subject,to_address,from_address,client_body,attached_name) VALUES(?,?,?,?,?,?,?)')
         .bind(id,user.id,outgoing.subject,row.client_email,outlook.row.mailbox,outgoing.text,row.reference+'_Fee_Proposal.pdf').run();
       await env.DB.prepare("UPDATE proposals SET status='sent',chase_enabled=1,chase_started_at=COALESCE(chase_started_at,CURRENT_TIMESTAMP),updated_at=CURRENT_TIMESTAMP WHERE id=?")
@@ -667,13 +678,13 @@ async function api(req, env, path) {
       await recordProjectEvent(env.DB,id,user,'email','OUTLOOK ACCEPTED client quotation PDF attachment: '+row.reference+'_Fee_Proposal.pdf; from '+outlook.row.mailbox+'; to '+row.client_email+'; '+copy+'; subject '+outgoing.subject+'\n'+outgoing.text);
       return appJSON({ok:true,accepted:true,provider:'Microsoft Outlook',sender:outlook.row.mailbox,to:row.client_email,
         attached:row.reference+'_Fee_Proposal.pdf',subject:outgoing.subject,officeCopy:copy,outlookUrl:OUTLOOK_DASHBOARD,
-        note:'Microsoft Graph accepted the email. Delivery is not guaranteed until confirmed by Outlook.'});
+        archived, note:'Microsoft Graph accepted the email. Delivery is not guaranteed until confirmed by Outlook.'});
     }
     if(method==='POST'&&action==='send'){
       if(!env.RESEND_API_KEY || !env.MAIL_FROM)return appJSON({error:'Automatic email not configured. Download and attach the PDF to the prepared email draft instead.'},503);
       const p=await req.json();if(p.confirm!==true)return appJSON({error:'Please confirm sending'},400);
       if(!validEmail(row.client_email))return appJSON({error:'Client email invalid'},400);
-      const subject=subjectFor({client:row.client,address:row.site_address});
+      const subject='Mitchell Proctor Architects | Fee proposal '+row.reference+' | '+String(row.site_address).slice(0,75);
       const bytes=await proposalPdf(row);
       // Resend requires base64 attachment content. Convert safe-sized chunks, no client-supplied attachments.
       const chunks=[];for(let off=0;off<bytes.length;off+=8192)chunks.push(String.fromCharCode(...bytes.subarray(off,off+8192)));
@@ -683,9 +694,10 @@ async function api(req, env, path) {
       const remote=await fetch('https://api.resend.com/emails',{method:'POST',headers:{'Authorization':'Bearer '+env.RESEND_API_KEY,'Content-Type':'application/json'},body:JSON.stringify(mail)});
       const sent=await remote.json().catch(()=>({}));
       if(!remote.ok||!sent.id)return appJSON({error:'Mail service rejected send: '+clean(sent.message||remote.status,220)},502);
+      const archived=await archiveIssuedQuotation(env.DB,id,user,row.reference,bytes,'PracticeEmail');
       await env.DB.prepare("UPDATE proposals SET status='sent',last_email_id=?,chase_enabled=1,chase_started_at=COALESCE(chase_started_at,CURRENT_TIMESTAMP),updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(sent.id,id).run();
-      await recordProjectEvent(env.DB,id,user,'email','Proposal PDF sent to '+row.client_email+'; BCC '+OWNER_EMAIL+'. Email reference '+clean(sent.id,80));
-      return appJSON({ok:true,messageId:sent.id,subject,recipient:row.client_email,office:OWNER_EMAIL});
+      await recordProjectEvent(env.DB,id,user,'email','Practice email service ACCEPTED PDF proposal '+row.reference+' to '+row.client_email+'; BCC '+OWNER_EMAIL+'. Message ID '+clean(sent.id,80)+'. Subject: '+subject+'\\n'+body);
+      return appJSON({ok:true,messageId:sent.id,subject,recipient:row.client_email,office:OWNER_EMAIL,archived});
     }
   }
   if(path==='/api/staff' && method==='GET'){
