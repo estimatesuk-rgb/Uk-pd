@@ -268,13 +268,13 @@ async function api(req, env, path) {
     let id=Number(p.id)||null;
     if(id){const row=await quoteRow(env.DB,id,user);if(row.status==='sent' && user.role!=='owner')return appJSON({error:'Issued proposals can be amended by the owner only'},403);
       await env.DB.prepare('UPDATE proposals SET payload=?,fee_ex_vat=?,client=?,client_email=?,site_address=?,status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(JSON.stringify(data),fee,data.client,data.clientEmail,data.address,'draft',id).run();
-      await recordProjectEvent(env.DB,id,user,'quotation','Quotation revised and saved');
+      if(p.silent!==true)await recordProjectEvent(env.DB,id,user,'quotation','Quotation revised and saved');
       return appJSON({ok:true,id,reference:row.reference,fee});
     }
     const added=await env.DB.prepare('INSERT INTO proposals(created_by,payload,fee_ex_vat,client,client_email,site_address,status) VALUES(?,?,?,?,?,?,?)').bind(user.id,JSON.stringify(data),fee,data.client,data.clientEmail,data.address,'draft').run();
     id=added.meta.last_row_id; const reference=refFor(id,new Date().toISOString());
     await env.DB.prepare('UPDATE proposals SET reference=? WHERE id=?').bind(reference,id).run();
-    await recordProjectEvent(env.DB,id,user,'quotation','Initial quotation saved');
+    await recordProjectEvent(env.DB,id,user,'quotation',p.silent===true?'Initial quotation autosaved':'Initial quotation saved');
     return appJSON({ok:true,id,reference,fee});
   }
   const workspacePath=path.match(/^\/api\/proposals\/(\d+)\/(workspace|events|files|stage|accept)(?:\/(\d+))?$/);
