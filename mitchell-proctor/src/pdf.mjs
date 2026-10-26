@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import {proposalFeeLines} from './fee-math.mjs';
 
 // Server-side PDF generation. The same PDF is downloaded by the practice and
 // attached to client emails; no editable Word document is issued.
@@ -15,24 +16,7 @@ const safe=x=>val(x).replace(/[^\u0020-\u007e\u00a0-\u00ff]/g,c=>({
 const cents=x=>Math.round(Number(x||0)*100);
 const pounds=x=>money((Number(x)||0)/100);
 function feeLines(p){
-  const area=Number(p.area)||0,chargeArea=area>0&&area<25?25:area;
-  const mode=p.feeMode||'sqm',band=p.pricingBand;
-  const quote=(x,fallback)=>{
-    if(mode==='sqm')return fallback;
-    if(x.quotedFee!==null&&x.quotedFee!==undefined&&x.quotedFee!=='')return Number(x.quotedFee);
-    return mode==='bespoke'?0:Number(x.bandFees?.[band]??0);
-  };
-  const lines=[];
-  for(const item of Array.isArray(p.stages)?p.stages:[]){
-    if(item.selected)lines.push({name:val(item.title||'Architectural service'),description:val(item.scope),fee:cents(quote(item,Number(item.rate||0)*chargeArea))});
-  }
-  for(const item of Array.isArray(p.extras)?p.extras:[]){
-    if(item.selected)lines.push({name:val(item.title||'Additional service'),description:val(item.desc),fee:cents(quote(item,Number(item.amount)||0))});
-  }
-  for(const item of Array.isArray(p.adjustments)?p.adjustments:[]){
-    if(Number(item.amount)>0)lines.push({name:val(item.description||'Fee adjustment'),fee:(item.kind==='omission'?-1:1)*cents(item.amount)});
-  }
-  return lines;
+  return proposalFeeLines(p).map(line=>({name:val(line.name),fee:cents(line.fee)}));
 }
 export async function proposalPdf(row){
   const p=JSON.parse(row.payload);
