@@ -19,7 +19,9 @@ assert.match(server,/p\.silent!==true/);
 assert.match(server,/revision=revision\+1/);
 assert.match(server,/if\(Number\(p\.revision\)!==Number\(row\.revision\)\)/);
 assert.match(server,/mustUser\(user,'owner'\);[\s\S]{0,150}const p=await req\.json\(\);/);
-assert.ok(server.includes('(workspace|events|files|stage|accept|note-draft|follow-up|chase-control|chase-complete|chase-send)'), 'All shared workspace routes must remain available');
+const workspaceRoutes=server.slice(server.indexOf('const workspacePath='),server.indexOf('if(workspacePath)'));
+for(const action of ['workspace','events','files','file-start','file-chunk','file-finish','stage','accept','note-draft','follow-up','chase-control','chase-complete','chase-send'])
+ assert.ok(workspaceRoutes.includes(action),'Missing workspace API route: '+action);
 assert.match(sync,/async function mpAutoSave/);
 assert.match(sync,/async function mpWhatsapp/);
 assert.match(sync,/mpResumeDraft/);
@@ -28,4 +30,6 @@ assert.match(sync,/mpQuickEmail/);
 assert.match(projects,/Open live Job File/);
 assert.match(jobs,/agreed fee proposal/i);
 assert.match(jobs,/project history/i);
+assert.match(jobs,/25 MB/);
+assert.match(server,/project_file_chunks/);
 console.log('Workspace checks pass: protected job files, note and proposal autosave, shared revisions, history, archive, and email/WhatsApp actions.');
