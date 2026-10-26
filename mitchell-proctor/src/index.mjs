@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { proposalPdf } from "./pdf.mjs";
 import { makePricingDefaults, resolvePricingDefaults, validBand, BAND_IDS } from "./pricing-defaults.mjs";
+import { calculateProfessionalFee } from "./fee-math.mjs";
 export class MpSqlStore extends DurableObject {
  constructor(ctx,env){
   super(ctx,env);
@@ -131,21 +132,7 @@ function safePayload(input) {
   delete p.logo;
   return p;
 }
-export function calculateFee(payload, minArea = 25) {
-  const area=Math.max(Number(payload.area),Number(minArea));
-  const inBand=payload.feeMode==='band' && validBand(payload.pricingBand);
-  const bespoke=payload.feeMode==='bespoke';
-  const amount=(x,old)=>{
-    if(!inBand&&!bespoke)return old;
-    const quote=x.quotedFee;
-    if(quote!==null&&quote!==undefined&&quote!=='')return Number(quote);
-    return bespoke?0:Number(x.bandFees?.[payload.pricingBand]??0);
-  };
-  const stage=payload.stages.filter(x=>x.selected).reduce((v,x)=>v+amount(x,Number(x.rate)*area),0);
-  const extras=payload.extras.filter(x=>x.selected).reduce((v,x)=>v+amount(x,Number(x.amount)),0);
-  const adjustments=payload.adjustments.reduce((v,a)=>v+(a.kind==='omission'?-1:1)*Number(a.amount),0);
-  return Math.max(0,Math.round((stage+extras+adjustments)*100)/100);
-}
+export function calculateFee(payload,minArea=25){return calculateProfessionalFee(payload,minArea);}
 async function quoteRow(db, id, user) {
   const row = await db.prepare('SELECT id,reference,created_by,payload,fee_ex_vat,client_email,client,site_address,status,job_status,created_at FROM proposals WHERE id=?').bind(id).first();
   if (!row || (user.role !== 'owner' && row.created_by !== user.id)) throw Object.assign(new Error('Quotation not found'), {status:404});
