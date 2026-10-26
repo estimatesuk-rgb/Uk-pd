@@ -161,13 +161,18 @@ function mpAddHeader() {
   const mast=document.querySelector('.mast-actions')||document.querySelector('.masthead');
   if(!mast)return;
   const wrap=document.createElement('span');
-  wrap.style.display='inline-flex';wrap.style.gap='8px';wrap.style.alignItems='center';
+  wrap.style.display='inline-flex';wrap.style.gap='8px';wrap.style.alignItems='center';wrap.style.flexWrap='wrap';
   wrap.innerHTML='<span style="color:#ddd;font-size:12px" id="mpAccountName">Signed in</span>'+
+    '<a href="/projects" class="btn ghost small">Saved jobs</a>'+
+    '<button id="mpQuickEmail" type="button" class="btn ghost small">Email PDF</button>'+
+    '<button id="mpQuickWhatsapp" type="button" class="btn ghost small">WhatsApp PDF</button>'+
     '<a id="mpOwnerLink" href="/owner" class="btn ghost small" style="display:none">Owner settings</a>'+
     '<button id="mpResumeDraft" type="button" class="btn ghost small" style="display:none">Resume draft</button>'+
     '<span id="mpSyncInfo" style="color:#d8d0c7;font-size:11px" aria-live="polite">Connected</span>'+
     '<button id="mpSignOut" type="button" class="btn ghost small">Sign out</button>';
   mast.append(wrap);
+  document.getElementById('mpQuickEmail').onclick=mpEmail;
+  document.getElementById('mpQuickWhatsapp').onclick=mpWhatsapp;
   document.getElementById('mpSignOut').onclick=async()=>{await mpAPI('/api/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});location.href='/login'};
 }
 async function mpConnect() {
