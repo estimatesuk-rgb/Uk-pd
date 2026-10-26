@@ -132,12 +132,13 @@
       <option value="signed_agreement">Signed appointment / acceptance</option><option value="drawing">Drawing</option>
       <option value="report">Report / survey</option><option value="site_photo">Site photograph</option>
      </select></label>
-     <label>Choose files (maximum 1 MB each)
-      <input type="file" id="uploadFiles" accept=".pdf,.docx,.xlsx,.eml,.msg,.txt,.jpg,.jpeg,.png" multiple required>
+     <label>Choose files (maximum 25 MB each)
+      <input type="file" id="uploadFiles" accept=".pdf,.docx,.xlsx,.eml,.msg,.txt,.jpg,.jpeg,.png,.dwg,.dxf,.ifc,.zip" multiple required>
      </label>
-     <button type="submit">Upload to this job</button>
+     <button id="uploadSubmit" type="submit">Upload to this job</button>
+     <small id="uploadProgress" class="muted" role="status" aria-live="polite">Your files are stored in the secure project record. Keep this page open until uploaded.</small>
     </form>
-    <p class="muted" style="font-size:12px">Automatic email inbox synchronisation is not enabled. Save emails as .eml/.msg or upload documents manually. Large drawing sets will need expanded file storage.</p>
+    <p class="muted" style="font-size:12px">Files upload in verified 256 KB sections, up to 25 MB each and 200 MB per project. Automatic Gmail synchronisation still requires an authorised inbox connection. Save individual emails as .eml/.msg if needed.</p>
     <h3>Saved documents</h3><div id="files" aria-live="polite"><p class="muted">Loading documents…</p></div>
    </section>
    <section class="card">
@@ -343,26 +344,42 @@ $('noteForm').onsubmit=async e=>{
   await load();alertMsg('Note saved to the shared timeline.')
  }catch(err){alertMsg(err.message,true)}
 };
-function asBase64(file){
- return new Promise((resolve,reject)=>{
-  const reader=new FileReader();
-  reader.onerror=()=>reject(Error('Unable to read file'));
-  reader.onload=()=>resolve(String(reader.result||'').split(',')[1]||'');
-  reader.readAsDataURL(file);
- });
+function chunkToBase64(bytes){
+  let binary='';
+  for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));
+  return btoa(binary);
 }
-$('uploadForm').onsubmit=async e=>{
- e.preventDefault();
- const files=[...$('uploadFiles').files],kind=$('fileKind').value;
- if(!files.length){alertMsg('Choose a file to upload',true);return}
- try{
-  for(const file of files){
-   if(file.size>1048576)throw Error(file.name+' is too large (1 MB maximum).');
-   const contentBase64=await asBase64(file);
-   await post('/api/proposals/'+id+'/files',{fileName:file.name,kind,contentBase64});
-  }
-  $('uploadFiles').value='';await load();alertMsg(files.length+' document(s) uploaded and recorded.')
- }catch(err){alertMsg(err.message,true)}
+$('uploadForm').onsubmit=async event=>{
+  event.preventDefault();
+  const files=[...$('uploadFiles').files],kind=$('fileKind').value,button=$('uploadSubmit');
+  if(!files.length){alertMsg('Choose a file to upload',true);return}
+  button.disabled=true;
+  try{
+    for(let f=0;f<files.length;f++){
+      const file=files[f];
+      if(file.size>25*1024*1024)throw Error(file.name+' exceeds the 25 MB per-file limit.');
+      const session=await post('/api/proposals/'+id+'/file-start',{fileName:file.name,kind,sizeBytes:file.size});
+      for(let part=0;part<session.totalParts;part++){
+        const raw=new Uint8Array(await file.slice(part*session.partBytes,(part+1)*session.partBytes).arrayBuffer());
+        const contentBase64=chunkToBase64(raw);
+        let success=false;
+        for(let attempt=0;attempt<3;attempt++){
+          try{
+            await post('/api/proposals/'+id+'/file-chunk',{fileId:session.fileId,part,contentBase64});
+            success=true;break;
+          }catch(err){if(attempt===2)throw err}
+        }
+        $('uploadProgress').textContent='Uploading '+file.name+' — '+Math.round(100*(part+1)/session.totalParts)+'% ('+(f+1)+'/'+files.length+')';
+      }
+      await post('/api/proposals/'+id+'/file-finish',{fileId:session.fileId});
+    }
+    $('uploadFiles').value='';await load();
+    $('uploadProgress').textContent=files.length+' file(s) fully saved and verified on Cloudflare.';
+    alertMsg(files.length+' document(s) uploaded to the shared project record.');
+  }catch(err){
+    $('uploadProgress').textContent='Upload interrupted. The project record is unchanged until the file passes verification. Please retry.';
+    alertMsg(err.message,true);
+  }finally{button.disabled=false}
 };
 $('signout').onclick=async()=>{
  try{await post('/api/logout',{})}finally{location.replace('/login')}
