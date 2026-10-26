@@ -43,7 +43,13 @@
  <p class="muted" style="font-size:12px">To activate automatic sending, Cloudflare requires the Resend <code>RESEND_API_KEY</code> secret and a verified <code>MAIL_FROM</code> address. Never enter your email API key into this website or send it in chat.</p>
  <div class="actions"><a class="button outline" href="/projects">View pending jobs and chase reminders</a><button id="refreshMailConnection" class="outline" type="button">Check email connection</button></div>
  </section>
- <section class="card"><div class="eyebrow">02 / Access control</div><h2>Staff usernames and passwords</h2><p>Staff can prepare and save proposals, but cannot change practice-wide rates or manage other users.</p><form id="newStaffForm"><div class="cols"><label>Staff member’s name<input name="name" required maxlength="150" placeholder="e.g. Stephen Haslam"></label><label>Email used as username<input type="email" name="email" required autocomplete="off" placeholder="name@mitchellproctor.co.uk"></label></div><label>Initial staff password<input name="password" type="password" minlength="10" required autocomplete="new-password" placeholder="At least 10 characters"></label><button type="submit">Create staff login</button></form><div id="staffList" class="list" style="margin-top:24px"><p>Loading accounts…</p></div></section>
+ <section class="card" id="backupSettings">
+<div class="eyebrow">Practice protection</div><h2>Encrypted practice backup</h2>
+<p>Export saved jobs, fee proposals, timeline notes, correspondence, documents and practice settings without passwords or login sessions. Your download is encrypted locally with AES-256-GCM.</p>
+<p>Cloudflare's SQLite Durable Object also includes rolling <strong>30-day point-in-time recovery</strong>. Download and store backups off-site regularly; this download is not an automatic off-site copy.</p>
+<div class="actions"><button id="downloadPracticeBackup" type="button">Download encrypted practice backup</button><span id="backupProgress" class="muted" role="status">No backup prepared this session</span></div>
+<p class="muted" style="font-size:12px">Keep your backup passphrase safely and separately. Without it, no one can decrypt the archive. A recovery must be verified before restoring client data to a live system.</p>
+</section><section class="card"><div class="eyebrow">02 / Access control</div><h2>Staff usernames and passwords</h2><p>Staff can prepare and save proposals, but cannot change practice-wide rates or manage other users.</p><form id="newStaffForm"><div class="cols"><label>Staff member’s name<input name="name" required maxlength="150" placeholder="e.g. Stephen Haslam"></label><label>Email used as username<input type="email" name="email" required autocomplete="off" placeholder="name@mitchellproctor.co.uk"></label></div><label>Initial staff password<input name="password" type="password" minlength="10" required autocomplete="new-password" placeholder="At least 10 characters"></label><button type="submit">Create staff login</button></form><div id="staffList" class="list" style="margin-top:24px"><p>Loading accounts…</p></div></section>
 <section class="card"><div class="eyebrow">03 / Saved fees</div><h2>All architectural proposals</h2><p>Job numbers are allocated centrally, in sequence, when a proposal is first saved. <a href="/projects">Open searchable Saved Projects →</a></p><div id="proposalList" class="list"><p>Loading proposals…</p></div></section>
 <section class="card"><div class="eyebrow">04 / Owner security</div><h2>Change owner password</h2><form id="passwordForm"><div class="cols"><label>Current password<input type="password" name="current" required autocomplete="current-password"></label><label>New password<input type="password" name="next" required minlength="10" autocomplete="new-password"></label></div><button type="submit">Change password</button></form></section>
 <section class="card"><div class="eyebrow">05 / Request an update</div><h2>Change or extend the app</h2><p>Use ChatGPT to request updates such as a new fee stage, revised proposals or new exclusions. This opens ChatGPT, where you can ask to work on the Mitchell Proctor Cloudflare Fee Proposal app. Changes to the software take effect across devices <em>once deployed</em>.</p><a href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer" class="button">Open ChatGPT ↗</a><p style="font-size:12px">Changes to the settings above save immediately, without requiring a software deployment. ChatGPT cannot automatically read an arbitrary message sent from this page; request app changes in your ChatGPT conversation.</p></section>
@@ -110,6 +116,32 @@ function showPricing(){
   $$('#saveRates').disabled=false;$$('#resetRates').disabled=false;
   $$('#rateHelp').textContent='These prices are used across the practice for new quotations.';
 }
+async function ownerPracticeBackup(){
+ const status=$('#backupProgress'),button=$('#downloadPracticeBackup');
+ const pass=window.prompt('Choose a NEW backup encryption passphrase (minimum 14 characters). Keep it securely.');
+ if(pass===null)return;
+ if(pass.length<14){notice('Choose at least 14 characters.',true);return}
+ if(window.prompt('Confirm the backup passphrase.')!==pass){notice('Passphrases did not match.',true);return}
+ button.disabled=true;status.textContent='Preparing practice archive…';
+ try{
+  const response=await fetch('/api/owner/backup',{credentials:'same-origin',cache:'no-store'});
+  if(!response.ok){const err=await response.json().catch(()=>({}));throw Error(err.error||'Backup export failed')}
+  const input=await response.arrayBuffer();if(input.byteLength<20)throw Error('Archive is unexpectedly empty');
+  status.textContent='Encrypting '+Math.ceil(input.byteLength/1024)+' KB on your device…';
+  const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12));
+  const base=await crypto.subtle.importKey('raw',new TextEncoder().encode(pass),'PBKDF2',false,['deriveKey']);
+  const key=await crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:200000,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['encrypt']);
+  const encrypted=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,input);
+  const header=JSON.stringify({format:'mp-encrypted-backup-v1',algorithm:'AES-256-GCM',iterations:200000,salt:[...salt],iv:[...iv],createdAt:new Date().toISOString()});
+  const blob=new Blob(['MPBACKUP1\n',header+'\n',encrypted],{type:'application/octet-stream'});
+  const url=URL.createObjectURL(blob),link=document.createElement('a');
+  link.href=url;link.download='Mitchell-Proctor-Backup-'+new Date().toISOString().slice(0,10)+'.mpbackup';
+  document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
+  status.textContent='Encrypted backup prepared ('+Math.ceil(blob.size/1024)+' KB). Save off-site.';
+  notice('The encrypted backup was prepared. Keep the file and passphrase separately.');
+ }catch(err){status.textContent='Backup failed: '+err.message;notice(err.message,true)}
+ finally{button.disabled=false}
+}
 async function loadMailStatus(){
  const el=$('#mailConnection');if(!el)return;
  try{
@@ -150,6 +182,7 @@ $$('#resetRates').onclick=()=>{
 $$('#ratesForm').addEventListener('input',event=>{if(['buildRate','buildVatRate','feeVatRate','contingency','validDays'].includes(event.target.name))markPricingEdited()});
 $$('#newStaffForm').onsubmit=async e=>{e.preventDefault();const f=e.currentTarget,p=Object.fromEntries(new FormData(f));try{await post('/api/staff',{action:'create',...p});f.reset();notice('Staff account created');await loadStaff()}catch(e){notice(e.message,true)}};
 $$('#passwordForm').onsubmit=async e=>{e.preventDefault();const f=e.currentTarget,p=Object.fromEntries(new FormData(f));if(p.current===p.next){notice('Choose a different password',true);return}try{await post('/api/owner/password',p);f.reset();notice('Owner password updated')}catch(e){notice(e.message,true)}};
+$('#downloadPracticeBackup').onclick=ownerPracticeBackup;
 $('#refreshMailConnection').onclick=loadMailStatus;
 $('#signout').onclick=async()=>{try{await post('/api/logout',{})}finally{location.href='/login'}};
 (async()=>{try{const s=await api('/api/session');if(!s.authenticated||s.user.role!=='owner'){location.href='/login';return}await Promise.all([loadPricing(),loadStaff(),loadProposals(),loadMailStatus()])}catch(e){notice(e.message,true)}})();
