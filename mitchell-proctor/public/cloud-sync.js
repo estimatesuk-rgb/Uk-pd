@@ -6,6 +6,8 @@ const mpBaseBlank = blank;
 blank = function () {
   const s = mpBaseBlank();
   s.reference = 'DRAFT - save to allocate number';
+  s.feeMode=pricingDefaults?.feeMode||'band';
+  s.pricingBand=''; // Staff must deliberately choose size and complexity for each new quote.
   if (pricingDefaults) {
     s.buildRate = pricingDefaults.buildRate;
     s.buildVatRate = pricingDefaults.buildVatRate;
@@ -14,11 +16,11 @@ blank = function () {
     s.validDays = pricingDefaults.validDays ?? 30;
     for (const entry of s.stages) {
       const found = pricingDefaults.stages?.find(a => a.id === entry.id);
-      if (found) { entry.rate = found.rate; entry.selected = found.selected; }
+      if (found) { entry.rate = found.rate; entry.selected = found.selected;entry.bandFees={...found.bandFees};entry.quotedFee=null; }
     }
     for (const entry of s.extras) {
       const found = pricingDefaults.extras?.find(a => a.id === entry.id);
-      if (found) { entry.amount = found.amount; entry.selected = found.selected; }
+      if (found) { entry.amount = found.amount; entry.selected = found.selected;entry.bandFees={...found.bandFees};entry.quotedFee=null; }
     }
   }
   return s;
@@ -170,13 +172,12 @@ async function mpConnect() {
     // No locally generated numbers may be used as authoritative references.
     if(!currentProposalId && /^MP-\d{4}-\d+$/.test(state.reference))state.reference='DRAFT - save to allocate number';
     if(pricingDefaults && !currentProposalId) {
-      // New and unsaved quotations use the latest owner-managed practice rates.
-      // A loaded saved proposal always keeps its own negotiated prices.
+      // Unissued quotations get current master rates; saved quotations retain their own snapshot.
       state.buildRate=pricingDefaults.buildRate;state.buildVatRate=pricingDefaults.buildVatRate;state.feeVatRate=pricingDefaults.feeVatRate;
-      state.contingency=pricingDefaults.contingency ?? 0;
-      state.validDays=pricingDefaults.validDays ?? 30;
-      state.stages.forEach(s=>{const v=pricingDefaults.stages.find(x=>x.id===s.id);if(v){s.rate=v.rate;s.selected=v.selected;}});
-      state.extras.forEach(s=>{const v=pricingDefaults.extras.find(x=>x.id===s.id);if(v){s.amount=v.amount;s.selected=v.selected;}});
+      state.contingency=pricingDefaults.contingency??0;state.validDays=pricingDefaults.validDays??30;
+      state.feeMode=pricingDefaults.feeMode||'band';state.pricingBand='';
+      state.stages.forEach(item=>{const v=pricingDefaults.stages.find(x=>x.id===item.id);if(v){item.rate=v.rate;item.selected=v.selected;item.bandFees={...v.bandFees};item.quotedFee=null;}});
+      state.extras.forEach(item=>{const v=pricingDefaults.extras.find(x=>x.id===item.id);if(v){item.amount=v.amount;item.selected=v.selected;item.bandFees={...v.bandFees};item.quotedFee=null;}});
     }
     renderAll();
   }catch(err){console.warn('Could not connect to Cloudflare workspace',err);toast('Cloud connection error: '+err.message);}
