@@ -19,7 +19,7 @@ assert.match(server,/p\.silent!==true/);
 assert.match(server,/revision=revision\+1/);
 assert.match(server,/if\(Number\(p\.revision\)!==Number\(row\.revision\)\)/);
 assert.match(server,/mustUser\(user,'owner'\);[\s\S]{0,150}const p=await req\.json\(\);/);
-assert.match(server,/\(workspace\|events\|files\|stage\|accept\|note-draft\)/);
+assert.match(server,/\(workspace\|events\|files\|stage\|accept\|note-draft\|follow-up\)/);
 assert.match(sync,/async function mpAutoSave/);
 assert.match(sync,/async function mpWhatsapp/);
 assert.match(sync,/mpResumeDraft/);
