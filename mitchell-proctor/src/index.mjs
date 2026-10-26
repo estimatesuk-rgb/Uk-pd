@@ -10,6 +10,14 @@ export class MpSqlStore extends DurableObject {
   // Non-destructive migration for existing live practices and saved proposals.
   const columns=this.sql.exec("PRAGMA table_info(proposals)").toArray();
   if(!columns.some(c=>c.name==="job_status"))this.sql.exec("ALTER TABLE proposals ADD COLUMN job_status TEXT NOT NULL DEFAULT 'pending'");
+  if(!columns.some(c=>c.name==="job_stage"))this.sql.exec("ALTER TABLE proposals ADD COLUMN job_stage TEXT NOT NULL DEFAULT 'enquiry'");
+  if(!columns.some(c=>c.name==="agreed_fee_ex_vat"))this.sql.exec("ALTER TABLE proposals ADD COLUMN agreed_fee_ex_vat REAL");
+  if(!columns.some(c=>c.name==="agreed_at"))this.sql.exec("ALTER TABLE proposals ADD COLUMN agreed_at TEXT");
+  this.sql.exec("CREATE TABLE IF NOT EXISTS project_events (id INTEGER PRIMARY KEY AUTOINCREMENT,proposal_id INTEGER NOT NULL,event_type TEXT NOT NULL,body TEXT NOT NULL,created_by INTEGER NOT NULL,occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);");
+  this.sql.exec("CREATE INDEX IF NOT EXISTS idx_mp_events_project ON project_events(proposal_id,id);");
+  this.sql.exec("CREATE TABLE IF NOT EXISTS project_files (id INTEGER PRIMARY KEY AUTOINCREMENT,proposal_id INTEGER NOT NULL,file_name TEXT NOT NULL,mime_type TEXT NOT NULL,kind TEXT NOT NULL DEFAULT 'document',size_bytes INTEGER NOT NULL,content_base64 TEXT NOT NULL,uploaded_by INTEGER NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);");
+  this.sql.exec("CREATE INDEX IF NOT EXISTS idx_mp_files_project ON project_files(proposal_id,id);");
+  this.sql.exec("CREATE TABLE IF NOT EXISTS staff_drafts (user_id INTEGER PRIMARY KEY NOT NULL,payload TEXT NOT NULL,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);");
  }
  async fetch(request){
   try{
@@ -133,9 +141,24 @@ function safePayload(input) {
   return p;
 }
 export function calculateFee(payload,minArea=25){return calculateProfessionalFee(payload,minArea);}
+
+const JOB_PHASES=['enquiry','proposal','appointed','survey','design','planning','building_regulations','construction','on_hold','completed'];
+const EVENT_TYPES=['note','email','call','meeting','milestone','document','appointment','quotation','outcome'];
+async function recordProjectEvent(db,id,user,type,body){
+  await db.prepare('INSERT INTO project_events(proposal_id,event_type,body,created_by) VALUES(?,?,?,?)').bind(id,type,body,user.id).run();
+}
+function bytesFromBase64(data){
+  const text=atob(data),result=new Uint8Array(text.length);
+  for(let i=0;i<text.length;i++)result[i]=text.charCodeAt(i);
+  return result;
+}
+function base64FromBytes(bytes){
+  let value='';for(let i=0;i<bytes.length;i+=8192)value+=String.fromCharCode(...bytes.subarray(i,i+8192));
+  return btoa(value);
+}
 async function quoteRow(db, id, user) {
-  const row = await db.prepare('SELECT id,reference,created_by,payload,fee_ex_vat,client_email,client,site_address,status,job_status,created_at FROM proposals WHERE id=?').bind(id).first();
-  if (!row || (user.role !== 'owner' && row.created_by !== user.id)) throw Object.assign(new Error('Quotation not found'), {status:404});
+  const row = await db.prepare('SELECT id,reference,created_by,payload,fee_ex_vat,client_email,client,site_address,status,job_status,job_stage,agreed_fee_ex_vat,agreed_at,created_at FROM proposals WHERE id=?').bind(id).first();
+  if (!row) throw Object.assign(new Error('Quotation not found'), {status:404});
   return row;
 }
 function securityHeaders(r) {
@@ -196,6 +219,20 @@ async function api(req, env, path) {
     const out=appJSON({ok:true});out.headers.append('Set-Cookie',headersForCookie('mp_session','',0));return out;
   }
   mustUser(user);
+  if(path==='/api/my-draft'&&method==='GET'){
+    const saved=await env.DB.prepare('SELECT payload,updated_at FROM staff_drafts WHERE user_id=?').bind(user.id).first();
+    return appJSON({draft:saved?JSON.parse(saved.payload):null,updatedAt:saved?.updated_at||null});
+  }
+  if(path==='/api/my-draft'&&method==='POST'){
+    const p=await req.json();
+    if(p.clear===true){await env.DB.prepare('DELETE FROM staff_drafts WHERE user_id=?').bind(user.id).run();return appJSON({ok:true,cleared:true})}
+    if(!p.data||typeof p.data!=='object')return appJSON({error:'Invalid draft'},400);
+    const copy={...p.data};delete copy.logo;delete copy.officeEmail;
+    const content=JSON.stringify(copy);
+    if(content.length>150000)return appJSON({error:'Draft is too large'},413);
+    await env.DB.prepare('INSERT INTO staff_drafts(user_id,payload) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET payload=excluded.payload,updated_at=CURRENT_TIMESTAMP').bind(user.id,content).run();
+    return appJSON({ok:true});
+  }
   if (path==='/api/pricing' && method==='GET') {
     const r=await env.DB.prepare('SELECT config FROM settings WHERE name=?').bind('pricing').first();
     // Older owner records have empty fee arrays; recover all current services,
@@ -222,8 +259,8 @@ async function api(req, env, path) {
     return appJSON({ok:true,pricing});
   }
   if(path==='/api/proposals' && method==='GET'){
-    const rows=user.role==='owner'?await env.DB.prepare('SELECT id,reference,client,site_address,fee_ex_vat,updated_at,payload,status,job_status FROM proposals ORDER BY id DESC LIMIT 300').all():await env.DB.prepare('SELECT id,reference,client,site_address,fee_ex_vat,updated_at,payload,status,job_status FROM proposals WHERE created_by=? ORDER BY id DESC LIMIT 300').bind(user.id).all();
-    return appJSON({projects:rows.results.map(r=>({id:r.id,key:r.reference+'::'+r.client,reference:r.reference,name:JSON.parse(r.payload).projectName||r.client,fee:Number(r.fee_ex_vat),updatedAt:r.updated_at,data:{...JSON.parse(r.payload),reference:r.reference},status:r.status,jobStatus:r.job_status||"pending"}))});
+    const rows=await env.DB.prepare('SELECT id,reference,client,site_address,fee_ex_vat,updated_at,payload,status,job_status,job_stage,agreed_fee_ex_vat,agreed_at FROM proposals ORDER BY id DESC LIMIT 500').all();
+    return appJSON({projects:rows.results.map(r=>({id:r.id,key:r.reference+'::'+r.client,reference:r.reference,name:JSON.parse(r.payload).projectName||r.client,fee:Number(r.fee_ex_vat),updatedAt:r.updated_at,data:{...JSON.parse(r.payload),reference:r.reference},status:r.status,jobStatus:r.job_status||"pending",jobStage:r.job_stage||"enquiry",agreedFee:r.agreed_fee_ex_vat,agreedAt:r.agreed_at}))});
   }
   if(path==='/api/proposals' && method==='POST'){
     const p=await req.json(); const data=safePayload(p.data);
@@ -231,26 +268,96 @@ async function api(req, env, path) {
     let id=Number(p.id)||null;
     if(id){const row=await quoteRow(env.DB,id,user);if(row.status==='sent' && user.role!=='owner')return appJSON({error:'Issued proposals can be amended by the owner only'},403);
       await env.DB.prepare('UPDATE proposals SET payload=?,fee_ex_vat=?,client=?,client_email=?,site_address=?,status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(JSON.stringify(data),fee,data.client,data.clientEmail,data.address,'draft',id).run();
+      await recordProjectEvent(env.DB,id,user,'quotation','Quotation revised and saved');
       return appJSON({ok:true,id,reference:row.reference,fee});
     }
     const added=await env.DB.prepare('INSERT INTO proposals(created_by,payload,fee_ex_vat,client,client_email,site_address,status) VALUES(?,?,?,?,?,?,?)').bind(user.id,JSON.stringify(data),fee,data.client,data.clientEmail,data.address,'draft').run();
     id=added.meta.last_row_id; const reference=refFor(id,new Date().toISOString());
     await env.DB.prepare('UPDATE proposals SET reference=? WHERE id=?').bind(reference,id).run();
+    await recordProjectEvent(env.DB,id,user,'quotation','Initial quotation saved');
     return appJSON({ok:true,id,reference,fee});
+  }
+  const workspacePath=path.match(/^\/api\/proposals\/(\d+)\/(workspace|events|files|stage|accept)(?:\/(\d+))?$/);
+  if(workspacePath){
+    const id=Number(workspacePath[1]),action=workspacePath[2],fileId=Number(workspacePath[3]);
+    const row=await quoteRow(env.DB,id,user);
+    if(method==='GET'&&action==='workspace'){
+      const events=await env.DB.prepare('SELECT e.id,e.event_type,e.body,e.occurred_at,e.created_at,u.name AS author FROM project_events e LEFT JOIN users u ON u.id=e.created_by WHERE e.proposal_id=? ORDER BY e.id DESC LIMIT 500').bind(id).all();
+      const docs=await env.DB.prepare('SELECT id,file_name,mime_type,kind,size_bytes,created_at FROM project_files WHERE proposal_id=? ORDER BY id DESC LIMIT 200').bind(id).all();
+      return appJSON({project:{id,reference:row.reference,client:row.client,address:row.site_address,status:row.status,jobStatus:row.job_status||'pending',jobStage:row.job_stage||'enquiry',fee:Number(row.fee_ex_vat),agreedFee:row.agreed_fee_ex_vat,agreedAt:row.agreed_at,createdAt:row.created_at},events:events.results,files:docs.results,phases:JOB_PHASES});
+    }
+    if(method==='POST'&&action==='events'){
+      const p=await req.json(),type=String(p.type||'note');
+      if(!EVENT_TYPES.includes(type)||['quotation','outcome'].includes(type))return appJSON({error:'Invalid activity type'},400);
+      const body=String(p.body||'').trim();
+      if(!body||body.length>4000)return appJSON({error:'Enter an activity note up to 4,000 characters'},400);
+      await recordProjectEvent(env.DB,id,user,type,body);
+      return appJSON({ok:true});
+    }
+    if(method==='POST'&&action==='stage'){
+      const p=await req.json();
+      if(!JOB_PHASES.includes(p.stage))return appJSON({error:'Select a valid project stage'},400);
+      if(row.job_status!=='won'&& !['enquiry','proposal','on_hold'].includes(p.stage))return appJSON({error:'Mark the job as Won before advancing to project delivery'},409);
+      await env.DB.prepare('UPDATE proposals SET job_stage=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(p.stage,id).run();
+      await recordProjectEvent(env.DB,id,user,'milestone','Project stage changed to '+p.stage.replaceAll('_',' '));
+      return appJSON({ok:true,stage:p.stage});
+    }
+    if(method==='POST'&&action==='accept'){
+      if(row.job_status!=='won')return appJSON({error:'Mark this job Won before recording the agreed proposal'},409);
+      if(row.agreed_at)return appJSON({error:'An agreed proposal is already archived. Retain it as the historical agreement.'},409);
+      const pdf=await proposalPdf(row);
+      const encoded=base64FromBytes(pdf);
+      await env.DB.prepare("INSERT INTO project_files(proposal_id,file_name,mime_type,kind,size_bytes,content_base64,uploaded_by) VALUES(?,?,?,?,?,?,?)")
+        .bind(id,row.reference+'_Agreed_Fee_Proposal.pdf','application/pdf','agreed_proposal',pdf.byteLength,encoded,user.id).run();
+      await env.DB.prepare('UPDATE proposals SET agreed_fee_ex_vat=?,agreed_at=CURRENT_TIMESTAMP,job_stage=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(row.fee_ex_vat,'appointed',id).run();
+      await recordProjectEvent(env.DB,id,user,'appointment','Agreed fee proposal archived at '+Number(row.fee_ex_vat).toFixed(2)+' GBP excluding VAT; this PDF is an immutable record.');
+      return appJSON({ok:true,agreedFee:row.fee_ex_vat});
+    }
+    if(method==='POST'&&action==='files'){
+      const p=await req.json();
+      const fileName=String(p.fileName||'').trim().replace(/[\\/\x00-\x1f\x7f]/g,'_').slice(0,150);
+      const kind=['document','email','signed_agreement','site_photo','drawing','report'].includes(p.kind)?p.kind:'document';
+      const data=String(p.contentBase64||'');
+      if(!fileName||!/^[a-zA-Z0-9+/_=]+$/.test(data)||data.length>1500000)return appJSON({error:'Choose a supported file under 1 MB'},413);
+      const ext=fileName.toLowerCase().split('.').pop();
+      if(!['pdf','docx','xlsx','eml','msg','txt','png','jpg','jpeg'].includes(ext))return appJSON({error:'Upload PDF, Word, Excel, EML, MSG, TXT or image files'},400);
+      const bytes=bytesFromBase64(data);
+      if(bytes.length===0||bytes.length>1048576)return appJSON({error:'Files must be under 1 MB each'},413);
+      const mimeByExt={pdf:'application/pdf',docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',eml:'message/rfc822',msg:'application/vnd.ms-outlook',txt:'text/plain',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg'};
+      await env.DB.prepare('INSERT INTO project_files(proposal_id,file_name,mime_type,kind,size_bytes,content_base64,uploaded_by) VALUES(?,?,?,?,?,?,?)')
+        .bind(id,fileName,mimeByExt[ext],kind,bytes.length,data,user.id).run();
+      await recordProjectEvent(env.DB,id,user,'document','Uploaded '+kind.replaceAll('_',' ')+': '+fileName);
+      return appJSON({ok:true,name:fileName,size:bytes.length});
+    }
+    if(method==='GET'&&action==='files'&&fileId){
+      const doc=await env.DB.prepare('SELECT file_name,mime_type,content_base64 FROM project_files WHERE id=? AND proposal_id=?').bind(fileId,id).first();
+      if(!doc)return appJSON({error:'Document not found'},404);
+      return new Response(bytesFromBase64(doc.content_base64),{headers:{
+        'Content-Type':'application/octet-stream','Content-Disposition':'attachment; filename="'+doc.file_name.replace(/["\r\n]/g,'_')+'"',
+        'Cache-Control':'private,no-store','X-Content-Type-Options':'nosniff',
+        'Content-Security-Policy':"sandbox"
+      }});
+    }
+    return appJSON({error:'Unsupported job action'},405);
   }
   const proposal=path.match(/^\/api\/proposals\/(\d+)(?:\/(send|delete|status|pdf))?$/);
   if (proposal) {
     const id=Number(proposal[1]);const action=proposal[2];const row=await quoteRow(env.DB,id,user);
-    if(method==='GET'&&!action)return appJSON({proposal:{id:row.id,reference:row.reference,data:{...JSON.parse(row.payload),reference:row.reference},status:row.status,jobStatus:row.job_status||"pending"}});
+    if(method==='GET'&&!action)return appJSON({proposal:{id:row.id,reference:row.reference,data:{...JSON.parse(row.payload),reference:row.reference},status:row.status,jobStatus:row.job_status||"pending",jobStage:row.job_stage||"enquiry",agreedFee:row.agreed_fee_ex_vat,agreedAt:row.agreed_at}});
     if(method==='POST'&&action==='status'){
       const input=await req.json();
       if(!['pending','won','lost'].includes(input.jobStatus))return appJSON({error:'Select Pending, Won or Lost'},400);
-      await env.DB.prepare('UPDATE proposals SET job_status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(input.jobStatus,id).run();
-      return appJSON({ok:true,id,jobStatus:input.jobStatus});
+      const stage=input.jobStatus==='won'&&row.job_status!=='won'?'appointed':row.job_stage||'enquiry';
+      await env.DB.prepare('UPDATE proposals SET job_status=?,job_stage=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(input.jobStatus,stage,id).run();
+      if(row.job_status!==input.jobStatus)await recordProjectEvent(env.DB,id,user,'outcome','Job marked '+input.jobStatus.toUpperCase());
+      return appJSON({ok:true,id,jobStatus:input.jobStatus,jobStage:stage});
     }
     if(method==='POST'&&action==='delete'){
+      mustUser(user,'owner');
       const p=await req.json();const account=await env.DB.prepare('SELECT password_hash FROM users WHERE id=?').bind(user.id).first();
       if(!await verifyPassword(String(p.password||''),account.password_hash))return appJSON({error:'Password confirmation failed'},403);
+      await env.DB.prepare('DELETE FROM project_events WHERE proposal_id=?').bind(id).run();
+      await env.DB.prepare('DELETE FROM project_files WHERE proposal_id=?').bind(id).run();
       await env.DB.prepare('DELETE FROM proposals WHERE id=?').bind(id).run();return appJSON({ok:true});
     }
     if(method==='GET'&&action==='pdf'){
@@ -277,6 +384,7 @@ async function api(req, env, path) {
       const sent=await remote.json().catch(()=>({}));
       if(!remote.ok||!sent.id)return appJSON({error:'Mail service rejected send: '+clean(sent.message||remote.status,220)},502);
       await env.DB.prepare("UPDATE proposals SET status='sent',last_email_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(sent.id,id).run();
+      await recordProjectEvent(env.DB,id,user,'email','Proposal PDF sent to '+row.client_email+'; BCC '+OWNER_EMAIL+'. Email reference '+clean(sent.id,80));
       return appJSON({ok:true,messageId:sent.id,subject,recipient:row.client_email,office:OWNER_EMAIL});
     }
   }
@@ -333,6 +441,9 @@ export default {
       if(['/manifest.webmanifest','/mp-icon.svg','/favicon.ico','/portal.css'].includes(path))return securityHeaders(await env.ASSETS.fetch(request));
       if(!user)return Response.redirect(new URL('/login',url).toString(),302);
       if(path==='/cloud-sync.js')return securityHeaders(await env.ASSETS.fetch(request));
+      if(path==='/job'||path==='/job.html'){
+        return securityHeaders(await env.ASSETS.fetch(new Request(new URL('/job.html',request.url),request)));
+      }
       if(path==='/projects'||path==='/projects.html'){
         return securityHeaders(await env.ASSETS.fetch(new Request(new URL('/projects.html',request.url),request)));
       }
