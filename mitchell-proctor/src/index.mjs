@@ -13,6 +13,7 @@ export class MpSqlStore extends DurableObject {
   if(!columns.some(c=>c.name==="job_stage"))this.sql.exec("ALTER TABLE proposals ADD COLUMN job_stage TEXT NOT NULL DEFAULT 'enquiry'");
   if(!columns.some(c=>c.name==="agreed_fee_ex_vat"))this.sql.exec("ALTER TABLE proposals ADD COLUMN agreed_fee_ex_vat REAL");
   if(!columns.some(c=>c.name==="agreed_at"))this.sql.exec("ALTER TABLE proposals ADD COLUMN agreed_at TEXT");
+  if(!columns.some(c=>c.name==="revision"))this.sql.exec("ALTER TABLE proposals ADD COLUMN revision INTEGER NOT NULL DEFAULT 1");
   this.sql.exec("CREATE TABLE IF NOT EXISTS project_events (id INTEGER PRIMARY KEY AUTOINCREMENT,proposal_id INTEGER NOT NULL,event_type TEXT NOT NULL,body TEXT NOT NULL,created_by INTEGER NOT NULL,occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);");
   this.sql.exec("CREATE INDEX IF NOT EXISTS idx_mp_events_project ON project_events(proposal_id,id);");
   this.sql.exec("CREATE TABLE IF NOT EXISTS project_files (id INTEGER PRIMARY KEY AUTOINCREMENT,proposal_id INTEGER NOT NULL,file_name TEXT NOT NULL,mime_type TEXT NOT NULL,kind TEXT NOT NULL DEFAULT 'document',size_bytes INTEGER NOT NULL,content_base64 TEXT NOT NULL,uploaded_by INTEGER NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);");
@@ -157,7 +158,7 @@ function base64FromBytes(bytes){
   return btoa(value);
 }
 async function quoteRow(db, id, user) {
-  const row = await db.prepare('SELECT id,reference,created_by,payload,fee_ex_vat,client_email,client,site_address,status,job_status,job_stage,agreed_fee_ex_vat,agreed_at,created_at FROM proposals WHERE id=?').bind(id).first();
+  const row = await db.prepare('SELECT id,reference,created_by,payload,fee_ex_vat,client_email,client,site_address,status,job_status,job_stage,agreed_fee_ex_vat,agreed_at,revision,created_at FROM proposals WHERE id=?').bind(id).first();
   if (!row) throw Object.assign(new Error('Quotation not found'), {status:404});
   return row;
 }
@@ -259,23 +260,25 @@ async function api(req, env, path) {
     return appJSON({ok:true,pricing});
   }
   if(path==='/api/proposals' && method==='GET'){
-    const rows=await env.DB.prepare('SELECT id,reference,client,site_address,fee_ex_vat,updated_at,payload,status,job_status,job_stage,agreed_fee_ex_vat,agreed_at FROM proposals ORDER BY id DESC LIMIT 500').all();
-    return appJSON({projects:rows.results.map(r=>({id:r.id,key:r.reference+'::'+r.client,reference:r.reference,name:JSON.parse(r.payload).projectName||r.client,fee:Number(r.fee_ex_vat),updatedAt:r.updated_at,data:{...JSON.parse(r.payload),reference:r.reference},status:r.status,jobStatus:r.job_status||"pending",jobStage:r.job_stage||"enquiry",agreedFee:r.agreed_fee_ex_vat,agreedAt:r.agreed_at}))});
+    const rows=await env.DB.prepare('SELECT id,reference,client,site_address,fee_ex_vat,updated_at,payload,status,job_status,job_stage,agreed_fee_ex_vat,agreed_at,revision FROM proposals ORDER BY id DESC LIMIT 500').all();
+    return appJSON({projects:rows.results.map(r=>({id:r.id,key:r.reference+'::'+r.client,reference:r.reference,name:JSON.parse(r.payload).projectName||r.client,fee:Number(r.fee_ex_vat),updatedAt:r.updated_at,data:{...JSON.parse(r.payload),reference:r.reference},status:r.status,jobStatus:r.job_status||"pending",jobStage:r.job_stage||"enquiry",agreedFee:r.agreed_fee_ex_vat,agreedAt:r.agreed_at,revision:r.revision}))});
   }
   if(path==='/api/proposals' && method==='POST'){
     const p=await req.json(); const data=safePayload(p.data);
     const fee=calculateFee(data,25);
     let id=Number(p.id)||null;
     if(id){const row=await quoteRow(env.DB,id,user);if(row.status==='sent' && user.role!=='owner')return appJSON({error:'Issued proposals can be amended by the owner only'},403);
-      await env.DB.prepare('UPDATE proposals SET payload=?,fee_ex_vat=?,client=?,client_email=?,site_address=?,status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(JSON.stringify(data),fee,data.client,data.clientEmail,data.address,'draft',id).run();
+      if(Number(p.revision)!==Number(row.revision))return appJSON({error:'This job was updated in another login. Reopen it from Saved Projects before editing to avoid overwriting your colleague.'},409);
+      const update=await env.DB.prepare('UPDATE proposals SET payload=?,fee_ex_vat=?,client=?,client_email=?,site_address=?,status=?,revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=? AND revision=?').bind(JSON.stringify(data),fee,data.client,data.clientEmail,data.address,'draft',id,row.revision).run();
+      if(!update.meta?.changes)return appJSON({error:'Another staff member saved this project. Reload it before editing.'},409);
       if(p.silent!==true)await recordProjectEvent(env.DB,id,user,'quotation','Quotation revised and saved');
-      return appJSON({ok:true,id,reference:row.reference,fee});
+      return appJSON({ok:true,id,reference:row.reference,fee,revision:Number(row.revision)+1});
     }
     const added=await env.DB.prepare('INSERT INTO proposals(created_by,payload,fee_ex_vat,client,client_email,site_address,status) VALUES(?,?,?,?,?,?,?)').bind(user.id,JSON.stringify(data),fee,data.client,data.clientEmail,data.address,'draft').run();
     id=added.meta.last_row_id; const reference=refFor(id,new Date().toISOString());
     await env.DB.prepare('UPDATE proposals SET reference=? WHERE id=?').bind(reference,id).run();
     await recordProjectEvent(env.DB,id,user,'quotation',p.silent===true?'Initial quotation autosaved':'Initial quotation saved');
-    return appJSON({ok:true,id,reference,fee});
+    return appJSON({ok:true,id,reference,fee,revision:1});
   }
   const workspacePath=path.match(/^\/api\/proposals\/(\d+)\/(workspace|events|files|stage|accept)(?:\/(\d+))?$/);
   if(workspacePath){
@@ -343,7 +346,7 @@ async function api(req, env, path) {
   const proposal=path.match(/^\/api\/proposals\/(\d+)(?:\/(send|delete|status|pdf))?$/);
   if (proposal) {
     const id=Number(proposal[1]);const action=proposal[2];const row=await quoteRow(env.DB,id,user);
-    if(method==='GET'&&!action)return appJSON({proposal:{id:row.id,reference:row.reference,data:{...JSON.parse(row.payload),reference:row.reference},status:row.status,jobStatus:row.job_status||"pending",jobStage:row.job_stage||"enquiry",agreedFee:row.agreed_fee_ex_vat,agreedAt:row.agreed_at}});
+    if(method==='GET'&&!action)return appJSON({proposal:{id:row.id,reference:row.reference,data:{...JSON.parse(row.payload),reference:row.reference},status:row.status,jobStatus:row.job_status||"pending",jobStage:row.job_stage||"enquiry",agreedFee:row.agreed_fee_ex_vat,agreedAt:row.agreed_at,revision:row.revision}});
     if(method==='POST'&&action==='status'){
       const input=await req.json();
       if(!['pending','won','lost'].includes(input.jobStatus))return appJSON({error:'Select Pending, Won or Lost'},400);
