@@ -27,11 +27,31 @@ export class MpSqlStore extends DurableObject {
   this.sql.exec("CREATE INDEX IF NOT EXISTS idx_mp_events_project ON project_events(proposal_id,id);");
   this.sql.exec("CREATE TABLE IF NOT EXISTS project_files (id INTEGER PRIMARY KEY AUTOINCREMENT,proposal_id INTEGER NOT NULL,file_name TEXT NOT NULL,mime_type TEXT NOT NULL,kind TEXT NOT NULL DEFAULT 'document',size_bytes INTEGER NOT NULL,content_base64 TEXT NOT NULL,uploaded_by INTEGER NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);");
   this.sql.exec("CREATE INDEX IF NOT EXISTS idx_mp_files_project ON project_files(proposal_id,id);");
+  const fileColumns=this.sql.exec("PRAGMA table_info(project_files)").toArray();
+  if(!fileColumns.some(c=>c.name==='storage_kind'))this.sql.exec("ALTER TABLE project_files ADD COLUMN storage_kind TEXT NOT NULL DEFAULT 'inline'");
+  if(!fileColumns.some(c=>c.name==='ready'))this.sql.exec("ALTER TABLE project_files ADD COLUMN ready INTEGER NOT NULL DEFAULT 1");
+  this.sql.exec("CREATE TABLE IF NOT EXISTS project_file_chunks (file_id INTEGER NOT NULL,part INTEGER NOT NULL,content_base64 TEXT NOT NULL,raw_bytes INTEGER NOT NULL,PRIMARY KEY(file_id,part));");
   this.sql.exec("CREATE TABLE IF NOT EXISTS staff_drafts (user_id INTEGER PRIMARY KEY NOT NULL,payload TEXT NOT NULL,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);");
   this.sql.exec("CREATE TABLE IF NOT EXISTS project_note_drafts (proposal_id INTEGER NOT NULL,user_id INTEGER NOT NULL,event_type TEXT NOT NULL,body TEXT NOT NULL,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(proposal_id,user_id));");
  }
  async fetch(request){
   try{
+   const url=new URL(request.url);
+   if(request.method==='GET'&&url.pathname.startsWith('/file/')){
+     const fileId=Number(url.pathname.slice(6));
+     if(!Number.isInteger(fileId)||fileId<1)return new Response('Bad file ID',{status:400});
+     // Called through the private DO binding, only AFTER the outer Worker checks
+     // authenticated staff access to the parent project.
+     const file=this.sql.exec("SELECT id,ready,storage_kind FROM project_files WHERE id=?",fileId).one();
+     if(!file||!file.ready||file.storage_kind!=='chunked')return new Response('File not found',{status:404});
+     const chunks=this.sql.exec('SELECT content_base64 FROM project_file_chunks WHERE file_id=? ORDER BY part',fileId).toArray();
+     let i=0;return new Response(new ReadableStream({pull(controller){
+       if(i>=chunks.length){controller.close();return}
+       const raw=atob(chunks[i++].content_base64),bytes=new Uint8Array(raw.length);
+       for(let j=0;j<raw.length;j++)bytes[j]=raw.charCodeAt(j);
+       controller.enqueue(bytes);
+     }}),{headers:{'Content-Type':'application/octet-stream','Cache-Control':'no-store'}});
+   }
    const {query,params=[],operation}=await request.json();
    if(typeof query!=="string" || !["first","all","run"].includes(operation) || !Array.isArray(params))return new Response("Invalid query request",{status:400});
    const cursor=this.sql.exec(query,...params);
