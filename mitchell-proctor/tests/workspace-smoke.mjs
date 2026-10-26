@@ -1,0 +1,31 @@
+import {strict as assert} from 'node:assert';
+import {readFileSync} from 'node:fs';
+import {Script} from 'node:vm';
+const root=new URL('../',import.meta.url);
+const read=p=>readFileSync(new URL(p,root),'utf8');
+const server=read('src/index.mjs'),sync=read('public/cloud-sync.js'),jobs=read('public/job.html'),projects=read('public/projects.html');
+new Script(sync);
+for(const [name,html] of [['job',jobs],['projects',projects],['owner',read('public/owner.html')],['login',read('public/login.html')]]){
+ const blocks=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
+ assert.ok(blocks.length,name+' must contain executable inline JS');
+ for(const block of blocks)new Script(block[1],{filename:name+'.inline.js'});
+}
+assert.match(server,/CREATE TABLE IF NOT EXISTS project_events/);
+assert.match(server,/CREATE TABLE IF NOT EXISTS project_files/);
+assert.match(server,/CREATE TABLE IF NOT EXISTS staff_drafts/);
+assert.match(server,/CREATE TABLE IF NOT EXISTS project_note_drafts/);
+assert.match(server,/agreed_fee_ex_vat/);
+assert.match(server,/p\.silent!==true/);
+assert.match(server,/revision=revision\+1/);
+assert.match(server,/if\(Number\(p\.revision\)!==Number\(row\.revision\)\)/);
+assert.match(server,/mustUser\(user,'owner'\);[\s\S]{0,150}const p=await req\.json\(\);/);
+assert.match(server,/\(workspace\|events\|files\|stage\|accept\|note-draft\)/);
+assert.match(sync,/async function mpAutoSave/);
+assert.match(sync,/async function mpWhatsapp/);
+assert.match(sync,/mpResumeDraft/);
+assert.match(sync,/currentProposalRevision/);
+assert.match(sync,/mpQuickEmail/);
+assert.match(projects,/Open live Job File/);
+assert.match(jobs,/agreed fee proposal/i);
+assert.match(jobs,/project history/i);
+console.log('Workspace checks pass: protected job files, note and proposal autosave, shared revisions, history, archive, and email/WhatsApp actions.');
