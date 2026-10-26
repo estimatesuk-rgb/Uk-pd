@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en-GB">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#22201e"><title>Project Job File | Mitchell Proctor Architects</title>
+<link rel="stylesheet" href="/portal.css"><link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/mp-icon.svg">
+<style>
+.job-header{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.job-header h1{font-size:clamp(29px,5vw,42px);margin:5px 0;font-family:Georgia,serif;font-weight:400}
+.job-header p{margin:3px 0;color:#6e665d}.job-links{display:flex;gap:8px;flex-wrap:wrap}
+.job-columns{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(310px,1fr);gap:18px;align-items:start}
+.job-top{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.job-top>div{background:#f8f6f2;border:1px solid #ded8d0;border-radius:8px;padding:17px;min-width:0}
+.job-top strong{display:block;font-size:18px;overflow-wrap:anywhere;margin-top:5px}
+.job-activity{position:relative;padding:0 0 19px 26px;border-left:2px solid #dfd5ca;margin-left:7px}
+.job-activity:before{content:"";width:10px;height:10px;border-radius:50%;background:#a58c71;position:absolute;left:-6px;top:3px}
+.job-activity small{color:#746c62}.job-activity p{margin:8px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.job-file{display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #e4ddd5}
+.job-file strong{display:block;overflow-wrap:anywhere}.job-file small{display:block;color:#766c62}
+.job-actions{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+.job-actions label{flex:1;min-width:175px}
+.job-actions input,.job-actions select{width:100%}
+.job-actions button{white-space:normal}
+.job-banner{margin:4px 0 16px;padding:13px;border-radius:7px;background:#f6efe8;color:#5b4937}
+.job-banner.ok{background:#eaf2ea;color:#315e3c}
+.job-banner.error{background:#fff0f0;color:#9f342e}
+.job-status{display:inline-block;font-weight:800;font-size:12px;letter-spacing:.045em;border-radius:50px;padding:6px 12px}
+.job-status.won{background:#dcefe2;color:#245a37}.job-status.lost{background:#f6dfdf;color:#9c3333}.job-status.pending{background:#f3e8d4;color:#7e5a27}
+.job-form{display:grid;gap:13px}.job-form textarea{min-height:105px}
+.job-intro{line-height:1.5;color:#665f56}
+#history{max-height:770px;overflow:auto;padding-left:8px}
+@media(max-width:800px){.job-columns{grid-template-columns:1fr}.job-top{grid-template-columns:1fr 1fr}}
+@media(max-width:430px){.job-top{grid-template-columns:1fr}.job-file{grid-template-columns:1fr}}
+</style></head>
+<body>
+<header>
+ <div class="brand"><img src="/mp-icon.svg" alt="MP logo"><div><strong>MITCHELL PROCTOR</strong><small>ARCHITECTS · JOB FILE</small></div></div>
+ <nav class="actions"><a class="button outline" style="color:#22201e" href="/projects">Saved Projects</a><a class="button outline" style="color:#22201e" href="/">New quote</a><button id="signout" class="outline">Sign out</button></nav>
+</header>
+<main class="container stack">
+ <div class="job-header">
+  <div><div class="eyebrow">Shared practice record / client and project history</div>
+   <h1 id="jobTitle">Loading project…</h1>
+   <p id="jobAddress"></p><p><span id="jobReference"></span> <span id="jobOutcome"></span></p>
+  </div>
+  <div class="job-links"><a id="editProposal" class="button outline" href="/">Edit quotation</a><a id="pdfProposal" class="button" href="#" download>Download PDF</a></div>
+ </div>
+ <div id="feedback" class="job-banner" role="status" aria-live="polite">Connecting to the secure practice workspace…</div>
+ <div class="job-top">
+  <div><div class="eyebrow">Quoted professional fee, ex VAT</div><strong id="quoteFee">—</strong></div>
+  <div><div class="eyebrow">Agreed fee, ex VAT</div><strong id="agreedFee">Not yet agreed</strong></div>
+  <div><div class="eyebrow">Current project stage</div><strong id="currentStage">Enquiry</strong></div>
+ </div>
+ <div class="job-columns">
+  <div class="stack">
+   <section class="card">
+    <div class="eyebrow">01 / Job progress</div><h2>From enquiry to completion</h2>
+    <p class="job-intro">Mark the job Won when instructed. Update its delivery stage as work progresses; every change is recorded in the timeline.</p>
+    <div class="job-actions">
+     <label>Job outcome<select id="status">
+      <option value="pending">Pending</option><option value="won">Won</option><option value="lost">Lost</option>
+     </select></label>
+     <label>Project stage<select id="stage">
+      <option value="enquiry">Enquiry</option><option value="proposal">Fee proposal</option><option value="appointed">Appointed</option><option value="survey">Survey</option><option value="design">Design development</option><option value="planning">Planning submission</option><option value="building_regulations">Building Regulations</option><option value="construction">Construction</option><option value="on_hold">On hold</option><option value="completed">Completed / handover</option>
+     </select></label>
+    </div>
+    <div class="job-actions" style="margin-top:13px">
+     <button type="button" id="saveStatus">Save outcome</button>
+     <button type="button" id="saveStage" class="outline">Save project stage</button>
+    </div>
+   </section>
+   <section class="card">
+    <div class="eyebrow">02 / Agreed fee and appointment</div><h2>Lock in the agreed quotation</h2>
+    <p class="job-intro">Once the client has instructed the practice, mark this job Won and select <strong>Archive agreed fee proposal</strong>. The app saves a permanent PDF snapshot and the agreed fee. It does not send anything to the client or create a contract by itself.</p>
+    <button type="button" id="agree" disabled>Archive agreed fee proposal</button>
+    <p id="agreementDate" class="muted" style="font-size:12px">No agreement recorded</p>
+   </section>
+   <section class="card">
+    <div class="eyebrow">03 / Site notes and correspondence</div><h2>Add to the job history</h2>
+    <p class="job-intro">Record site visits, calls, letters, emailed instructions and decisions. Each item is saved with the staff member and date.</p>
+    <form id="noteForm" class="job-form">
+     <label>Record type<select id="noteType" required>
+      <option value="note">General note</option><option value="meeting">Site visit / meeting</option><option value="call">Telephone call</option><option value="email">Email / correspondence</option><option value="appointment">Client instruction / appointment</option><option value="milestone">Project milestone</option>
+     </select></label>
+     <label>Notes, instruction or email summary<textarea id="noteBody" maxlength="4000" required placeholder="Record what was agreed, by whom, and any action needed…"></textarea></label>
+     <button type="submit">Save to shared timeline</button>
+    </form>
+   </section>
+   <section class="card">
+    <div class="eyebrow">04 / Timeline</div><h2>Complete project history</h2>
+    <div id="history" aria-live="polite"><p class="muted">Loading activity…</p></div>
+   </section>
+  </div>
+  <div class="stack">
+   <section class="card">
+    <div class="eyebrow">05 / Documents, emails and drawings</div><h2>Project document store</h2>
+    <p class="job-intro">Upload signed fee proposals, PDF letters, Outlook emails (.msg), email files (.eml), Word/Excel documents, site photos and drawings. Files are restricted to practice logins and are downloadable later.</p>
+    <form id="uploadForm" class="job-form">
+     <label>Document category<select id="fileKind">
+      <option value="document">Project document</option><option value="email">Email / correspondence</option>
+      <option value="signed_agreement">Signed appointment / acceptance</option><option value="drawing">Drawing</option>
+      <option value="report">Report / survey</option><option value="site_photo">Site photograph</option>
+     </select></label>
+     <label>Choose files (maximum 1 MB each)
+      <input type="file" id="uploadFiles" accept=".pdf,.docx,.xlsx,.eml,.msg,.txt,.jpg,.jpeg,.png" multiple required>
+     </label>
+     <button type="submit">Upload to this job</button>
+    </form>
+    <p class="muted" style="font-size:12px">Automatic email inbox synchronisation is not enabled. Save emails as .eml/.msg or upload documents manually. Large drawing sets will need expanded file storage.</p>
+    <h3>Saved documents</h3><div id="files" aria-live="polite"><p class="muted">Loading documents…</p></div>
+   </section>
+   <section class="card">
+    <div class="eyebrow">06 / At the client meeting</div><h2>Ready to issue</h2>
+    <p class="job-intro">Download the current PDF quotation, or return to the fee studio to prepare email and WhatsApp delivery. Record any client instruction in the timeline above.</p>
+    <div class="job-actions"><a id="quoteShare" class="button" href="/">Prepare email / WhatsApp</a><a id="quoteDownload" class="button outline" href="#" download>PDF quotation</a></div>
+   </section>
+  </div>
+ </div>
+</main>
+<footer class="site-footer">Mitchell Proctor Architects | Secure shared practice job records</footer>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+const id=new URLSearchParams(location.search).get('id');
+const gbp=n=>new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'}).format(Number(n)||0);
+let record=null;
+function alertMsg(message,failed=false){
+  const el=$('feedback');el.textContent=message;el.className='job-banner '+(failed?'error':'ok');
+}
+function elem(tag,content,cls){
+  const el=document.createElement(tag);if(content!==undefined&&content!==null)el.textContent=String(content);
+  if(cls)el.className=cls;return el;
+}
+async function api(path,opt={}){
+  const r=await fetch(path,{credentials:'same-origin',cache:'no-store',...opt});
+  if(r.status===401){location.replace('/login');throw Error('Sign in required')}
+  const data=await r.json().catch(()=>({error:'Unexpected server response'}));
+  if(!r.ok)throw Error(data.error||'Request failed: '+r.status);
+  return data;
+}
+const post=(url,obj)=>api(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(obj)});
+const nameOfStage=s=>({
+ enquiry:'Enquiry',proposal:'Fee proposal',appointed:'Appointed',survey:'Survey',
+ design:'Design development',planning:'Planning submission',building_regulations:'Building Regulations',
+ construction:'Construction',on_hold:'On hold',completed:'Completed / handover'
+}[s]||s);
+async function load(){
+ if(!/^\d+$/.test(id||'')){alertMsg('No project was selected. Open a saved project from the list.',true);return}
+ try{
+  const data=await api('/api/proposals/'+id+'/workspace');
+  record=data.project;
+  $('jobTitle').textContent=record.client||'Client project';
+  $('jobAddress').textContent=record.address||'Address not provided';
+  $('jobReference').textContent=record.reference;
+  $('jobOutcome').replaceChildren(elem('span',record.jobStatus.toUpperCase(),'job-status '+record.jobStatus));
+  $('quoteFee').textContent=gbp(record.fee);
+  $('agreedFee').textContent=record.agreedFee==null?'Not agreed':gbp(record.agreedFee);
+  $('currentStage').textContent=nameOfStage(record.jobStage);
+  $('status').value=record.jobStatus;$('stage').value=record.jobStage;
+  $('agree').disabled=record.jobStatus!=='won'||!!record.agreedAt;
+  $('agree').textContent=record.agreedAt?'Agreed proposal archived':'Archive agreed fee proposal';
+  $('agreementDate').textContent=record.agreedAt?'Agreement recorded: '+record.agreedAt:'No agreement recorded';
+  const target='/?proposal='+encodeURIComponent(id);
+  $('editProposal').href=target;$('quoteShare').href=target;
+  const pdf='/api/proposals/'+id+'/pdf';
+  $('pdfProposal').href=pdf;$('quoteDownload').href=pdf;
+  const root=$('history');root.replaceChildren();
+  if(!data.events.length)root.append(elem('p','Nothing recorded yet.','muted'));
+  for(const event of data.events){
+   const wrap=elem('div',null,'job-activity');
+   const title=elem('strong',(event.event_type||'Activity').replaceAll('_',' ').toUpperCase());
+   const by=elem('small',(event.author||'Practice member')+' · '+(event.occurred_at||event.created_at||''));
+   wrap.append(title,elem('div',null),by,elem('p',event.body));root.append(wrap);
+  }
+  const docs=$('files');docs.replaceChildren();
+  if(!data.files.length)docs.append(elem('p','No documents uploaded yet.','muted'));
+  for(const file of data.files){
+   const wrap=elem('div',null,'job-file'),left=elem('div');
+   left.append(elem('strong',file.file_name),elem('small',file.kind.replaceAll('_',' ')+' · '+Math.ceil(file.size_bytes/1024)+' KB · '+file.created_at));
+   const link=elem('a','Download','button outline');
+   link.href='/api/proposals/'+id+'/files/'+file.id;link.setAttribute('download',file.file_name);
+   wrap.append(left,link);docs.append(wrap);
+  }
+  alertMsg('Project record loaded from the shared Cloudflare workspace.');
+ }catch(e){alertMsg(e.message,true)}
+}
+$('saveStatus').onclick=async()=>{
+ try{await post('/api/proposals/'+id+'/status',{jobStatus:$('status').value});await load();alertMsg('Job status saved for all staff.')}
+ catch(e){alertMsg(e.message,true)}
+};
+$('saveStage').onclick=async()=>{
+ try{await post('/api/proposals/'+id+'/stage',{stage:$('stage').value});await load();alertMsg('Project stage recorded in the timeline.')}
+ catch(e){alertMsg(e.message,true)}
+};
+$('agree').onclick=async()=>{
+ if(!confirm('The client has instructed Mitchell Proctor Architects. Archive the CURRENT PDF and professional fee as the agreed record? This does not create a signed contract or send an email.'))return;
+ $('agree').disabled=true;
+ try{await post('/api/proposals/'+id+'/accept',{});await load();alertMsg('Agreed fee proposal archived as a dated PDF snapshot.')}
+ catch(e){alertMsg(e.message,true);$('agree').disabled=false}
+};
+$('noteForm').onsubmit=async e=>{
+ e.preventDefault();const body=$('noteBody').value.trim();
+ if(!body)return;
+ try{
+  await post('/api/proposals/'+id+'/events',{type:$('noteType').value,body});
+  $('noteBody').value='';await load();alertMsg('Note saved to the shared timeline.')
+ }catch(err){alertMsg(err.message,true)}
+};
+function asBase64(file){
+ return new Promise((resolve,reject)=>{
+  const reader=new FileReader();
+  reader.onerror=()=>reject(Error('Unable to read file'));
+  reader.onload=()=>resolve(String(reader.result||'').split(',')[1]||'');
+  reader.readAsDataURL(file);
+ });
+}
+$('uploadForm').onsubmit=async e=>{
+ e.preventDefault();
+ const files=[...$('uploadFiles').files],kind=$('fileKind').value;
+ if(!files.length){alertMsg('Choose a file to upload',true);return}
+ try{
+  for(const file of files){
+   if(file.size>1048576)throw Error(file.name+' is too large (1 MB maximum).');
+   const contentBase64=await asBase64(file);
+   await post('/api/proposals/'+id+'/files',{fileName:file.name,kind,contentBase64});
+  }
+  $('uploadFiles').value='';await load();alertMsg(files.length+' document(s) uploaded and recorded.')
+ }catch(err){alertMsg(err.message,true)}
+};
+$('signout').onclick=async()=>{
+ try{await post('/api/logout',{})}finally{location.replace('/login')}
+};
+load();
+</script></body></html>
