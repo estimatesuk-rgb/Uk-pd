@@ -1,5 +1,9 @@
 /* Cloudflare sync layer over the existing branded MP Fee Studio. */
 let currentProposalId = null;
+let currentProposalRevision = null;
+let mpAutoTimer = null;
+let mpAutoBusy = false;
+let mpAutoNeedsAnotherPass = false;
 let pricingDefaults = null;
 let mpRemoteDirty = false;
 const mpBaseBlank = blank;
@@ -42,10 +46,12 @@ async function mpSave() {
   try {
     const result = await mpAPI('/api/proposals', {
       method: 'POST', headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify({ id:currentProposalId, data:state })
+      body: JSON.stringify({ id:currentProposalId, revision:currentProposalRevision, data:state })
     });
     currentProposalId = result.id;
+    currentProposalRevision = result.revision;
     state.reference = result.reference;
+    try{await mpAPI('/api/my-draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clear:true})})}catch{}
     mpRemoteDirty = false;
     await mpRefreshProjects();
     refresh();
@@ -58,6 +64,7 @@ async function mpLoad() {
   if (ix === '' || !projects[Number(ix)]) { toast('Select a saved proposal'); return; }
   const p = projects[Number(ix)];
   currentProposalId = p.id;
+  currentProposalRevision = p.revision;
   state = sanitizeState(p.data);
   state.reference = p.reference;
   mpRemoteDirty = false;
@@ -73,7 +80,7 @@ async function mpDelete() {
   if (!password) return;
   try {
     await mpAPI('/api/proposals/'+p.id+'/delete', { method:'POST', headers:{'Content-Type':'application/json'},body:JSON.stringify({password}) });
-    if (currentProposalId===p.id) {currentProposalId=null;state=blank();renderAll();}
+    if (currentProposalId===p.id) {currentProposalId=null;currentProposalRevision=null;state=blank();renderAll();}
     await mpRefreshProjects(); toast('Project deleted.');
   } catch(err){ toast('Delete failed: '+err.message); }
 }
@@ -83,7 +90,9 @@ async function mpNew() {
     const result=await mpAPI('/api/pricing');
     if(result.pricing)pricingDefaults=result.pricing;
   }catch(err){toast('Could not refresh practice fees: '+err.message);return;}
-  currentProposalId=null;state=blank();mpRemoteDirty=false;renderAll();
+  if(mpAutoTimer)clearTimeout(mpAutoTimer);
+  currentProposalId=null;currentProposalRevision=null;state=blank();mpRemoteDirty=false;renderAll();
+  try{await mpAPI('/api/my-draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clear:true})})}catch{}
   toast('New blank proposal uses the latest practice-wide pricing. Save to allocate a job reference.');
 }
 async function mpPdfBlob() {
@@ -151,6 +160,8 @@ function mpAddHeader() {
   wrap.style.display='inline-flex';wrap.style.gap='8px';wrap.style.alignItems='center';
   wrap.innerHTML='<span style="color:#ddd;font-size:12px" id="mpAccountName">Signed in</span>'+
     '<a id="mpOwnerLink" href="/owner" class="btn ghost small" style="display:none">Owner settings</a>'+
+    '<button id="mpResumeDraft" type="button" class="btn ghost small" hidden>Resume draft</button>'+
+    '<span id="mpSyncInfo" style="color:#d8d0c7;font-size:11px" aria-live="polite">Connected</span>'+
     '<button id="mpSignOut" type="button" class="btn ghost small">Sign out</button>';
   mast.append(wrap);
   document.getElementById('mpSignOut').onclick=async()=>{await mpAPI('/api/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});location.href='/login'};
@@ -162,12 +173,13 @@ async function mpConnect() {
     if(!me.authenticated){location.href='/login';return;}
     const el=document.getElementById('mpAccountName');if(el)el.textContent=me.user.name;
     if(me.user.role==='owner')document.getElementById('mpOwnerLink').style.display='inline-flex';
+    else {const del=document.getElementById('deleteBtn');if(del)del.style.display='none';}
     const result=await mpAPI('/api/pricing');pricingDefaults=result.pricing;
     await mpRefreshProjects();
     const requestedId = new URLSearchParams(location.search).get('proposal');
     if (requestedId && /^\d+$/.test(requestedId)) {
       const requested = projects.find(p => String(p.id) === requestedId);
-      if(requested){ currentProposalId = requested.id; state = sanitizeState(requested.data); state.reference = requested.reference; mpRemoteDirty = false; }
+      if(requested){ currentProposalId = requested.id;currentProposalRevision=requested.revision; state = sanitizeState(requested.data); state.reference = requested.reference; mpRemoteDirty = false; }
     }
     // No locally generated numbers may be used as authoritative references.
     if(!currentProposalId && /^MP-\d{4}-\d+$/.test(state.reference))state.reference='DRAFT - save to allocate number';
@@ -180,8 +192,95 @@ async function mpConnect() {
       state.extras.forEach(item=>{const v=pricingDefaults.extras.find(x=>x.id===item.id);if(v){item.amount=v.amount;item.selected=v.selected;item.bandFees={...v.bandFees};item.quotedFee=null;}});
     }
     renderAll();
+    if(!currentProposalId) {
+      try {
+        const savedDraft=await mpAPI('/api/my-draft');
+        if(savedDraft.draft){
+          const resume=document.getElementById('mpResumeDraft');
+          if(resume){resume.hidden=false;resume.onclick=()=>{
+            if(!confirm('Recover your unfinished cloud draft? This replaces the currently blank form.'))return;
+            state=sanitizeState(savedDraft.draft);
+            currentProposalId=null;currentProposalRevision=null;
+            mpRemoteDirty=true;renderAll();resume.hidden=true;
+            mpSyncNote('Cloud draft recovered. Continue where you left off.');
+          }}
+        }
+      }catch(err){console.warn('Draft restoration unavailable',err)}
+    }
   }catch(err){console.warn('Could not connect to Cloudflare workspace',err);toast('Cloud connection error: '+err.message);}
 }
+
+function mpSyncNote(message){
+ const el=document.getElementById('mpSyncInfo');if(el)el.textContent=message;
+}
+function mpValidForJobSave(){
+  if(!String(state.client||'').trim()||!String(state.address||'').trim()||!(Number(state.area)>0))return false;
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(state.clientEmail||'').trim()))return false;
+  if(state.feeMode==='band'&&!state.pricingBand)return false;
+  if(state.feeMode==='bespoke'&&[...state.stages,...state.extras].some(x=>x.selected&&x.quotedFee==null))return false;
+  return true;
+}
+function mpScheduleAutoSave(){
+  mpRemoteDirty=true;mpSyncNote('Unsaved changes…');
+  if(mpAutoTimer)clearTimeout(mpAutoTimer);
+  mpAutoTimer=setTimeout(mpAutoSave,1800);
+}
+async function mpAutoSave(){
+  if(mpAutoBusy){mpAutoNeedsAnotherPass=true;return}
+  mpAutoBusy=true;
+  const fromId=currentProposalId;
+  try{
+    if(mpValidForJobSave()){
+      const result=await mpAPI('/api/proposals',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({id:fromId,revision:currentProposalRevision,data:state,silent:true})
+      });
+      if(fromId===currentProposalId){
+        currentProposalId=result.id;currentProposalRevision=result.revision;
+        state.reference=result.reference;mpRemoteDirty=false;
+        mpSyncNote('Cloud saved: '+result.reference);
+        // No renderAll() while the staff member is typing; it resets keyboard focus.
+        const field=document.querySelector('[data-field="reference"]');
+        if(field)field.value=result.reference;
+      }
+    }else{
+      await mpAPI('/api/my-draft',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({data:state})
+      });
+      mpSyncNote('Unfinished draft backed up to Cloudflare');
+    }
+  }catch(err){
+    mpSyncNote('Not saved — '+err.message);
+    console.warn('Cloud autosave failed',err);
+  }finally{
+    mpAutoBusy=false;
+    if(mpAutoNeedsAnotherPass){mpAutoNeedsAnotherPass=false;mpScheduleAutoSave();}
+  }
+}
+async function mpWhatsapp(){
+  if(!state.clientPhone?.trim()){toast('Add the client’s WhatsApp number first');return}
+  if(!validateClient())return;
+  const saved=await mpSave();if(!saved)return;
+  try{
+    const fee=totals(),pay=paymentSchedule(fee);
+    const message='Dear '+state.client+',\n\nThank you for meeting Mitchell Proctor Architects. Your architectural fee proposal '+state.reference+' for '+state.address+' is ready.\n\nProfessional fees including VAT: '+money2(fee.feeGross)+'.\n50% deposit on instruction: '+money2(pay.depositGross)+'.\n50% before submission: '+money2(pay.balanceGross)+'.\n\nPlease find the PDF fee proposal and acceptance page attached.\n\nMitchell Proctor Architects';
+    const pdf=await mpPdfBlob();
+    const file=new File([pdf],mpPdfName(),{type:'application/pdf'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
+      // iOS / Android share sheet: user chooses WhatsApp and the recipient, then presses Send.
+      await navigator.share({files:[file],title:state.reference+' Fee Proposal',text:message});
+      mpSyncNote('PDF shared to chosen app — verify client received it');
+    }else{
+      deliverBlob(file.name,pdf);
+      const phone=whatsappNumber(state.clientPhone);
+      if(!/^\d{9,15}$/.test(phone))throw Error('Enter a valid mobile number');
+      window.open('https://wa.me/'+phone+'?text='+encodeURIComponent(message),'_blank','noopener,noreferrer');
+      toast('WhatsApp message prepared. Attach the downloaded PDF and press Send.');
+    }
+  }catch(err){if(err.name!=='AbortError')toast('WhatsApp preparation failed: '+err.message)}
+}
+
 // Override cloud-critical handlers; PDF is the only client quotation attachment.
 // Local measurement, print and WhatsApp facilities remain unchanged.
 $('#saveBtn').onclick=mpSave;
@@ -192,5 +291,7 @@ $('#emailBtn').onclick=mpEmail;
 $('#wordBtn').onclick=mpDownloadPdf;
 $('#shareBtn').onclick=mpSharePdf;
 $('#savedProjects').addEventListener('change',()=>{});
-document.querySelector('.controls').addEventListener('input',()=>{mpRemoteDirty=true});
+$('#whatsappBtn').onclick=mpWhatsapp;
+document.querySelector('.controls').addEventListener('input',mpScheduleAutoSave);
+document.querySelector('.controls').addEventListener('change',mpScheduleAutoSave);
 mpConnect();
