@@ -11,7 +11,7 @@
   <style>
     .projects-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap}
     .projects-heading h1{margin:5px 0;font-family:Georgia,serif;font-size:clamp(29px,5vw,43px);font-weight:400}
-    .projects-tools{display:grid;grid-template-columns:minmax(230px,1fr) minmax(145px,200px) auto;gap:12px;align-items:end}
+    .projects-tools{display:grid;grid-template-columns:minmax(215px,1fr) minmax(125px,185px) minmax(140px,185px) auto;gap:12px;align-items:end}
     .project-card{display:grid;grid-template-columns:minmax(0,1fr) minmax(170px,205px);gap:16px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:18px;background:#fff}.project-actions{display:flex;flex-direction:column;gap:9px;min-width:0}.project-actions select{margin-top:4px}.project-actions .button{width:100%}.delete-project{border:1px solid #a43c36;background:white;color:#992d27}.delete-project:hover{background:#fff2f0}.status-won{border-left:5px solid #44835c}.status-lost{border-left:5px solid #9b5049}.status-pending{border-left:5px solid #ae9272}
     .project-card strong{display:block;font-size:17px}
     .project-card p{margin:5px 0;color:var(--muted);overflow-wrap:anywhere}
@@ -22,6 +22,22 @@
     .field-query{margin:0}
     .field-query input{font-size:16px}
     #resultsCount{margin:0 0 12px;color:var(--muted);font-size:13px}
+    .pipeline-stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:11px;margin:6px 0 20px}
+    .stat-block{background:#fff;border:1px solid #dfd9d2;border-radius:10px;padding:15px 12px;text-align:left;cursor:pointer;color:#2a2927;transition:border-color .15s,background .15s}
+    .stat-block:focus-visible{outline:2px solid #9f7d58;outline-offset:2px}
+    .stat-block[aria-pressed=true]{border:2px solid #795d41;background:#f7f2eb;padding:14px 11px}
+    .stat-block small{display:block;font-size:12px;color:#6c645d;margin-bottom:6px}
+    .stat-block strong{font-size:clamp(17px,2vw,25px);line-height:1.3;font-variant-numeric:tabular-nums}
+    .stat-block .value{font-size:11px;color:#6c645d;margin-top:7px;display:block}
+    .stat-block.is-won{border-left:5px solid #43815c}.stat-block.is-lost{border-left:5px solid #9a4e48}
+    .stat-block.is-pending{border-left:5px solid #bd9b6f}.stat-block.is-due{border-left:5px solid #ba622e}
+    .project-action{margin:10px 0 0;padding:10px 12px;background:#fbf7ef;border-radius:7px;font-size:12px;color:#615140}
+    .project-action.overdue{background:#fff1ec;color:#8d3e28;border-left:3px solid #bb633c}
+    .project-action strong{display:block;font-size:12px;margin-bottom:5px}
+    .project-note{margin-top:7px;font-size:12px;color:#745647}
+    @media(max-width:880px){.pipeline-stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
+    @media(max-width:530px){.pipeline-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
     @media(max-width:720px){.projects-tools{grid-template-columns:1fr}.project-card{grid-template-columns:1fr}.project-actions{display:grid;grid-template-columns:1fr 1fr;align-items:end}.project-actions label{grid-column:1/-1}}
   </style>
 </head>
@@ -39,6 +55,13 @@
     <div><div class="eyebrow">Mitchell Proctor practice workspace</div><h1>Saved Projects</h1><p class="muted" id="scopeNote">Loading saved proposals from Cloudflare…</p></div>
     <a class="button" href="/">Create new proposal</a>
   </div>
+  <section class="pipeline-stats" aria-label="Practice fee pipeline, prices excluding VAT">
+   <button type="button" class="stat-block" data-stat="all" aria-pressed="true"><small>All jobs</small><strong id="statAll">—</strong><span class="value">Saved quotations</span></button>
+   <button type="button" class="stat-block is-pending" data-stat="pending" aria-pressed="false"><small>Pending</small><strong id="statPending">—</strong><span class="value" id="valuePending">Quoted work</span></button>
+   <button type="button" class="stat-block is-won" data-stat="won" aria-pressed="false"><small>Won</small><strong id="statWon">—</strong><span class="value" id="valueWon">Agreed / quoted fee</span></button>
+   <button type="button" class="stat-block is-lost" data-stat="lost" aria-pressed="false"><small>Lost</small><strong id="statLost">—</strong><span class="value" id="valueLost">Lost quotations</span></button>
+   <button type="button" class="stat-block is-due" data-stat="overdue" aria-pressed="false"><small>Follow-ups overdue</small><strong id="statOverdue">—</strong><span class="value">Actions requiring attention</span></button>
+  </section>
   <section class="card" aria-label="Find saved proposals">
     <div class="projects-tools">
       <label class="field-query" for="projectSearch">Search by proposal reference, client, project or site address
@@ -46,6 +69,9 @@
       </label>
       <label class="field-query" for="statusFilter">Job status
         <select id="statusFilter" disabled><option value="all">All statuses</option><option value="pending">Pending</option><option value="won">Won</option><option value="lost">Lost</option></select>
+      </label>
+      <label class="field-query" for="followUpFilter">Next action
+        <select id="followUpFilter" disabled><option value="all">All actions</option><option value="overdue">Overdue</option><option value="soon">Due within 7 days</option><option value="unscheduled">No due date</option></select>
       </label>
       <button id="refresh" type="button" class="outline" disabled>Refresh list</button>
     </div>
@@ -65,6 +91,8 @@ const count=document.getElementById('resultsCount');
 const search=document.getElementById('projectSearch');
 const refresh=document.getElementById('refresh');
 const statusFilter=document.getElementById('statusFilter');
+const followUpFilter=document.getElementById('followUpFilter');
+const statButtons=[...document.querySelectorAll('[data-stat]')];
 let allProjects=[];
 let isOwner=false;
 const pounds=new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'});
@@ -81,9 +109,33 @@ function element(tag,cls,content){
   if(content!=null)node.textContent=String(content);
   return node;
 }
+function dateDay(text){return /^\d{4}-\d{2}-\d{2}$/.test(text||'')?new Date(text+'T12:00:00'):null;}
+function calendarToday(){const d=new Date();d.setHours(12,0,0,0);return d;}
+function overdue(p){const due=dateDay(p.nextActionDue);return !!(due&&p.nextAction&&due<calendarToday());}
+function dueSoon(p){const due=dateDay(p.nextActionDue);if(!due||!p.nextAction)return false;const end=calendarToday();end.setDate(end.getDate()+7);return due>=calendarToday()&&due<=end;}
+function paintStats(){
+  const sum=jobs=>jobs.reduce((v,p)=>v+(Number(p.fee)||0),0);
+  const pending=allProjects.filter(p=>(p.jobStatus||'pending')==='pending');
+  const won=allProjects.filter(p=>p.jobStatus==='won');
+  const lost=allProjects.filter(p=>p.jobStatus==='lost');
+  const overdueJobs=allProjects.filter(p=>overdue(p)&&p.jobStatus!=='lost'&&p.jobStage!=='completed');
+  document.getElementById('statAll').textContent=allProjects.length.toLocaleString('en-GB');
+  document.getElementById('statPending').textContent=pending.length.toLocaleString('en-GB');
+  document.getElementById('statWon').textContent=won.length.toLocaleString('en-GB');
+  document.getElementById('statLost').textContent=lost.length.toLocaleString('en-GB');
+  document.getElementById('statOverdue').textContent=overdueJobs.length.toLocaleString('en-GB');
+  document.getElementById('valuePending').textContent=pounds.format(sum(pending))+' ex VAT';
+  document.getElementById('valueWon').textContent=pounds.format(won.reduce((v,p)=>v+Number(p.agreedFee??p.fee??0),0))+' ex VAT';
+  document.getElementById('valueLost').textContent=pounds.format(sum(lost))+' ex VAT';
+  const active=followUpFilter.value==='overdue'?'overdue':statusFilter.value;
+  for(const button of statButtons)button.setAttribute('aria-pressed',String(button.dataset.stat===active));
+}
 function render(){
+  paintStats();
   const q=search.value.trim().toLocaleLowerCase('en-GB');
-  const filtered=allProjects.filter(p=>(statusFilter.value==='all'||(p.jobStatus||'pending')===statusFilter.value)&&[p.reference,p.name,p.data?.client,p.data?.address,p.key,p.status,p.jobStatus].some(v=>String(v||'').toLocaleLowerCase('en-GB').includes(q)));
+  const matchesAction=p=>followUpFilter.value==='all'||(followUpFilter.value==='overdue'&&overdue(p)&&p.jobStatus!=='lost'&&p.jobStage!=='completed')||(followUpFilter.value==='soon'&&dueSoon(p))||(followUpFilter.value==='unscheduled'&&!p.nextActionDue);
+  const filtered=allProjects.filter(p=>(statusFilter.value==='all'||(p.jobStatus||'pending')===statusFilter.value)&&matchesAction(p)&&[p.reference,p.name,p.data?.client,p.data?.address,p.key,p.status,p.jobStatus,p.nextAction,p.lostReason].some(v=>String(v||'').toLocaleLowerCase('en-GB').includes(q)))
+    .sort((a,b)=>{const x=dateDay(a.nextActionDue),y=dateDay(b.nextActionDue);if(x&&y)return x-y;if(x)return -1;if(y)return 1;return Number(b.id)-Number(a.id)});
   count.textContent=filtered.length+' saved project'+(filtered.length===1?'':'s')+(q?' matching your search':'');
   list.replaceChildren();
   if(!filtered.length){
@@ -102,9 +154,17 @@ function render(){
       element('span',null,'Quotation: '+String(p.status||'draft')),
       element('span',null,'Job: '+String(p.jobStatus||'pending').toUpperCase()),
       element('span',null,'Stage: '+String(p.jobStage||'enquiry').replaceAll('_',' ')),
+      element('span',null,'Owner: practice shared'),
       element('span',null,p.updatedAt?'Updated: '+p.updatedAt:'')
     );
     info.append(ref,title,address,meta);
+    if(p.nextAction){
+      const actionNote=element('div','project-action'+(overdue(p)?' overdue':''),null);
+      actionNote.append(element('strong',null,overdue(p)?'Overdue follow-up':p.nextActionDue?'Next action · '+p.nextActionDue:'Next action'));
+      actionNote.append(element('span',null,p.nextAction));
+      info.append(actionNote);
+    }
+    if(p.jobStatus==='lost'&&p.lostReason)info.append(element('div','project-note','Lost: '+p.lostReason));
     const action=element('a','button project-open','Open proposal →');
     action.href='/?proposal='+encodeURIComponent(String(p.id));
     action.setAttribute('aria-label','Open saved proposal '+String(p.reference||p.name||p.id));
@@ -121,8 +181,16 @@ function render(){
       const previous=p.jobStatus||'pending',next=statusSelect.value;
       statusSelect.disabled=true;
       try{
-        await api('/api/proposals/'+p.id+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobStatus:next})});
-        p.jobStatus=next;render();
+        let lostReason='';
+        if(next==='lost'){
+          const answer=prompt('Why did we lose '+String(p.reference)+'? (Required to improve our pricing)',p.lostReason||'');
+          if(!answer||!answer.trim()){statusSelect.value=previous;return;}
+          lostReason=answer.trim();
+        }
+        await api('/api/proposals/'+p.id+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobStatus:next,lostReason})});
+        p.jobStatus=next;p.lostReason=lostReason;
+        if(next==='won'&&previous!=='won')p.jobStage='appointed';
+        render();
       }catch(err){statusSelect.value=previous;alert('Could not update job status: '+err.message);}
       finally{statusSelect.disabled=false;}
     });
@@ -164,7 +232,7 @@ async function load(){
   try {
     const data=await api('/api/proposals');
     allProjects=Array.isArray(data.projects)?data.projects:[];
-    search.disabled=false;statusFilter.disabled=false;refresh.disabled=false;
+    search.disabled=false;statusFilter.disabled=false;followUpFilter.disabled=false;refresh.disabled=false;
     render();
   }catch(err){
     count.textContent='Unable to load saved projects';
@@ -176,7 +244,13 @@ document.getElementById('signout').onclick=async()=>{
   try{await api('/api/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});}finally{location.replace('/login');}
 };
 search.addEventListener('input',render);
-statusFilter.addEventListener('change',render);
+statusFilter.addEventListener('change',()=>{if(statusFilter.value!=='all')followUpFilter.value='all';render()});
+followUpFilter.addEventListener('change',()=>{if(followUpFilter.value!=='all')statusFilter.value='all';render()});
+for(const btn of statButtons)btn.addEventListener('click',()=>{
+  statusFilter.value=btn.dataset.stat==='overdue'?'all':btn.dataset.stat;
+  followUpFilter.value=btn.dataset.stat==='overdue'?'overdue':'all';
+  render();
+});
 refresh.addEventListener('click',load);
 (async()=>{
   try{
