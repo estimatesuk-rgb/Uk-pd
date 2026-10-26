@@ -41,7 +41,7 @@
  <p><strong>Cloudflare schedule:</strong> weekdays at 09:00 UTC (10:00 during British Summer Time); jobs falling due at weekends are reminded on the next weekday.</p>
  <p>Staff can send a client chase email from the Job File with the practice office BCCed, and the message is recorded in the job timeline. If they email externally, they must confirm the chase and upload the sent .eml/.msg copy themselves.</p>
  <p class="muted" style="font-size:12px">To activate automatic sending, Cloudflare requires the Resend <code>RESEND_API_KEY</code> secret and a verified <code>MAIL_FROM</code> address. Never enter your email API key into this website or send it in chat.</p>
- <div class="actions"><a class="button outline" href="/projects">View pending jobs and chase reminders</a><button id="refreshMailConnection" class="outline" type="button">Check email connection</button></div>
+ <div class="actions"><a class="button outline" href="/projects">View pending jobs and chase reminders</a><button id="refreshMailConnection" class="outline" type="button">Check email connection</button><button id="sendOwnerTestEmail" type="button" class="outline">Send practice inbox test</button></div>
  </section>
  <section class="card" id="backupSettings">
 <div class="eyebrow">Practice protection</div><h2>Encrypted practice backup</h2>
@@ -117,7 +117,7 @@ function showPricing(){
   $$('#rateHelp').textContent='These prices are used across the practice for new quotations.';
 }
 async function ownerPracticeBackup(){
- const status=$('#backupProgress'),button=$('#downloadPracticeBackup');
+ const status=$$('#backupProgress'),button=$$('#downloadPracticeBackup');
  const pass=window.prompt('Choose a NEW backup encryption passphrase (minimum 14 characters). Keep it securely.');
  if(pass===null)return;
  if(pass.length<14){notice('Choose at least 14 characters.',true);return}
@@ -143,7 +143,7 @@ async function ownerPracticeBackup(){
  finally{button.disabled=false}
 }
 async function loadMailStatus(){
- const el=$('#mailConnection');if(!el)return;
+ const el=$$('#mailConnection');if(!el)return;
  try{
   const data=await api('/api/status');
   el.textContent=data.emailConfigured?'CONNECTED — automated office reminders and in-app chase emails available.':'NOT CONNECTED — reminder schedule is installed, but no automatic emails will be delivered until Resend is configured.';
@@ -182,8 +182,18 @@ $$('#resetRates').onclick=()=>{
 $$('#ratesForm').addEventListener('input',event=>{if(['buildRate','buildVatRate','feeVatRate','contingency','validDays'].includes(event.target.name))markPricingEdited()});
 $$('#newStaffForm').onsubmit=async e=>{e.preventDefault();const f=e.currentTarget,p=Object.fromEntries(new FormData(f));try{await post('/api/staff',{action:'create',...p});f.reset();notice('Staff account created');await loadStaff()}catch(e){notice(e.message,true)}};
 $$('#passwordForm').onsubmit=async e=>{e.preventDefault();const f=e.currentTarget,p=Object.fromEntries(new FormData(f));if(p.current===p.next){notice('Choose a different password',true);return}try{await post('/api/owner/password',p);f.reset();notice('Owner password updated')}catch(e){notice(e.message,true)}};
-$('#downloadPracticeBackup').onclick=ownerPracticeBackup;
-$('#refreshMailConnection').onclick=loadMailStatus;
-$('#signout').onclick=async()=>{try{await post('/api/logout',{})}finally{location.href='/login'}};
+$$('#downloadPracticeBackup').onclick=ownerPracticeBackup;
+$$('#refreshMailConnection').onclick=loadMailStatus;
+$$('#sendOwnerTestEmail').onclick=async()=>{
+ if(!confirm('Send a single test email to enquiries@ukestimates.com? No client will be contacted.'))return;
+ const button=$$('#sendOwnerTestEmail');button.disabled=true;button.textContent='Sending test…';
+ try{
+  const test=await post('/api/owner/email-test',{confirm:true});
+  notice('Email accepted by provider ('+test.messageId+'). Check the office inbox for delivery.');
+  await loadMailStatus();
+ }catch(err){notice('Email test: '+err.message,true)}
+ finally{button.disabled=false;button.textContent='Send practice inbox test'}
+};
+$$('#signout').onclick=async()=>{try{await post('/api/logout',{})}finally{location.href='/login'}};
 (async()=>{try{const s=await api('/api/session');if(!s.authenticated||s.user.role!=='owner'){location.href='/login';return}await Promise.all([loadPricing(),loadStaff(),loadProposals(),loadMailStatus()])}catch(e){notice(e.message,true)}})();
 </script></body></html>
