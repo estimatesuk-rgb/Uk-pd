@@ -84,6 +84,7 @@
      </select></label>
      <label>Notes, instruction or email summary<textarea id="noteBody" maxlength="4000" required placeholder="Record what was agreed, by whom, and any action needed…"></textarea></label>
      <button type="submit">Save to shared timeline</button>
+     <small id="noteDraftStatus" class="muted" aria-live="polite">Unsubmitted note drafts are backed up privately to your staff account.</small>
     </form>
    </section>
    <section class="card">
@@ -123,7 +124,7 @@
 const $=id=>document.getElementById(id);
 const id=new URLSearchParams(location.search).get('id');
 const gbp=n=>new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'}).format(Number(n)||0);
-let record=null;
+let record=null, noteSaveTimer=null;
 function alertMsg(message,failed=false){
   const el=$('feedback');el.textContent=message;el.className='job-banner '+(failed?'error':'ok');
 }
@@ -172,6 +173,11 @@ async function load(){
    const by=elem('small',(event.author||'Practice member')+' · '+(event.occurred_at||event.created_at||''));
    wrap.append(title,elem('div',null),by,elem('p',event.body));root.append(wrap);
   }
+  if(data.noteDraft && !$('noteBody').value){
+    $('noteBody').value=data.noteDraft.body||'';
+    $('noteType').value=data.noteDraft.event_type||'note';
+    $('noteDraftStatus').textContent='Unfinished note recovered from '+data.noteDraft.updated_at;
+  }
   const docs=$('files');docs.replaceChildren();
   if(!data.files.length)docs.append(elem('p','No documents uploaded yet.','muted'));
   for(const file of data.files){
@@ -198,12 +204,26 @@ $('agree').onclick=async()=>{
  try{await post('/api/proposals/'+id+'/accept',{});await load();alertMsg('Agreed fee proposal archived as a dated PDF snapshot.')}
  catch(e){alertMsg(e.message,true);$('agree').disabled=false}
 };
+function queueNoteDraft(){
+  if(noteSaveTimer)clearTimeout(noteSaveTimer);
+  $('noteDraftStatus').textContent='Backing up your note…';
+  noteSaveTimer=setTimeout(async()=>{
+    try{
+      await post('/api/proposals/'+id+'/note-draft',{type:$('noteType').value,body:$('noteBody').value});
+      $('noteDraftStatus').textContent='Unfinished note backed up to your cloud login.';
+    }catch(err){$('noteDraftStatus').textContent='Could not back up note: '+err.message}
+  },1100);
+}
+$('noteBody').addEventListener('input',queueNoteDraft);
+$('noteType').addEventListener('change',queueNoteDraft);
 $('noteForm').onsubmit=async e=>{
- e.preventDefault();const body=$('noteBody').value.trim();
+ e.preventDefault();if(noteSaveTimer)clearTimeout(noteSaveTimer);
+ const body=$('noteBody').value.trim();
  if(!body)return;
  try{
   await post('/api/proposals/'+id+'/events',{type:$('noteType').value,body});
-  $('noteBody').value='';await load();alertMsg('Note saved to the shared timeline.')
+  $('noteBody').value='';$('noteDraftStatus').textContent='Note filed in shared timeline.';
+  await load();alertMsg('Note saved to the shared timeline.')
  }catch(err){alertMsg(err.message,true)}
 };
 function asBase64(file){
