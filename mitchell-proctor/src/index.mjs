@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { proposalPdf } from "./pdf.mjs";
-import { makePricingDefaults, resolvePricingDefaults } from "./pricing-defaults.mjs";
+import { makePricingDefaults, resolvePricingDefaults, validBand, BAND_IDS } from "./pricing-defaults.mjs";
 export class MpSqlStore extends DurableObject {
  constructor(ctx,env){
   super(ctx,env);
@@ -116,20 +116,31 @@ function safePayload(input) {
   p.buildRate = limited(p.buildRate ?? 2500, 0, 30000);
   p.feeVatRate = limited(p.feeVatRate ?? 20, 0, 30);
   p.buildVatRate = limited(p.buildVatRate ?? 20, 0, 30);
+  p.feeMode=p.feeMode==='band'?'band':'sqm'; // Legacy saved quotations remain £/m².
+  p.pricingBand=p.feeMode==='band'&&validBand(p.pricingBand)?p.pricingBand:'';
+  if(p.feeMode==='band'&&!p.pricingBand)throw Object.assign(new Error('Select a pricing band before saving'),{status:400});
   if (!Array.isArray(p.stages) || p.stages.length > 20 || !Array.isArray(p.extras) || p.extras.length > 50) throw Object.assign(new Error('Invalid fee lines'), {status:400});
   if (!Array.isArray(p.adjustments) || p.adjustments.length > 50) throw Object.assign(new Error('Too many adjustments'), {status:400});
-  p.stages = p.stages.map(s => ({ ...s, rate:limited(s.rate,0,5000), selected:!!s.selected, title:clean(s.title,180), scope:clean(s.scope,1500) }));
-  p.extras = p.extras.map(s => ({ ...s, amount:limited(s.amount,0,1000000), selected:!!s.selected, title:clean(s.title,180), desc:clean(s.desc,1500) }));
+  const normalBandFees=s=>Object.fromEntries(BAND_IDS.map(band=>[band,limited(s.bandFees?.[band]??0,0,1000000)]));
+  const quoted=s=>s.quotedFee===null||s.quotedFee===undefined||s.quotedFee===''?null:limited(s.quotedFee,0,1000000);
+  p.stages = p.stages.map(s => ({...s,rate:limited(s.rate,0,5000),selected:!!s.selected,title:clean(s.title,180),scope:clean(s.scope,1500),bandFees:normalBandFees(s),quotedFee:quoted(s)}));
+  p.extras = p.extras.map(s => ({...s,amount:limited(s.amount,0,1000000),selected:!!s.selected,title:clean(s.title,180),desc:clean(s.desc,1500),bandFees:normalBandFees(s),quotedFee:quoted(s)}));
   p.adjustments = p.adjustments.map(s => ({kind:s.kind === 'omission'?'omission':'addition',description:clean(s.description,200),amount:limited(s.amount,0,1000000)}));
   // Large embedded logo data is kept client-side. Standard logo is served by this app.
   delete p.logo;
   return p;
 }
 export function calculateFee(payload, minArea = 25) {
-  const area = Math.max(Number(payload.area), Number(minArea));
-  const stage = payload.stages.filter(s=>s.selected).reduce((v,s)=>v+Number(s.rate)*area,0);
-  const extras = payload.extras.filter(s=>s.selected).reduce((v,s)=>v+Number(s.amount),0);
-  const adjustments = payload.adjustments.reduce((v,a)=>v+(a.kind==='omission'?-1:1)*Number(a.amount),0);
+  const area=Math.max(Number(payload.area),Number(minArea));
+  const inBand=payload.feeMode==='band' && validBand(payload.pricingBand);
+  const amount=(x,old)=>{
+    if(!inBand)return old;
+    const quote=x.quotedFee;
+    return Number(quote!==null&&quote!==undefined&&quote!==''?quote:x.bandFees?.[payload.pricingBand]??0);
+  };
+  const stage=payload.stages.filter(x=>x.selected).reduce((v,x)=>v+amount(x,Number(x.rate)*area),0);
+  const extras=payload.extras.filter(x=>x.selected).reduce((v,x)=>v+amount(x,Number(x.amount)),0);
+  const adjustments=payload.adjustments.reduce((v,a)=>v+(a.kind==='omission'?-1:1)*Number(a.amount),0);
   return Math.max(0,Math.round((stage+extras+adjustments)*100)/100);
 }
 async function quoteRow(db, id, user) {
