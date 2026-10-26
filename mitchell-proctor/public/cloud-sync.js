@@ -43,6 +43,10 @@ async function mpRefreshProjects() {
 }
 async function mpSave() {
   if (!validateClient()) return null;
+  if(mpAutoTimer){clearTimeout(mpAutoTimer);mpAutoTimer=null}
+  // Keep manual Save and pending autosave from generating duplicate project numbers.
+  for(let i=0;mpAutoBusy&&i<50;i++)await new Promise(resolve=>setTimeout(resolve,80));
+  if(mpAutoBusy){toast('Cloud save is still completing. Please retry.');return null}
   try {
     const result = await mpAPI('/api/proposals', {
       method: 'POST', headers: { 'Content-Type':'application/json' },
@@ -160,7 +164,7 @@ function mpAddHeader() {
   wrap.style.display='inline-flex';wrap.style.gap='8px';wrap.style.alignItems='center';
   wrap.innerHTML='<span style="color:#ddd;font-size:12px" id="mpAccountName">Signed in</span>'+
     '<a id="mpOwnerLink" href="/owner" class="btn ghost small" style="display:none">Owner settings</a>'+
-    '<button id="mpResumeDraft" type="button" class="btn ghost small" hidden>Resume draft</button>'+
+    '<button id="mpResumeDraft" type="button" class="btn ghost small" style="display:none">Resume draft</button>'+
     '<span id="mpSyncInfo" style="color:#d8d0c7;font-size:11px" aria-live="polite">Connected</span>'+
     '<button id="mpSignOut" type="button" class="btn ghost small">Sign out</button>';
   mast.append(wrap);
@@ -197,11 +201,11 @@ async function mpConnect() {
         const savedDraft=await mpAPI('/api/my-draft');
         if(savedDraft.draft){
           const resume=document.getElementById('mpResumeDraft');
-          if(resume){resume.hidden=false;resume.onclick=()=>{
+          if(resume){resume.style.display='inline-flex';resume.onclick=()=>{
             if(!confirm('Recover your unfinished cloud draft? This replaces the currently blank form.'))return;
             state=sanitizeState(savedDraft.draft);
             currentProposalId=null;currentProposalRevision=null;
-            mpRemoteDirty=true;renderAll();resume.hidden=true;
+            mpRemoteDirty=true;renderAll();resume.style.display='none';
             mpSyncNote('Cloud draft recovered. Continue where you left off.');
           }}
         }
@@ -238,6 +242,7 @@ async function mpAutoSave(){
       if(fromId===currentProposalId){
         currentProposalId=result.id;currentProposalRevision=result.revision;
         state.reference=result.reference;mpRemoteDirty=false;
+        if(!fromId)try{await mpAPI('/api/my-draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clear:true})})}catch{}
         mpSyncNote('Cloud saved: '+result.reference);
         // No renderAll() while the staff member is typing; it resets keyboard focus.
         const field=document.querySelector('[data-field="reference"]');
