@@ -14,6 +14,9 @@ export class MpSqlStore extends DurableObject {
   if(!columns.some(c=>c.name==="agreed_fee_ex_vat"))this.sql.exec("ALTER TABLE proposals ADD COLUMN agreed_fee_ex_vat REAL");
   if(!columns.some(c=>c.name==="agreed_at"))this.sql.exec("ALTER TABLE proposals ADD COLUMN agreed_at TEXT");
   if(!columns.some(c=>c.name==="revision"))this.sql.exec("ALTER TABLE proposals ADD COLUMN revision INTEGER NOT NULL DEFAULT 1");
+  if(!columns.some(c=>c.name==="lost_reason"))this.sql.exec("ALTER TABLE proposals ADD COLUMN lost_reason TEXT NOT NULL DEFAULT ''");
+  if(!columns.some(c=>c.name==="next_action"))this.sql.exec("ALTER TABLE proposals ADD COLUMN next_action TEXT NOT NULL DEFAULT ''");
+  if(!columns.some(c=>c.name==="next_action_due"))this.sql.exec("ALTER TABLE proposals ADD COLUMN next_action_due TEXT NOT NULL DEFAULT ''");
   this.sql.exec("CREATE TABLE IF NOT EXISTS project_events (id INTEGER PRIMARY KEY AUTOINCREMENT,proposal_id INTEGER NOT NULL,event_type TEXT NOT NULL,body TEXT NOT NULL,created_by INTEGER NOT NULL,occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);");
   this.sql.exec("CREATE INDEX IF NOT EXISTS idx_mp_events_project ON project_events(proposal_id,id);");
   this.sql.exec("CREATE TABLE IF NOT EXISTS project_files (id INTEGER PRIMARY KEY AUTOINCREMENT,proposal_id INTEGER NOT NULL,file_name TEXT NOT NULL,mime_type TEXT NOT NULL,kind TEXT NOT NULL DEFAULT 'document',size_bytes INTEGER NOT NULL,content_base64 TEXT NOT NULL,uploaded_by INTEGER NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);");
@@ -159,7 +162,7 @@ function base64FromBytes(bytes){
   return btoa(value);
 }
 async function quoteRow(db, id, user) {
-  const row = await db.prepare('SELECT id,reference,created_by,payload,fee_ex_vat,client_email,client,site_address,status,job_status,job_stage,agreed_fee_ex_vat,agreed_at,revision,created_at FROM proposals WHERE id=?').bind(id).first();
+  const row = await db.prepare('SELECT id,reference,created_by,payload,fee_ex_vat,client_email,client,site_address,status,job_status,job_stage,agreed_fee_ex_vat,agreed_at,revision,lost_reason,next_action,next_action_due,created_at FROM proposals WHERE id=?').bind(id).first();
   if (!row) throw Object.assign(new Error('Quotation not found'), {status:404});
   return row;
 }
@@ -261,8 +264,8 @@ async function api(req, env, path) {
     return appJSON({ok:true,pricing});
   }
   if(path==='/api/proposals' && method==='GET'){
-    const rows=await env.DB.prepare('SELECT id,reference,client,site_address,fee_ex_vat,updated_at,payload,status,job_status,job_stage,agreed_fee_ex_vat,agreed_at,revision FROM proposals ORDER BY id DESC LIMIT 500').all();
-    return appJSON({projects:rows.results.map(r=>({id:r.id,key:r.reference+'::'+r.client,reference:r.reference,name:JSON.parse(r.payload).projectName||r.client,fee:Number(r.fee_ex_vat),updatedAt:r.updated_at,data:{...JSON.parse(r.payload),reference:r.reference},status:r.status,jobStatus:r.job_status||"pending",jobStage:r.job_stage||"enquiry",agreedFee:r.agreed_fee_ex_vat,agreedAt:r.agreed_at,revision:r.revision}))});
+    const rows=await env.DB.prepare('SELECT id,reference,client,site_address,fee_ex_vat,updated_at,payload,status,job_status,job_stage,agreed_fee_ex_vat,agreed_at,revision,lost_reason,next_action,next_action_due FROM proposals ORDER BY id DESC LIMIT 500').all();
+    return appJSON({projects:rows.results.map(r=>({id:r.id,key:r.reference+'::'+r.client,reference:r.reference,name:JSON.parse(r.payload).projectName||r.client,fee:Number(r.fee_ex_vat),updatedAt:r.updated_at,data:{...JSON.parse(r.payload),reference:r.reference},status:r.status,jobStatus:r.job_status||"pending",jobStage:r.job_stage||"enquiry",agreedFee:r.agreed_fee_ex_vat,agreedAt:r.agreed_at,revision:r.revision,lostReason:r.lost_reason||'',nextAction:r.next_action||'',nextActionDue:r.next_action_due||''}))});
   }
   if(path==='/api/proposals' && method==='POST'){
     const p=await req.json(); const data=safePayload(p.data);
@@ -281,7 +284,7 @@ async function api(req, env, path) {
     await recordProjectEvent(env.DB,id,user,'quotation',p.silent===true?'Initial quotation autosaved':'Initial quotation saved');
     return appJSON({ok:true,id,reference,fee,revision:1});
   }
-  const workspacePath=path.match(/^\/api\/proposals\/(\d+)\/(workspace|events|files|stage|accept|note-draft)(?:\/(\d+))?$/);
+  const workspacePath=path.match(/^\/api\/proposals\/(\d+)\/(workspace|events|files|stage|accept|note-draft|follow-up)(?:\/(\d+))?$/);
   if(workspacePath){
     const id=Number(workspacePath[1]),action=workspacePath[2],fileId=Number(workspacePath[3]);
     const row=await quoteRow(env.DB,id,user);
@@ -289,7 +292,7 @@ async function api(req, env, path) {
       const events=await env.DB.prepare('SELECT e.id,e.event_type,e.body,e.occurred_at,e.created_at,u.name AS author FROM project_events e LEFT JOIN users u ON u.id=e.created_by WHERE e.proposal_id=? ORDER BY e.id DESC LIMIT 500').bind(id).all();
       const docs=await env.DB.prepare('SELECT id,file_name,mime_type,kind,size_bytes,created_at FROM project_files WHERE proposal_id=? ORDER BY id DESC LIMIT 200').bind(id).all();
       const noteDraft=await env.DB.prepare('SELECT event_type,body,updated_at FROM project_note_drafts WHERE proposal_id=? AND user_id=?').bind(id,user.id).first();
-      return appJSON({project:{id,reference:row.reference,client:row.client,address:row.site_address,status:row.status,jobStatus:row.job_status||'pending',jobStage:row.job_stage||'enquiry',fee:Number(row.fee_ex_vat),agreedFee:row.agreed_fee_ex_vat,agreedAt:row.agreed_at,createdAt:row.created_at},events:events.results,files:docs.results,phases:JOB_PHASES,noteDraft});
+      return appJSON({project:{id,reference:row.reference,client:row.client,address:row.site_address,status:row.status,jobStatus:row.job_status||'pending',jobStage:row.job_stage||'enquiry',fee:Number(row.fee_ex_vat),agreedFee:row.agreed_fee_ex_vat,agreedAt:row.agreed_at,lostReason:row.lost_reason||'',nextAction:row.next_action||'',nextActionDue:row.next_action_due||'',createdAt:row.created_at},events:events.results,files:docs.results,phases:JOB_PHASES,noteDraft});
     }
     if(method==='POST'&&action==='note-draft'){
       const p=await req.json();
@@ -308,6 +311,18 @@ async function api(req, env, path) {
       await recordProjectEvent(env.DB,id,user,type,body);
       await env.DB.prepare('DELETE FROM project_note_drafts WHERE proposal_id=? AND user_id=?').bind(id,user.id).run();
       return appJSON({ok:true});
+    }
+    if(method==='POST'&&action==='follow-up'){
+      const p=await req.json();
+      const note=String(p.nextAction||'').trim();
+      const due=String(p.nextActionDue||'').trim();
+      if(note.length>500)return appJSON({error:'Next action must be under 500 characters'},400);
+      if(due&&!/^\d{4}-\d{2}-\d{2}$/.test(due))return appJSON({error:'Enter the due date as YYYY-MM-DD'},400);
+      if(due&&!note)return appJSON({error:'Enter an action before assigning a due date'},400);
+      const changed=note!==(row.next_action||'')||due!==(row.next_action_due||'');
+      await env.DB.prepare('UPDATE proposals SET next_action=?,next_action_due=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(note,due,id).run();
+      if(changed)await recordProjectEvent(env.DB,id,user,'milestone',note?'Next action: '+note+(due?' (due '+due+')':''):'Next action cleared');
+      return appJSON({ok:true,nextAction:note,nextActionDue:due});
     }
     if(method==='POST'&&action==='stage'){
       const p=await req.json();
@@ -358,13 +373,15 @@ async function api(req, env, path) {
   const proposal=path.match(/^\/api\/proposals\/(\d+)(?:\/(send|delete|status|pdf))?$/);
   if (proposal) {
     const id=Number(proposal[1]);const action=proposal[2];const row=await quoteRow(env.DB,id,user);
-    if(method==='GET'&&!action)return appJSON({proposal:{id:row.id,reference:row.reference,data:{...JSON.parse(row.payload),reference:row.reference},status:row.status,jobStatus:row.job_status||"pending",jobStage:row.job_stage||"enquiry",agreedFee:row.agreed_fee_ex_vat,agreedAt:row.agreed_at,revision:row.revision}});
+    if(method==='GET'&&!action)return appJSON({proposal:{id:row.id,reference:row.reference,data:{...JSON.parse(row.payload),reference:row.reference},status:row.status,jobStatus:row.job_status||"pending",jobStage:row.job_stage||"enquiry",agreedFee:row.agreed_fee_ex_vat,agreedAt:row.agreed_at,revision:row.revision,lostReason:row.lost_reason||'',nextAction:row.next_action||'',nextActionDue:row.next_action_due||''}});
     if(method==='POST'&&action==='status'){
       const input=await req.json();
       if(!['pending','won','lost'].includes(input.jobStatus))return appJSON({error:'Select Pending, Won or Lost'},400);
       const stage=input.jobStatus==='won'&&row.job_status!=='won'?'appointed':row.job_stage||'enquiry';
-      await env.DB.prepare('UPDATE proposals SET job_status=?,job_stage=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(input.jobStatus,stage,id).run();
-      if(row.job_status!==input.jobStatus)await recordProjectEvent(env.DB,id,user,'outcome','Job marked '+input.jobStatus.toUpperCase());
+      const reason=input.jobStatus==='lost'?String(input.lostReason||'').trim().slice(0,500):'';
+      await env.DB.prepare('UPDATE proposals SET job_status=?,job_stage=?,lost_reason=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(input.jobStatus,stage,reason,id).run();
+      if(row.job_status!==input.jobStatus|| (input.jobStatus==='lost'&&reason!==row.lost_reason))
+        await recordProjectEvent(env.DB,id,user,'outcome','Job marked '+input.jobStatus.toUpperCase()+(reason?'. Reason: '+reason:''));
       return appJSON({ok:true,id,jobStatus:input.jobStatus,jobStage:stage});
     }
     if(method==='POST'&&action==='delete'){
