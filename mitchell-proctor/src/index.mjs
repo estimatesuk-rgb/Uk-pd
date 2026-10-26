@@ -253,6 +253,8 @@ function securityHeaders(r) {
   headers.set('Referrer-Policy','strict-origin-when-cross-origin');
   headers.set('X-Frame-Options','DENY');
   headers.set('Permissions-Policy','camera=(), microphone=(), geolocation=()');
+  const mime=headers.get('Content-Type')||'';
+  if(/text\/html|javascript|application\/json/.test(mime))headers.set('Cache-Control','private, no-store');
   return new Response(r.body,{status:r.status,headers});
 }
 async function api(req, env, path) {
