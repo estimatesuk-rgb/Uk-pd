@@ -37,6 +37,41 @@ export class MpSqlStore extends DurableObject {
  async fetch(request){
   try{
    const url=new URL(request.url);
+   if(request.method==='GET'&&url.pathname==='/backup'){
+     // Private DO-to-Worker streaming endpoint. Outer Worker permits owner only.
+     // Exclude user passwords, login sessions, setup codes and authentication attempts.
+     const exports=[
+       ['users','SELECT id,email,name,role,active,created_at FROM users'],
+       ['settings','SELECT name,config FROM settings'],
+       ['proposals','SELECT * FROM proposals'],
+       ['project_events','SELECT * FROM project_events'],
+       ['project_files','SELECT * FROM project_files'],
+       ['project_file_chunks','SELECT * FROM project_file_chunks'],
+       ['project_note_drafts','SELECT * FROM project_note_drafts'],
+       ['chase_reminders','SELECT * FROM chase_reminders'],
+       ['staff_drafts','SELECT * FROM staff_drafts']
+     ];
+     const encoder=new TextEncoder();
+     let tableIdx=-1,cursor=null,started=false;
+     const stream=new ReadableStream({pull(controller){
+       try{
+         if(!started){started=true;controller.enqueue(encoder.encode(JSON.stringify({format:'mp-practice-archive-v1',createdAt:new Date().toISOString(),includesFiles:true,excludesCredentials:true})+'\\n'));return}
+         while(true){
+           if(!cursor){
+             tableIdx++;
+             if(tableIdx>=exports.length){controller.close();return}
+             const [table,sql]=exports[tableIdx];
+             cursor={table,iter:this.sql.exec(sql)[Symbol.iterator]()};
+           }
+           const next=cursor.iter.next();
+           if(next.done){cursor=null;continue}
+           controller.enqueue(encoder.encode(JSON.stringify({table:cursor.table,row:next.value})+'\\n'));
+           return;
+         }
+       }catch(err){controller.error(err)}
+     }});
+     return new Response(stream,{headers:{'Content-Type':'application/x-ndjson','Cache-Control':'no-store'}});
+   }
    if(request.method==='GET'&&url.pathname.startsWith('/file/')){
      const fileId=Number(url.pathname.slice(6));
      if(!Number.isInteger(fileId)||fileId<1)return new Response('Bad file ID',{status:400});
@@ -585,6 +620,18 @@ async function api(req, env, path) {
     await env.DB.prepare('UPDATE users SET password_hash=? WHERE id=?').bind(await hashPassword(p.next),user.id).run();
     await env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND token_hash!=?').bind(user.id,await sha256(getCookie(req,'mp_session'))).run();
     return appJSON({ok:true});
+  }
+  if(path==='/api/owner/backup'&&method==='GET'){
+    mustUser(user,'owner');
+    const stub=env.MP_DATA.get(env.MP_DATA.idFromName('practice'));
+    const snapshot=await stub.fetch('https://mp-store.internal/backup');
+    if(!snapshot.ok)return appJSON({error:'Could not export practice backup'},502);
+    return new Response(snapshot.body,{headers:{
+      'Content-Type':'application/x-ndjson',
+      'Cache-Control':'private,no-store',
+      'Content-Disposition':'attachment; filename="mitchell-proctor-archive.jsonl"',
+      'X-Content-Type-Options':'nosniff'
+    }});
   }
   if(path==='/api/status'&&method==='GET') return appJSON({emailConfigured:!!(env.RESEND_API_KEY&&env.MAIL_FROM),officeCopy:OWNER_EMAIL,owner:user.role==='owner'});
   return appJSON({error:'Endpoint not found'},404);
