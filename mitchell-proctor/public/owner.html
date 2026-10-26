@@ -84,21 +84,21 @@ function renderMatrix(root,items){
   }
   tbl.append(body);wrapper.append(tbl);root.append(wrapper);
 }
-function markPricingEdited(){const el=$('#rateHelp');if(el)el.textContent='Unsaved changes — click Save all default prices.';}
+function markPricingEdited(){const el=$$('#rateHelp');if(el)el.textContent='Unsaved changes — click Save all default prices.';}
 function showPricing(){
   if(!pricing)return;
-  const f=$('#ratesForm');
+  const f=$$('#ratesForm');
   for(const field of ['buildRate','buildVatRate','feeVatRate','contingency','validDays']){
     f.elements.namedItem(field).value=pricing[field];
   }
-  renderMatrix($('#bandStages'),pricing.stages);
-  renderMatrix($('#bandExtras'),pricing.extras);
+  renderMatrix($$('#bandStages'),pricing.stages);
+  renderMatrix($$('#bandExtras'),pricing.extras);
   f.elements.namedItem('feeMode').value=pricing.feeMode||'band';
   f.elements.namedItem('defaultBand').value=pricing.defaultBand||'medium';
-  renderPriceLines($('#stageRates'),pricing.stages,'stage');
-  renderPriceLines($('#extraRates'),pricing.extras,'extra');
-  $('#saveRates').disabled=false;$('#resetRates').disabled=false;
-  $('#rateHelp').textContent='These prices are used across the practice for new quotations.';
+  renderPriceLines($$('#stageRates'),pricing.stages,'stage');
+  renderPriceLines($$('#extraRates'),pricing.extras,'extra');
+  $$('#saveRates').disabled=false;$$('#resetRates').disabled=false;
+  $$('#rateHelp').textContent='These prices are used across the practice for new quotations.';
 }
 async function loadPricing(){
   const d=await api('/api/pricing');
@@ -109,14 +109,14 @@ async function loadPricing(){
 }
 async function loadStaff(){const data=await api('/api/staff');const root=$$('#staffList');root.replaceChildren();for(const user of data.staff){const row=document.createElement('div');row.className='list-item';const label=document.createElement('div');label.innerHTML='<b></b><small></small>';label.querySelector('b').textContent=user.name+(user.role==='owner'?' (owner)':'');label.querySelector('small').textContent=user.email+' · '+(user.active?'Active':'Disabled');row.append(label);if(user.role!=='owner'){const actions=document.createElement('div');actions.className='actions';const button=document.createElement('button');button.type='button';button.textContent=user.active?'Disable':'Enable';button.className='outline';button.onclick=async()=>{if(!confirm((user.active?'Disable':'Enable')+' access for '+user.name+'?'))return;try{await post('/api/staff',{action:'active',id:user.id,active:!user.active});notice('Staff access updated');await loadStaff()}catch(e){notice(e.message,true)}};const reset=document.createElement('button');reset.className='outline';reset.type='button';reset.textContent='Set new password';reset.onclick=async()=>{const pw=prompt('Enter a NEW password (10 characters minimum) for '+user.name+':');if(!pw)return;try{await post('/api/staff',{action:'reset',id:user.id,password:pw});notice('Password changed for '+user.name)}catch(e){notice(e.message,true)}};actions.append(button,reset);row.append(actions)}root.append(row)}if(!data.staff.length)root.textContent='No accounts created yet.'}
 async function loadProposals(){const data=await api('/api/proposals');const root=$$('#proposalList');root.replaceChildren();for(const p of data.projects){const row=document.createElement('div');row.className='list-item';const x=document.createElement('div');const strong=document.createElement('strong');strong.textContent=p.reference+' · '+(p.data?.client||p.name);const small=document.createElement('small');small.textContent=(p.data?.address||'')+' · '+money(p.fee||0)+' · '+p.status;x.append(strong,small);const open=document.createElement('a');open.href='/?proposal='+encodeURIComponent(p.id);open.className='button outline';open.textContent='Open job';row.append(x,open);root.append(row)}if(!data.projects.length)root.textContent='No saved fee proposals yet.'}
-$('#ratesForm').onsubmit=async e=>{
+$$('#ratesForm').onsubmit=async e=>{
   e.preventDefault();
   if(!pricing||!pricing.stages?.length||!pricing.extras?.length){notice('Wait for all architect fees to load before saving',true);return;}
   const f=e.currentTarget;
   if(!f.reportValidity())return;
   for(const field of ['buildRate','buildVatRate','feeVatRate','contingency','validDays'])pricing[field]=Number(f.elements.namedItem(field).value);
   pricing.feeMode=f.elements.namedItem('feeMode').value;pricing.defaultBand=f.elements.namedItem('defaultBand').value;
-  const button=$('#saveRates');button.disabled=true;
+  const button=$$('#saveRates');button.disabled=true;
   try{
     const result=await post('/api/pricing',pricing);
     pricing=result.pricing;showPricing();
@@ -124,12 +124,12 @@ $('#ratesForm').onsubmit=async e=>{
   }catch(err){notice(err.message,true)}
   finally{button.disabled=false;}
 };
-$('#resetRates').onclick=()=>{
+$$('#resetRates').onclick=()=>{
   if(!factoryPricing)return;
   if(!confirm('Restore the original price list in this form? The current saved prices will not change until you press Save all default prices.'))return;
   pricing=structuredClone(factoryPricing);showPricing();markPricingEdited();
 };
-$('#ratesForm').addEventListener('input',event=>{if(['buildRate','buildVatRate','feeVatRate','contingency','validDays'].includes(event.target.name))markPricingEdited()});
+$$('#ratesForm').addEventListener('input',event=>{if(['buildRate','buildVatRate','feeVatRate','contingency','validDays'].includes(event.target.name))markPricingEdited()});
 $$('#newStaffForm').onsubmit=async e=>{e.preventDefault();const f=e.currentTarget,p=Object.fromEntries(new FormData(f));try{await post('/api/staff',{action:'create',...p});f.reset();notice('Staff account created');await loadStaff()}catch(e){notice(e.message,true)}};
 $$('#passwordForm').onsubmit=async e=>{e.preventDefault();const f=e.currentTarget,p=Object.fromEntries(new FormData(f));if(p.current===p.next){notice('Choose a different password',true);return}try{await post('/api/owner/password',p);f.reset();notice('Owner password updated')}catch(e){notice(e.message,true)}};
 $$('#signout').onclick=async()=>{try{await post('/api/logout',{})}finally{location.href='/login'}};
