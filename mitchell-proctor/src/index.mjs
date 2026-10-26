@@ -51,7 +51,7 @@ export class MpSqlStore extends DurableObject {
        ['chase_reminders','SELECT * FROM chase_reminders'],
        ['staff_drafts','SELECT * FROM staff_drafts']
      ];
-     const encoder=new TextEncoder();
+     const encoder=new TextEncoder(),store=this.sql;
      let tableIdx=-1,cursor=null,started=false;
      const stream=new ReadableStream({pull(controller){
        try{
@@ -61,7 +61,7 @@ export class MpSqlStore extends DurableObject {
              tableIdx++;
              if(tableIdx>=exports.length){controller.close();return}
              const [table,sql]=exports[tableIdx];
-             cursor={table,iter:this.sql.exec(sql)[Symbol.iterator]()};
+             cursor={table,iter:store.exec(sql)[Symbol.iterator]()};
            }
            const next=cursor.iter.next();
            if(next.done){cursor=null;continue}
