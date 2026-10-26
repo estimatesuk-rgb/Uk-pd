@@ -27,6 +27,12 @@
 .job-status{display:inline-block;font-weight:800;font-size:12px;letter-spacing:.045em;border-radius:50px;padding:6px 12px}
 .job-status.won{background:#dcefe2;color:#245a37}.job-status.lost{background:#f6dfdf;color:#9c3333}.job-status.pending{background:#f3e8d4;color:#7e5a27}
 .job-form{display:grid;gap:13px}.job-form textarea{min-height:105px}
+.chase-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;border-bottom:1px solid #e7e0d8;padding:13px 0;align-items:center}
+.chase-item strong{display:block}.chase-item small{display:block;color:#73695d;margin-top:4px}
+.chase-buttons{display:flex;gap:7px;flex-wrap:wrap}.chase-buttons button{font-size:12px;padding:8px 10px}
+.chase-settings{display:flex;gap:9px;align-items:center;flex-wrap:wrap;padding:9px 0}.chase-settings button{min-width:145px}
+@media(max-width:600px){.chase-item{grid-template-columns:1fr}}
+
 .job-intro{line-height:1.5;color:#665f56}
 #history{max-height:770px;overflow:auto;padding-left:8px}
 @media(max-width:800px){.job-columns{grid-template-columns:1fr}.job-top{grid-template-columns:1fr 1fr}}
@@ -81,8 +87,20 @@
      <button type="submit">Save next action</button>
     </form>
    </section>
+   <section class="card" id="chaseSection">
+    <div class="eyebrow">03 / Weekly quotation chase reminders</div><h2>Three weekly reminders to the office</h2>
+    <p class="job-intro">After issuing a quotation, the practice receives an office email around days 7, 14 and 21 while the enquiry remains Pending. No follow-up email is sent to the client without staff confirmation.</p>
+    <div id="chaseSummary" class="job-banner">Loading reminder details…</div>
+    <div class="chase-settings">
+      <button id="chaseMarkSent" type="button">Mark fee proposal sent &amp; start 3 reminders</button>
+      <button id="chasePause" type="button" class="outline" style="display:none">Pause reminders</button>
+    </div>
+    <p id="chaseEmailStatus" class="muted" style="font-size:12px"></p>
+    <div id="chaseRows"><p class="muted">Checking reminder history…</p></div>
+    <p class="muted" style="font-size:12px">When you send a client chase email from this page, the office is BCCed and the email is recorded automatically on the job. For chases by telephone or an external email account, choose Record chase completed and upload the sent .eml/.msg file below if you need a copy retained.</p>
+   </section>
    <section class="card">
-    <div class="eyebrow">03 / Agreed fee and appointment</div><h2>Lock in the agreed quotation</h2>
+    <div class="eyebrow">04 / Agreed fee and appointment</div><h2>Lock in the agreed quotation</h2>
     <p class="job-intro">Once the client has instructed the practice, mark this job Won and select <strong>Archive agreed fee proposal</strong>. The app saves a permanent PDF snapshot and the agreed fee. It does not send anything to the client or create a contract by itself.</p>
     <button type="button" id="agree" disabled>Archive agreed fee proposal</button>
     <p id="agreementDate" class="muted" style="font-size:12px">No agreement recorded</p>
@@ -177,6 +195,8 @@ async function load(){
   $('agree').disabled=record.jobStatus!=='won'||!!record.agreedAt;
   $('agree').textContent=record.agreedAt?'Agreed proposal archived':'Archive agreed fee proposal';
   $('agreementDate').textContent=record.agreedAt?'Agreement recorded: '+record.agreedAt:'No agreement recorded';
+  renderChases(data);
+
   const target='/?proposal='+encodeURIComponent(id);
   $('editProposal').href=target;$('quoteShare').href=target;
   const pdf='/api/proposals/'+id+'/pdf';
@@ -209,6 +229,71 @@ async function load(){
 $('status').addEventListener('change',()=>{
   $('lostReasonWrap').style.display=$('status').value==='lost'?'block':'none';
 });
+function renderChases(data){
+  const p=data.project;
+  const active=p.jobStatus==='pending';
+  const sent=String(p.status||'draft')==='sent';
+  const count=Math.min(3,Math.max(0,Number(p.chaseCount)||0));
+  const enabled=!!p.chaseEnabled;
+  $('chaseMarkSent').style.display=sent?'none':'inline-flex';
+  $('chaseMarkSent').disabled=!active;
+  $('chasePause').style.display=sent&&active?'inline-flex':'none';
+  $('chasePause').textContent=enabled?'Pause reminders':'Resume reminders';
+  $('chaseEmailStatus').textContent=data.emailConfigured?'Automatic office email service: configured.':'Automatic office email service: NOT CONFIGURED. The schedule will not send emails until the email sender is connected.';
+  const text=!active?'Reminders stopped: job '+p.jobStatus.toUpperCase():
+    !sent?'Quotation not marked as sent yet. Three reminders will begin once it has been issued.':
+    !enabled?'Reminders paused. '+count+' of 3 office emails issued.':
+    count>=3?'All three weekly office reminders issued.':
+    count+' of 3 reminders issued. Next due: '+(p.nextChaseAt?new Date(p.nextChaseAt).toLocaleDateString('en-GB'):'date pending');
+  $('chaseSummary').textContent=text;
+  const root=$('chaseRows');root.replaceChildren();
+  const reminders=new Map((data.chases||[]).map(x=>[Number(x.round),x]));
+  for(let round=1;round<=3;round++){
+    const r=reminders.get(round);
+    const wrap=elem('div',null,'chase-item'),info=elem('div');
+    info.append(elem('strong','Follow-up '+round+' of 3'),
+      elem('small',r?.completed_at?'Chased and confirmed '+r.completed_at:r?.status==='sent'?'Office reminder sent '+r.sent_at:
+        r?.status==='failed'?'Office reminder failed; system will retry when configured':'Awaiting scheduled office reminder'));
+    if(r?.completion_note)info.append(elem('small','Recorded: '+r.completion_note));
+    const buttons=elem('div',null,'chase-buttons');
+    if(r?.status==='sent'&&!r.completed_at&&active){
+      const send=elem('button','Send client chase email','outline'),confirm=elem('button','Record chase completed','outline');
+      send.type='button';confirm.type='button';
+      send.disabled=!data.emailConfigured;
+      send.title=data.emailConfigured?'Send professional follow-up directly to client and BCC enquiries@ukestimates.com':'Configure email service before direct sending';
+      send.onclick=async()=>{
+        if(!window.confirm('Send follow-up '+round+'/3 to the client now, BCC enquiries@ukestimates.com, and record a copy in this job?'))return;
+        send.disabled=true;
+        try{const result=await post('/api/proposals/'+id+'/chase-send',{round,confirm:true});await load();
+          alertMsg('Client follow-up sent, office BCCed, and email logged: '+result.emailId);}
+        catch(e){alertMsg(e.message,true);send.disabled=false}
+      };
+      confirm.onclick=async()=>{
+        const note=prompt('How did you chase the client? Record the email/phone call details. For external emails, upload the sent email file to Documents after saving.');
+        if(!note)return;
+        confirm.disabled=true;
+        try{await post('/api/proposals/'+id+'/chase-complete',{round,note:note.trim()});await load();
+          alertMsg('Follow-up '+round+'/3 recorded by your staff login and saved on the timeline.');}
+        catch(e){alertMsg(e.message,true);confirm.disabled=false}
+      };
+      buttons.append(send,confirm);
+    }
+    wrap.append(info,buttons);root.append(wrap);
+  }
+}
+$('chaseMarkSent').onclick=async()=>{
+  if(!confirm('Confirm the quotation has already been sent to this client and start 3 weekly office chase reminders? This does not send the quotation.'))return;
+  $('chaseMarkSent').disabled=true;
+  try{await post('/api/proposals/'+id+'/chase-control',{markSent:true});await load();
+    alertMsg('Quotation marked as sent. The office chase timetable starts from today.');}
+  catch(e){alertMsg(e.message,true);$('chaseMarkSent').disabled=false}
+};
+$('chasePause').onclick=async()=>{
+  const enabled=!record?.chaseEnabled;
+  try{await post('/api/proposals/'+id+'/chase-control',{enabled});await load();
+    alertMsg(enabled?'Office reminder sequence resumed.':'Office reminder sequence paused.');}
+  catch(e){alertMsg(e.message,true)}
+};
 $('saveStatus').onclick=async()=>{
  try{
   const jobStatus=$('status').value;
