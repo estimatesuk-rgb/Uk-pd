@@ -633,6 +633,23 @@ async function api(req, env, path) {
       'X-Content-Type-Options':'nosniff'
     }});
   }
+  if(path==='/api/owner/email-test'&&method==='POST'){
+    mustUser(user,'owner');
+    const p=await req.json();
+    if(p.confirm!==true)return appJSON({error:'Confirm the test email to the practice inbox'},400);
+    if(!env.RESEND_API_KEY||!env.MAIL_FROM)return appJSON({error:'Email sender is not configured in Cloudflare. Connect the verified sender domain and Resend API key first.'},503);
+    const message={from:env.MAIL_FROM,to:[OWNER_EMAIL],
+      subject:'Mitchell Proctor - secure email delivery test',
+      text:'Mitchell Proctor Architects email connectivity test.\\n\\nIf this message arrives in enquiries@ukestimates.com, the application can send office notifications.\\nThis email was initiated by the practice owner; no client has been contacted.\\n\\nOpen your Owner Dashboard to confirm connection.'};
+    const remote=await fetch('https://api.resend.com/emails',{method:'POST',
+      headers:{Authorization:'Bearer '+env.RESEND_API_KEY,'Content-Type':'application/json','Idempotency-Key':'mp-owner-test-'+randomHex(12)},
+      body:JSON.stringify(message)});
+    const data=await remote.json().catch(()=>({}));
+    if(!remote.ok||!data.id)return appJSON({error:'Email provider did not accept the test: '+clean(data.message||remote.status,170)},502);
+    await env.DB.prepare('INSERT INTO settings(name,config) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET config=excluded.config')
+      .bind('last_email_test',JSON.stringify({to:OWNER_EMAIL,messageId:data.id,submittedAt:new Date().toISOString()})).run();
+    return appJSON({ok:true,recipient:OWNER_EMAIL,messageId:data.id,details:'Accepted by Resend; check the inbox to confirm delivery.'});
+  }
   if(path==='/api/status'&&method==='GET') return appJSON({emailConfigured:!!(env.RESEND_API_KEY&&env.MAIL_FROM),officeCopy:OWNER_EMAIL,owner:user.role==='owner'});
   return appJSON({error:'Endpoint not found'},404);
 }
