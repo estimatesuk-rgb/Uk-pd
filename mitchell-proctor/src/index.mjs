@@ -516,7 +516,55 @@ async function api(req, env, path) {
   if(path==='/api/status'&&method==='GET') return appJSON({emailConfigured:!!(env.RESEND_API_KEY&&env.MAIL_FROM),officeCopy:OWNER_EMAIL,owner:user.role==='owner'});
   return appJSON({error:'Endpoint not found'},404);
 }
+// Daily office check: one reminder at day 7, 14 and 21 from issuing a quotation.
+async function runOfficeChaseSchedule(env,now=new Date()){
+  const db=env.DB;
+  if(!env.RESEND_API_KEY||!env.MAIL_FROM){
+    console.warn('MP office chase schedule paused: RESEND_API_KEY or MAIL_FROM missing');
+    return {configured:false,sent:0};
+  }
+  const owner=await db.prepare("SELECT id FROM users WHERE role='owner' AND active=1 LIMIT 1").first();
+  if(!owner)return {configured:true,sent:0};
+  const rows=await db.prepare("SELECT id,reference,client,client_email,site_address,chase_started_at,chase_sent_count,job_status,status,chase_enabled FROM proposals WHERE chase_enabled=1 AND chase_started_at IS NOT NULL AND chase_sent_count<3 AND job_status='pending' AND status='sent' ORDER BY chase_started_at,id LIMIT 120").all();
+  let sent=0,failed=0;
+  for(const job of rows.results){
+    const count=Number(job.chase_sent_count||0),round=count+1;
+    if(!chaseIsDue(job.chase_started_at,count,now))continue;
+    const existing=await db.prepare('SELECT status,email_id FROM chase_reminders WHERE proposal_id=? AND round=?').bind(job.id,round).first();
+    if(existing?.status==='sent'){
+      await db.prepare('UPDATE proposals SET chase_sent_count=? WHERE id=? AND chase_sent_count<?').bind(round,job.id,round).run();
+      continue;
+    }
+    await db.prepare("INSERT OR IGNORE INTO chase_reminders(proposal_id,round,status) VALUES(?,?,'pending')").bind(job.id,round).run();
+    const origin='https://mitchell-proctor-fees.estimates-uk.workers.dev';
+    const mail={from:env.MAIL_FROM,to:[OWNER_EMAIL],subject:officeChaseSubject(job.reference,round),
+      text:officeChaseBody(job,round,origin)};
+    try{
+      const res=await fetch('https://api.resend.com/emails',{method:'POST',headers:{
+        'Authorization':'Bearer '+env.RESEND_API_KEY,'Content-Type':'application/json',
+        'Idempotency-Key':'mp-office-chase-'+job.id+'-'+round
+      },body:JSON.stringify(mail)});
+      const data=await res.json().catch(()=>({}));
+      if(!res.ok||!data.id)throw new Error('Resend rejected office reminder '+String(res.status)+': '+clean(data.message||'',150));
+      await db.prepare("UPDATE chase_reminders SET status='sent',email_id=?,sent_at=CURRENT_TIMESTAMP WHERE proposal_id=? AND round=? AND status!='sent'").bind(data.id,job.id,round).run();
+      await db.prepare('UPDATE proposals SET chase_sent_count=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND chase_sent_count<? AND job_status=?').bind(round,job.id,round,'pending').run();
+      await recordProjectEvent(db,job.id,owner,'email','AUTOMATED OFFICE reminder '+round+'/3 emailed to '+OWNER_EMAIL+' (client was NOT emailed). Message ID: '+data.id);
+      sent++;
+    }catch(err){
+      failed++;
+      console.error('MP office reminder failed, proposal '+job.id+' round '+round,err);
+      // Leave this round retryable. The stable Resend idempotency key avoids duplicate sends.
+      await db.prepare("UPDATE chase_reminders SET status='failed' WHERE proposal_id=? AND round=? AND status!='sent'").bind(job.id,round).run();
+    }
+  }
+  console.log('MP chase run',JSON.stringify({seen:rows.results.length,sent,failed,at:now.toISOString()}));
+  return {configured:true,sent,failed};
+}
 export default {
+  async scheduled(controller,env){
+    const data={...env,DB:bindDurableSql(env)};
+    await runOfficeChaseSchedule(data,new Date(controller.scheduledTime||Date.now()));
+  },
   async fetch(request, env) {
     env={...env,DB:bindDurableSql(env)};
     try {
