@@ -144,7 +144,9 @@
    <section class="card">
     <div class="eyebrow">06 / At the client meeting</div><h2>Ready to issue</h2>
     <p class="job-intro">Download the current PDF quotation, or return to the fee studio to prepare email and WhatsApp delivery. Record any client instruction in the timeline above.</p>
-    <div class="job-actions"><a id="quoteShare" class="button" href="/">Prepare email / WhatsApp</a><a id="quoteDownload" class="button outline" href="#" download>PDF quotation</a></div>
+    <div class="job-actions"><button id="sendOutlookJob" class="button" type="button">Email PDF through Outlook</button><a id="quoteShare" class="button outline" href="/">Other email / WhatsApp</a><a id="quoteDownload" class="button outline" href="#" download>PDF quotation</a><a href="/outlook" class="button outline">Outlook connection</a></div>
+    <p id="outlookJobStatus" class="muted" role="status">Direct Outlook sending requires one-time account connection. On compatible phones, Share PDF hands the actual attachment to Outlook.</p>
+    <div class="job-actions"><button id="syncOutlookJob" class="outline" type="button">Check Outlook replies for this job</button></div>
    </section>
   </div>
  </div>
@@ -380,6 +382,40 @@ $('uploadForm').onsubmit=async event=>{
     $('uploadProgress').textContent='Upload interrupted. The project record is unchanged until the file passes verification. Please retry.';
     alertMsg(err.message,true);
   }finally{button.disabled=false}
+};
+$('sendOutlookJob').onclick=async()=>{
+ const button=$('sendOutlookJob');button.disabled=true;
+ try{
+  const mail=await api('/api/outlook/status');
+  if(mail.connected){
+   if(!confirm('Send the PDF quotation from '+mail.mailbox+' to '+record.clientEmail+' in Outlook, with office copy and history record?'))return;
+   const result=await post('/api/proposals/'+id+'/outlook-send',{confirm:true});
+   $('outlookJobStatus').textContent='Microsoft Outlook accepted '+result.attached+' for '+result.to+'. Review Outlook Sent Items for delivery.';
+   await load();alertMsg('Outlook accepted the email with the PDF attached. Job history updated.');
+   return;
+  }
+  const response=await fetch('/api/proposals/'+id+'/pdf',{credentials:'same-origin'});
+  if(!response.ok)throw Error('Could not prepare PDF quotation');
+  const pdf=await response.blob(),file=new File([pdf],record.reference+'_Fee_Proposal.pdf',{type:'application/pdf'});
+  const subject='Mitchell Proctor Architects | Fee proposal '+record.reference;
+  const body='Dear '+record.client+',\n\nPlease find attached our architectural fee proposal for '+record.address+'.\n\nKind regards,\nMitchell Proctor Architects';
+  if(navigator.canShare&&navigator.canShare({files:[file]})){
+    await navigator.share({files:[file],title:subject,text:body+'\nRecipient: '+record.clientEmail});
+    $('outlookJobStatus').textContent='PDF handed to share sheet. Verify that Outlook received it and press Send. An external send cannot be automatically confirmed here.';
+    return;
+  }
+  const url=URL.createObjectURL(pdf),a=document.createElement('a');a.href=url;a.download=file.name;a.click();setTimeout(()=>URL.revokeObjectURL(url),25000);
+  const outlookUrl='https://outlook.office.com/mail/deeplink/compose?to='+encodeURIComponent(record.clientEmail)+'&subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body);
+  const link=elem('a','Open prepared Outlook email','button outline');link.href=outlookUrl;link.target='_blank';link.rel='noopener noreferrer';
+  $('outlookJobStatus').replaceChildren(document.createTextNode('PDF downloaded. Open Outlook, ATTACH the downloaded PDF, and press Send. '),link);
+ }catch(err){if(err.name!=='AbortError'){alertMsg('Outlook send: '+err.message,true)}}
+ finally{button.disabled=false}
+};
+$('syncOutlookJob').onclick=async()=>{
+ const b=$('syncOutlookJob');b.disabled=true;
+ try{const result=await post('/api/outlook/sync',{});await load();alertMsg('Outlook checked '+result.checked+' recent emails; '+result.imported+' newly referenced replies filed in Job Files.')}
+ catch(err){alertMsg('Outlook reply sync: '+err.message,true)}
+ finally{b.disabled=false}
 };
 $('signout').onclick=async()=>{
  try{await post('/api/logout',{})}finally{location.replace('/login')}
