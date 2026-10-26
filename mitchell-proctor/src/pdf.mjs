@@ -15,14 +15,19 @@ const safe=x=>val(x).replace(/[^\u0020-\u007e\u00a0-\u00ff]/g,c=>({
 const cents=x=>Math.round(Number(x||0)*100);
 const pounds=x=>money((Number(x)||0)/100);
 function feeLines(p){
-  const area=Number(p.area)||0;
-  const chargeArea=area>0&&area<25?25:area;
+  const area=Number(p.area)||0,chargeArea=area>0&&area<25?25:area;
+  const mode=p.feeMode||'sqm',band=p.pricingBand;
+  const quote=(x,fallback)=>{
+    if(mode==='sqm')return fallback;
+    if(x.quotedFee!==null&&x.quotedFee!==undefined&&x.quotedFee!=='')return Number(x.quotedFee);
+    return mode==='bespoke'?0:Number(x.bandFees?.[band]??0);
+  };
   const lines=[];
   for(const item of Array.isArray(p.stages)?p.stages:[]){
-    if(item.selected)lines.push({name:val(item.title||'Architectural service'),description:val(item.scope),fee:cents(Number(item.rate||0)*chargeArea)});
+    if(item.selected)lines.push({name:val(item.title||'Architectural service'),description:val(item.scope),fee:cents(quote(item,Number(item.rate||0)*chargeArea))});
   }
   for(const item of Array.isArray(p.extras)?p.extras:[]){
-    if(item.selected)lines.push({name:val(item.title||'Additional service'),description:val(item.desc),fee:cents(item.amount)});
+    if(item.selected)lines.push({name:val(item.title||'Additional service'),description:val(item.desc),fee:cents(quote(item,Number(item.amount)||0))});
   }
   for(const item of Array.isArray(p.adjustments)?p.adjustments:[]){
     if(Number(item.amount)>0)lines.push({name:val(item.description||'Fee adjustment'),fee:(item.kind==='omission'?-1:1)*cents(item.amount)});
@@ -136,7 +141,8 @@ export async function proposalPdf(row){
   tableRow('Professional fees excluding VAT',pounds(fee),{bold:true,shade:true});
   tableRow('VAT ('+vatRate+'%)',pounds(vat));
   tableRow('Professional fees including VAT',pounds(gross),{bold:true,shade:true});
-  paragraph('Fees are based on the selected work stages and agreed fee adjustments. For areas below 25 m2, a minimum 25 m2 chargeable floor is used for selected per-m2 stages.');
+  const feeBasis=p.feeMode==='band'?'Fixed project-category prices ('+safe(p.pricingBand||'unselected')+'), adjusted for agreed individual services.':p.feeMode==='bespoke'?'Project-specific bespoke fees agreed for each commissioned service.':'Fees use individual £/m2 rates and a minimum 25 m2 floor for selected per-m2 stages.';
+  paragraph(feeBasis+' The final scope and pricing remain subject to formal appointment.');
   section('04  Exclusions and other appointments');
   const omitted=(p.stages||[]).filter(x=>!x.selected).map(x=>val(x.title));
   const excluded=[...(p.exclusions||[]).filter(x=>x.on).map(x=>val(x.title)),...val(p.extraExclusions).split(';').filter(Boolean)];
