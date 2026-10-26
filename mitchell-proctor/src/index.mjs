@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { proposalPdf } from "./pdf.mjs";
 import { makePricingDefaults, resolvePricingDefaults, validBand, BAND_IDS } from "./pricing-defaults.mjs";
 import { calculateProfessionalFee } from "./fee-math.mjs";
+import { chaseIsDue,nextChaseDate,officeChaseSubject,officeChaseBody,clientChaseBody,CHASE_ROUNDS } from "./chase-policy.mjs";
 export class MpSqlStore extends DurableObject {
  constructor(ctx,env){
   super(ctx,env);
@@ -17,6 +18,11 @@ export class MpSqlStore extends DurableObject {
   if(!columns.some(c=>c.name==="lost_reason"))this.sql.exec("ALTER TABLE proposals ADD COLUMN lost_reason TEXT NOT NULL DEFAULT ''");
   if(!columns.some(c=>c.name==="next_action"))this.sql.exec("ALTER TABLE proposals ADD COLUMN next_action TEXT NOT NULL DEFAULT ''");
   if(!columns.some(c=>c.name==="next_action_due"))this.sql.exec("ALTER TABLE proposals ADD COLUMN next_action_due TEXT NOT NULL DEFAULT ''");
+  if(!columns.some(c=>c.name==="chase_enabled"))this.sql.exec("ALTER TABLE proposals ADD COLUMN chase_enabled INTEGER NOT NULL DEFAULT 0");
+  if(!columns.some(c=>c.name==="chase_started_at"))this.sql.exec("ALTER TABLE proposals ADD COLUMN chase_started_at TEXT");
+  if(!columns.some(c=>c.name==="chase_sent_count"))this.sql.exec("ALTER TABLE proposals ADD COLUMN chase_sent_count INTEGER NOT NULL DEFAULT 0");
+  this.sql.exec("CREATE TABLE IF NOT EXISTS chase_reminders (id INTEGER PRIMARY KEY AUTOINCREMENT,proposal_id INTEGER NOT NULL,round INTEGER NOT NULL,status TEXT NOT NULL DEFAULT 'pending',email_id TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,sent_at TEXT,completed_at TEXT,completed_by INTEGER,completion_note TEXT,client_email_id TEXT,UNIQUE(proposal_id,round));");
+  this.sql.exec("CREATE INDEX IF NOT EXISTS idx_mp_chases_project ON chase_reminders(proposal_id,round);");
   this.sql.exec("CREATE TABLE IF NOT EXISTS project_events (id INTEGER PRIMARY KEY AUTOINCREMENT,proposal_id INTEGER NOT NULL,event_type TEXT NOT NULL,body TEXT NOT NULL,created_by INTEGER NOT NULL,occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);");
   this.sql.exec("CREATE INDEX IF NOT EXISTS idx_mp_events_project ON project_events(proposal_id,id);");
   this.sql.exec("CREATE TABLE IF NOT EXISTS project_files (id INTEGER PRIMARY KEY AUTOINCREMENT,proposal_id INTEGER NOT NULL,file_name TEXT NOT NULL,mime_type TEXT NOT NULL,kind TEXT NOT NULL DEFAULT 'document',size_bytes INTEGER NOT NULL,content_base64 TEXT NOT NULL,uploaded_by INTEGER NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);");
@@ -162,7 +168,7 @@ function base64FromBytes(bytes){
   return btoa(value);
 }
 async function quoteRow(db, id, user) {
-  const row = await db.prepare('SELECT id,reference,created_by,payload,fee_ex_vat,client_email,client,site_address,status,job_status,job_stage,agreed_fee_ex_vat,agreed_at,revision,lost_reason,next_action,next_action_due,created_at FROM proposals WHERE id=?').bind(id).first();
+  const row = await db.prepare('SELECT id,reference,created_by,payload,fee_ex_vat,client_email,client,site_address,status,job_status,job_stage,agreed_fee_ex_vat,agreed_at,revision,lost_reason,next_action,next_action_due,chase_enabled,chase_started_at,chase_sent_count,created_at FROM proposals WHERE id=?').bind(id).first();
   if (!row) throw Object.assign(new Error('Quotation not found'), {status:404});
   return row;
 }
@@ -264,8 +270,8 @@ async function api(req, env, path) {
     return appJSON({ok:true,pricing});
   }
   if(path==='/api/proposals' && method==='GET'){
-    const rows=await env.DB.prepare('SELECT id,reference,client,site_address,fee_ex_vat,updated_at,payload,status,job_status,job_stage,agreed_fee_ex_vat,agreed_at,revision,lost_reason,next_action,next_action_due FROM proposals ORDER BY id DESC LIMIT 500').all();
-    return appJSON({projects:rows.results.map(r=>({id:r.id,key:r.reference+'::'+r.client,reference:r.reference,name:JSON.parse(r.payload).projectName||r.client,fee:Number(r.fee_ex_vat),updatedAt:r.updated_at,data:{...JSON.parse(r.payload),reference:r.reference},status:r.status,jobStatus:r.job_status||"pending",jobStage:r.job_stage||"enquiry",agreedFee:r.agreed_fee_ex_vat,agreedAt:r.agreed_at,revision:r.revision,lostReason:r.lost_reason||'',nextAction:r.next_action||'',nextActionDue:r.next_action_due||''}))});
+    const rows=await env.DB.prepare('SELECT id,reference,client,site_address,fee_ex_vat,updated_at,payload,status,job_status,job_stage,agreed_fee_ex_vat,agreed_at,revision,lost_reason,next_action,next_action_due,chase_enabled,chase_started_at,chase_sent_count FROM proposals ORDER BY id DESC LIMIT 500').all();
+    return appJSON({projects:rows.results.map(r=>({id:r.id,key:r.reference+'::'+r.client,reference:r.reference,name:JSON.parse(r.payload).projectName||r.client,fee:Number(r.fee_ex_vat),updatedAt:r.updated_at,data:{...JSON.parse(r.payload),reference:r.reference},status:r.status,jobStatus:r.job_status||"pending",jobStage:r.job_stage||"enquiry",agreedFee:r.agreed_fee_ex_vat,agreedAt:r.agreed_at,revision:r.revision,lostReason:r.lost_reason||'',nextAction:r.next_action||'',nextActionDue:r.next_action_due||'',chaseEnabled:!!r.chase_enabled,chaseCount:Number(r.chase_sent_count||0),chaseStartedAt:r.chase_started_at||null,nextChaseAt:r.chase_enabled?nextChaseDate(r.chase_started_at,Number(r.chase_sent_count||0))?.toISOString()||null:null}))});
   }
   if(path==='/api/proposals' && method==='POST'){
     const p=await req.json(); const data=safePayload(p.data);
@@ -284,7 +290,7 @@ async function api(req, env, path) {
     await recordProjectEvent(env.DB,id,user,'quotation',p.silent===true?'Initial quotation autosaved':'Initial quotation saved');
     return appJSON({ok:true,id,reference,fee,revision:1});
   }
-  const workspacePath=path.match(/^\/api\/proposals\/(\d+)\/(workspace|events|files|stage|accept|note-draft|follow-up)(?:\/(\d+))?$/);
+  const workspacePath=path.match(/^\/api\/proposals\/(\d+)\/(workspace|events|files|stage|accept|note-draft|follow-up|chase-control|chase-complete|chase-send)(?:\/(\d+))?$/);
   if(workspacePath){
     const id=Number(workspacePath[1]),action=workspacePath[2],fileId=Number(workspacePath[3]);
     const row=await quoteRow(env.DB,id,user);
@@ -292,7 +298,8 @@ async function api(req, env, path) {
       const events=await env.DB.prepare('SELECT e.id,e.event_type,e.body,e.occurred_at,e.created_at,u.name AS author FROM project_events e LEFT JOIN users u ON u.id=e.created_by WHERE e.proposal_id=? ORDER BY e.id DESC LIMIT 500').bind(id).all();
       const docs=await env.DB.prepare('SELECT id,file_name,mime_type,kind,size_bytes,created_at FROM project_files WHERE proposal_id=? ORDER BY id DESC LIMIT 200').bind(id).all();
       const noteDraft=await env.DB.prepare('SELECT event_type,body,updated_at FROM project_note_drafts WHERE proposal_id=? AND user_id=?').bind(id,user.id).first();
-      return appJSON({project:{id,reference:row.reference,client:row.client,address:row.site_address,status:row.status,jobStatus:row.job_status||'pending',jobStage:row.job_stage||'enquiry',fee:Number(row.fee_ex_vat),agreedFee:row.agreed_fee_ex_vat,agreedAt:row.agreed_at,lostReason:row.lost_reason||'',nextAction:row.next_action||'',nextActionDue:row.next_action_due||'',createdAt:row.created_at},events:events.results,files:docs.results,phases:JOB_PHASES,noteDraft});
+      const chases=await env.DB.prepare('SELECT round,status,sent_at,completed_at,completion_note,email_id,client_email_id FROM chase_reminders WHERE proposal_id=? ORDER BY round').bind(id).all();
+      return appJSON({project:{id,reference:row.reference,client:row.client,address:row.site_address,status:row.status,jobStatus:row.job_status||'pending',jobStage:row.job_stage||'enquiry',fee:Number(row.fee_ex_vat),agreedFee:row.agreed_fee_ex_vat,agreedAt:row.agreed_at,lostReason:row.lost_reason||'',nextAction:row.next_action||'',nextActionDue:row.next_action_due||'',chaseEnabled:!!row.chase_enabled,chaseCount:Number(row.chase_sent_count||0),chaseStartedAt:row.chase_started_at||null,nextChaseAt:row.chase_enabled?nextChaseDate(row.chase_started_at,Number(row.chase_sent_count||0))?.toISOString()||null:null,createdAt:row.created_at},events:events.results,files:docs.results,chases:chases.results,phases:JOB_PHASES,noteDraft,emailConfigured:!!(env.RESEND_API_KEY&&env.MAIL_FROM)});
     }
     if(method==='POST'&&action==='note-draft'){
       const p=await req.json();
@@ -311,6 +318,55 @@ async function api(req, env, path) {
       await recordProjectEvent(env.DB,id,user,type,body);
       await env.DB.prepare('DELETE FROM project_note_drafts WHERE proposal_id=? AND user_id=?').bind(id,user.id).run();
       return appJSON({ok:true});
+    }
+    if(method==='POST'&&action==='chase-control'){
+      const p=await req.json();
+      if(p.markSent===true){
+        if(row.job_status!=='pending')return appJSON({error:'Only Pending quotations may be enrolled for chasing'},409);
+        await env.DB.prepare("UPDATE proposals SET status='sent',chase_enabled=1,chase_started_at=COALESCE(chase_started_at,CURRENT_TIMESTAMP),updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(id).run();
+        await recordProjectEvent(env.DB,id,user,'email','Team confirmed that this proposal has been issued to the client. Three weekly OFFICE reminders started.');
+        return appJSON({ok:true,chaseEnabled:true});
+      }
+      if(typeof p.enabled!=='boolean')return appJSON({error:'Specify enabled true or false'},400);
+      if(p.enabled&&(!row.chase_started_at||row.status!=='sent'))return appJSON({error:'Mark quotation as sent to start office chase reminders'},409);
+      if(row.job_status!=='pending'&&p.enabled)return appJSON({error:'Won/Lost jobs do not receive chase reminders'},409);
+      await env.DB.prepare('UPDATE proposals SET chase_enabled=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(p.enabled?1:0,id).run();
+      await recordProjectEvent(env.DB,id,user,'milestone','Office quotation reminder sequence '+(p.enabled?'resumed':'paused'));
+      return appJSON({ok:true,chaseEnabled:p.enabled});
+    }
+    if(method==='POST'&&action==='chase-complete'){
+      const p=await req.json(),round=Number(p.round);
+      if(!Number.isInteger(round)||round<1||round>3)return appJSON({error:'Choose chase reminder 1, 2 or 3'},400);
+      const record=await env.DB.prepare('SELECT round,status,completed_at FROM chase_reminders WHERE proposal_id=? AND round=?').bind(id,round).first();
+      if(!record||record.status!=='sent')return appJSON({error:'That office reminder has not been sent yet'},409);
+      if(record.completed_at)return appJSON({error:'This chase has already been recorded as completed'},409);
+      const note=String(p.note||'').trim();
+      if(note.length<8||note.length>2000)return appJSON({error:'Describe how the client was contacted (8–2000 characters)'},400);
+      await env.DB.prepare('UPDATE chase_reminders SET completed_at=CURRENT_TIMESTAMP,completed_by=?,completion_note=? WHERE proposal_id=? AND round=? AND completed_at IS NULL').bind(user.id,note,id,round).run();
+      await recordProjectEvent(env.DB,id,user,'email','Weekly chase '+round+'/3 COMPLETED by staff: '+note);
+      return appJSON({ok:true,round,recorded:true,note:'If this email was sent outside the platform, upload the actual .eml/.msg copy to the Job File to retain evidence.'});
+    }
+    if(method==='POST'&&action==='chase-send'){
+      const p=await req.json(),round=Number(p.round);
+      if(!Number.isInteger(round)||round<1||round>3)return appJSON({error:'Invalid reminder round'},400);
+      if(row.job_status!=='pending')return appJSON({error:'This quotation is no longer pending'},409);
+      if(!env.RESEND_API_KEY||!env.MAIL_FROM)return appJSON({error:'Automatic email not configured. Prepare the email in your mail app, then record the chase and upload the sent message.'},503);
+      const record=await env.DB.prepare('SELECT status,completed_at,client_email_id FROM chase_reminders WHERE proposal_id=? AND round=?').bind(id,round).first();
+      if(!record||record.status!=='sent')return appJSON({error:'The office reminder for this round has not been sent yet'},409);
+      if(record.completed_at||record.client_email_id)return appJSON({error:'This chase has already been completed or emailed to the client'},409);
+      if(p.confirm!==true)return appJSON({error:'Confirm before sending an email to the client'},400);
+      if(!validEmail(row.client_email))return appJSON({error:'Client email address is invalid'},400);
+      const mail={from:env.MAIL_FROM,to:[row.client_email],bcc:[OWNER_EMAIL],
+        subject:'Follow-up: architectural fee proposal '+row.reference,
+        text:clientChaseBody(row)};
+      const res=await fetch('https://api.resend.com/emails',{method:'POST',
+        headers:{Authorization:'Bearer '+env.RESEND_API_KEY,'Content-Type':'application/json','Idempotency-Key':'mp-client-chase-'+id+'-'+round},
+        body:JSON.stringify(mail)});
+      const sent=await res.json().catch(()=>({}));
+      if(!res.ok||!sent.id)return appJSON({error:'Client chase email could not be sent: '+clean(sent.message||res.status,180)},502);
+      await env.DB.prepare("UPDATE chase_reminders SET client_email_id=?,completed_at=CURRENT_TIMESTAMP,completed_by=?,completion_note=? WHERE proposal_id=? AND round=? AND completed_at IS NULL").bind(sent.id,user.id,'Chase email sent via the platform, BCC to '+OWNER_EMAIL,id,round).run();
+      await recordProjectEvent(env.DB,id,user,'email','Client chase '+round+'/3 SENT via platform to '+row.client_email+' (BCC '+OWNER_EMAIL+'). Message ID: '+sent.id+'. Subject: '+mail.subject+'\\n'+mail.text);
+      return appJSON({ok:true,round,emailId:sent.id,to:row.client_email,officeCopy:OWNER_EMAIL});
     }
     if(method==='POST'&&action==='follow-up'){
       const p=await req.json();
@@ -391,6 +447,7 @@ async function api(req, env, path) {
       await env.DB.prepare('DELETE FROM project_events WHERE proposal_id=?').bind(id).run();
       await env.DB.prepare('DELETE FROM project_files WHERE proposal_id=?').bind(id).run();
       await env.DB.prepare('DELETE FROM project_note_drafts WHERE proposal_id=?').bind(id).run();
+      await env.DB.prepare('DELETE FROM chase_reminders WHERE proposal_id=?').bind(id).run();
       await env.DB.prepare('DELETE FROM proposals WHERE id=?').bind(id).run();return appJSON({ok:true});
     }
     if(method==='GET'&&action==='pdf'){
@@ -416,7 +473,7 @@ async function api(req, env, path) {
       const remote=await fetch('https://api.resend.com/emails',{method:'POST',headers:{'Authorization':'Bearer '+env.RESEND_API_KEY,'Content-Type':'application/json'},body:JSON.stringify(mail)});
       const sent=await remote.json().catch(()=>({}));
       if(!remote.ok||!sent.id)return appJSON({error:'Mail service rejected send: '+clean(sent.message||remote.status,220)},502);
-      await env.DB.prepare("UPDATE proposals SET status='sent',last_email_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(sent.id,id).run();
+      await env.DB.prepare("UPDATE proposals SET status='sent',last_email_id=?,chase_enabled=1,chase_started_at=COALESCE(chase_started_at,CURRENT_TIMESTAMP),updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(sent.id,id).run();
       await recordProjectEvent(env.DB,id,user,'email','Proposal PDF sent to '+row.client_email+'; BCC '+OWNER_EMAIL+'. Email reference '+clean(sent.id,80));
       return appJSON({ok:true,messageId:sent.id,subject,recipient:row.client_email,office:OWNER_EMAIL});
     }
