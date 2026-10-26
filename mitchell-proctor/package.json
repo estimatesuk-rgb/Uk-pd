@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "deploy": "node scripts/ci-deploy.mjs",
-    "check": "node --check src/index.mjs && node --check src/pdf.mjs && node --check public/cloud-sync.js && node tests/pdf-smoke.mjs && node tests/pricing-smoke.mjs && node tests/pricing-bands-smoke.mjs && node tests/workspace-smoke.mjs && node tests/chase-smoke.mjs"
+    "check": "node --check src/index.mjs && node --check src/pdf.mjs && node --check public/cloud-sync.js && node tests/pdf-smoke.mjs && node tests/pricing-smoke.mjs && node tests/pricing-bands-smoke.mjs && node tests/workspace-smoke.mjs && node tests/chase-smoke.mjs && node --check src/outlook-graph.mjs && node --check src/outlook-service.mjs && node tests/outlook-smoke.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"
