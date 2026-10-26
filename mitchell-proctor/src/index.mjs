@@ -19,6 +19,7 @@ export class MpSqlStore extends DurableObject {
   this.sql.exec("CREATE TABLE IF NOT EXISTS project_files (id INTEGER PRIMARY KEY AUTOINCREMENT,proposal_id INTEGER NOT NULL,file_name TEXT NOT NULL,mime_type TEXT NOT NULL,kind TEXT NOT NULL DEFAULT 'document',size_bytes INTEGER NOT NULL,content_base64 TEXT NOT NULL,uploaded_by INTEGER NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);");
   this.sql.exec("CREATE INDEX IF NOT EXISTS idx_mp_files_project ON project_files(proposal_id,id);");
   this.sql.exec("CREATE TABLE IF NOT EXISTS staff_drafts (user_id INTEGER PRIMARY KEY NOT NULL,payload TEXT NOT NULL,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);");
+  this.sql.exec("CREATE TABLE IF NOT EXISTS project_note_drafts (proposal_id INTEGER NOT NULL,user_id INTEGER NOT NULL,event_type TEXT NOT NULL,body TEXT NOT NULL,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(proposal_id,user_id));");
  }
  async fetch(request){
   try{
@@ -280,14 +281,24 @@ async function api(req, env, path) {
     await recordProjectEvent(env.DB,id,user,'quotation',p.silent===true?'Initial quotation autosaved':'Initial quotation saved');
     return appJSON({ok:true,id,reference,fee,revision:1});
   }
-  const workspacePath=path.match(/^\/api\/proposals\/(\d+)\/(workspace|events|files|stage|accept)(?:\/(\d+))?$/);
+  const workspacePath=path.match(/^\/api\/proposals\/(\d+)\/(workspace|events|files|stage|accept|note-draft)(?:\/(\d+))?$/);
   if(workspacePath){
     const id=Number(workspacePath[1]),action=workspacePath[2],fileId=Number(workspacePath[3]);
     const row=await quoteRow(env.DB,id,user);
     if(method==='GET'&&action==='workspace'){
       const events=await env.DB.prepare('SELECT e.id,e.event_type,e.body,e.occurred_at,e.created_at,u.name AS author FROM project_events e LEFT JOIN users u ON u.id=e.created_by WHERE e.proposal_id=? ORDER BY e.id DESC LIMIT 500').bind(id).all();
       const docs=await env.DB.prepare('SELECT id,file_name,mime_type,kind,size_bytes,created_at FROM project_files WHERE proposal_id=? ORDER BY id DESC LIMIT 200').bind(id).all();
-      return appJSON({project:{id,reference:row.reference,client:row.client,address:row.site_address,status:row.status,jobStatus:row.job_status||'pending',jobStage:row.job_stage||'enquiry',fee:Number(row.fee_ex_vat),agreedFee:row.agreed_fee_ex_vat,agreedAt:row.agreed_at,createdAt:row.created_at},events:events.results,files:docs.results,phases:JOB_PHASES});
+      const noteDraft=await env.DB.prepare('SELECT event_type,body,updated_at FROM project_note_drafts WHERE proposal_id=? AND user_id=?').bind(id,user.id).first();
+      return appJSON({project:{id,reference:row.reference,client:row.client,address:row.site_address,status:row.status,jobStatus:row.job_status||'pending',jobStage:row.job_stage||'enquiry',fee:Number(row.fee_ex_vat),agreedFee:row.agreed_fee_ex_vat,agreedAt:row.agreed_at,createdAt:row.created_at},events:events.results,files:docs.results,phases:JOB_PHASES,noteDraft});
+    }
+    if(method==='POST'&&action==='note-draft'){
+      const p=await req.json();
+      if(p.clear===true){await env.DB.prepare('DELETE FROM project_note_drafts WHERE proposal_id=? AND user_id=?').bind(id,user.id).run();return appJSON({ok:true})}
+      const type=['note','email','call','meeting','milestone','appointment'].includes(p.type)?p.type:'note';
+      const body=String(p.body||'');
+      if(body.length>4000)return appJSON({error:'Note draft too long'},413);
+      await env.DB.prepare('INSERT INTO project_note_drafts(proposal_id,user_id,event_type,body) VALUES(?,?,?,?) ON CONFLICT(proposal_id,user_id) DO UPDATE SET event_type=excluded.event_type,body=excluded.body,updated_at=CURRENT_TIMESTAMP')
+        .bind(id,user.id,type,body).run();return appJSON({ok:true});
     }
     if(method==='POST'&&action==='events'){
       const p=await req.json(),type=String(p.type||'note');
@@ -295,6 +306,7 @@ async function api(req, env, path) {
       const body=String(p.body||'').trim();
       if(!body||body.length>4000)return appJSON({error:'Enter an activity note up to 4,000 characters'},400);
       await recordProjectEvent(env.DB,id,user,type,body);
+      await env.DB.prepare('DELETE FROM project_note_drafts WHERE proposal_id=? AND user_id=?').bind(id,user.id).run();
       return appJSON({ok:true});
     }
     if(method==='POST'&&action==='stage'){
@@ -361,6 +373,7 @@ async function api(req, env, path) {
       if(!await verifyPassword(String(p.password||''),account.password_hash))return appJSON({error:'Password confirmation failed'},403);
       await env.DB.prepare('DELETE FROM project_events WHERE proposal_id=?').bind(id).run();
       await env.DB.prepare('DELETE FROM project_files WHERE proposal_id=?').bind(id).run();
+      await env.DB.prepare('DELETE FROM project_note_drafts WHERE proposal_id=?').bind(id).run();
       await env.DB.prepare('DELETE FROM proposals WHERE id=?').bind(id).run();return appJSON({ok:true});
     }
     if(method==='GET'&&action==='pdf'){
