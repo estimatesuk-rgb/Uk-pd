@@ -587,7 +587,7 @@ async function api(req, env, path) {
     }
     return appJSON({error:'Unsupported job action'},405);
   }
-  const proposal=path.match(/^\/api\/proposals\/(\d+)(?:\/(send|delete|status|pdf))?$/);
+  const proposal=path.match(/^\/api\/proposals\/(\d+)(?:\/(send|outlook-send|delete|status|pdf))?$/);
   if (proposal) {
     const id=Number(proposal[1]);const action=proposal[2];const row=await quoteRow(env.DB,id,user);
     if(method==='GET'&&!action)return appJSON({proposal:{id:row.id,reference:row.reference,data:{...JSON.parse(row.payload),reference:row.reference},status:row.status,jobStatus:row.job_status||"pending",jobStage:row.job_stage||"enquiry",agreedFee:row.agreed_fee_ex_vat,agreedAt:row.agreed_at,revision:row.revision,lostReason:row.lost_reason||'',nextAction:row.next_action||'',nextActionDue:row.next_action_due||''}});
@@ -620,6 +620,36 @@ async function api(req, env, path) {
         'Cache-Control':'private, no-store',
         'X-Content-Type-Options':'nosniff'
       }});
+    }
+    if(method==='POST'&&action==='outlook-send'){
+      if(!isOutlookConfigured(env))return appJSON({error:'Microsoft 365 Outlook is not connected to this app. Open Outlook Settings to connect, or use Share PDF to Outlook.'},503);
+      const input=await req.json();
+      if(input.confirm!==true)return appJSON({error:'Confirm before emailing a client'},400);
+      if(!validEmail(row.client_email))return appJSON({error:'Client email address is invalid'},400);
+      const recently=await env.DB.prepare("SELECT id FROM outlook_sent WHERE proposal_id=? AND user_id=? AND created_at>datetime('now','-60 seconds') ORDER BY id DESC LIMIT 1").bind(id,user.id).first();
+      if(recently)return appJSON({error:'This quotation was sent with Outlook in the last minute. Please check Sent Items before sending again.'},409);
+      const outlook=await activeOutlookAccount(env,user.id);
+      if(!outlook)return appJSON({error:'Connect your Outlook account first, then retry.'},409);
+      const pdf=await proposalPdf(row);
+      if(pdf.byteLength>2.75*1024*1024)return appJSON({error:'The quotation PDF exceeds the direct Microsoft Graph attachment size. Use Share PDF to Outlook instead.'},413);
+      const outgoing=outlookEmailMessage(row,base64FromBytes(pdf),OWNER_EMAIL,outlook.row.mailbox);
+      const request=await graphCall(outlook.accessToken,'/me/sendMail',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(outgoing.payload)
+      });
+      if(request.status!==202){
+        const detail=await request.json().catch(()=>({}));
+        return appJSON({error:'Microsoft Outlook could not accept the email ('+request.status+'). '+clean(detail.error?.message||'',180)},502);
+      }
+      await env.DB.prepare('INSERT INTO outlook_sent(proposal_id,user_id,subject,to_address,from_address,client_body,attached_name) VALUES(?,?,?,?,?,?,?)')
+        .bind(id,user.id,outgoing.subject,row.client_email,outlook.row.mailbox,outgoing.text,row.reference+'_Fee_Proposal.pdf').run();
+      await env.DB.prepare("UPDATE proposals SET status='sent',chase_enabled=1,chase_started_at=COALESCE(chase_started_at,CURRENT_TIMESTAMP),updated_at=CURRENT_TIMESTAMP WHERE id=?")
+        .bind(id).run();
+      const copy=outlook.row.mailbox.toLowerCase()===OWNER_EMAIL.toLowerCase()?'saved in office Outlook Sent Items':'office BCC '+OWNER_EMAIL;
+      await recordProjectEvent(env.DB,id,user,'email','OUTLOOK ACCEPTED client quotation PDF attachment: '+row.reference+'_Fee_Proposal.pdf; from '+outlook.row.mailbox+'; to '+row.client_email+'; '+copy+'; subject '+outgoing.subject+'\n'+outgoing.text);
+      return appJSON({ok:true,accepted:true,provider:'Microsoft Outlook',sender:outlook.row.mailbox,to:row.client_email,
+        attached:row.reference+'_Fee_Proposal.pdf',subject:outgoing.subject,officeCopy:copy,outlookUrl:OUTLOOK_DASHBOARD,
+        note:'Microsoft Graph accepted the email. Delivery is not guaranteed until confirmed by Outlook.'});
     }
     if(method==='POST'&&action==='send'){
       if(!env.RESEND_API_KEY || !env.MAIL_FROM)return appJSON({error:'Automatic email not configured. Download and attach the PDF to the prepared email draft instead.'},503);
