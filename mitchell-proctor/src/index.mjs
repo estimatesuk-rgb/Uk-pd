@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { proposalPdf } from "./pdf.mjs";
 import { makePricingDefaults, resolvePricingDefaults, validBand, BAND_IDS } from "./pricing-defaults.mjs";
 import { calculateProfessionalFee } from "./fee-math.mjs";
+import {isOutlookConfigured,OUTLOOK_SCOPES,OUTLOOK_DASHBOARD,redirectFor,randomUrlToken,outlookAuthorizeUrl,microsoftTokenRequest,graphCall,encryptOutlookTokens,decryptOutlookTokens,outlookEmailMessage,safeOutlookHtmlToText,nextOutlookSubjectRef} from "./outlook-graph.mjs";
 import { chaseIsDue,nextChaseDate,officeChaseSubject,officeChaseBody,clientChaseBody,CHASE_ROUNDS } from "./chase-policy.mjs";
 export class MpSqlStore extends DurableObject {
  constructor(ctx,env){
@@ -31,6 +32,12 @@ export class MpSqlStore extends DurableObject {
   if(!fileColumns.some(c=>c.name==='storage_kind'))this.sql.exec("ALTER TABLE project_files ADD COLUMN storage_kind TEXT NOT NULL DEFAULT 'inline'");
   if(!fileColumns.some(c=>c.name==='ready'))this.sql.exec("ALTER TABLE project_files ADD COLUMN ready INTEGER NOT NULL DEFAULT 1");
   this.sql.exec("CREATE TABLE IF NOT EXISTS project_file_chunks (file_id INTEGER NOT NULL,part INTEGER NOT NULL,content_base64 TEXT NOT NULL,raw_bytes INTEGER NOT NULL,PRIMARY KEY(file_id,part));");
+  this.sql.exec("CREATE TABLE IF NOT EXISTS outlook_oauth_states (state TEXT PRIMARY KEY,user_id INTEGER NOT NULL,verifier TEXT NOT NULL,expires_at TEXT NOT NULL);");
+  this.sql.exec("CREATE TABLE IF NOT EXISTS outlook_connections (user_id INTEGER PRIMARY KEY,account_id TEXT NOT NULL,mailbox TEXT NOT NULL,secret_cipher TEXT NOT NULL,expires_at INTEGER NOT NULL,last_synced_at TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);");
+  this.sql.exec("CREATE TABLE IF NOT EXISTS outlook_sent (id INTEGER PRIMARY KEY AUTOINCREMENT,proposal_id INTEGER NOT NULL,user_id INTEGER NOT NULL,subject TEXT NOT NULL,to_address TEXT NOT NULL,from_address TEXT NOT NULL,client_body TEXT NOT NULL,attached_name TEXT NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);");
+  this.sql.exec("CREATE INDEX IF NOT EXISTS idx_outlook_sent_job ON outlook_sent(proposal_id,created_at);");
+  this.sql.exec("CREATE TABLE IF NOT EXISTS project_inbound_emails (id INTEGER PRIMARY KEY AUTOINCREMENT,provider_id TEXT UNIQUE NOT NULL,proposal_id INTEGER NOT NULL,subject TEXT NOT NULL,from_address TEXT NOT NULL,to_addresses TEXT NOT NULL,text_body TEXT NOT NULL,received_at TEXT NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);");
+  this.sql.exec("CREATE INDEX IF NOT EXISTS idx_incoming_job ON project_inbound_emails(proposal_id,created_at);");
   this.sql.exec("CREATE TABLE IF NOT EXISTS staff_drafts (user_id INTEGER PRIMARY KEY NOT NULL,payload TEXT NOT NULL,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);");
   this.sql.exec("CREATE TABLE IF NOT EXISTS project_note_drafts (proposal_id INTEGER NOT NULL,user_id INTEGER NOT NULL,event_type TEXT NOT NULL,body TEXT NOT NULL,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(proposal_id,user_id));");
  }
@@ -49,7 +56,9 @@ export class MpSqlStore extends DurableObject {
        ['project_file_chunks','SELECT * FROM project_file_chunks'],
        ['project_note_drafts','SELECT * FROM project_note_drafts'],
        ['chase_reminders','SELECT * FROM chase_reminders'],
-       ['staff_drafts','SELECT * FROM staff_drafts']
+       ['staff_drafts','SELECT * FROM staff_drafts'],
+       ['outlook_sent','SELECT * FROM outlook_sent'],
+       ['project_inbound_emails','SELECT * FROM project_inbound_emails']
      ];
      const encoder=new TextEncoder(),store=this.sql;
      let tableIdx=-1,cursor=null,started=false;
