@@ -87,7 +87,7 @@ async function mpDeliveryConfirmSent(){
   if(!window.confirm('Confirm you have ACTUALLY sent the PDF quotation to the client via '+channel.toUpperCase()+'? This records the issue date and permanently archives the PDF on the job.'))return;
   try{
     const done=await mpAPI('/api/proposals/'+p.jobId+'/delivery-log',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({medium:channel,confirm:true})});
+      body:JSON.stringify({medium:channel,confirm:true,revision:p.revision})});
     mpDeliveryStatus(done.message+' The weekly office reminders are activated for Pending jobs.');
     await mpRefreshProjects();
     const confirmButton=document.getElementById('mpDeliveryConfirm');if(confirmButton)confirmButton.disabled=true;
@@ -143,7 +143,7 @@ async function mpPrepareDelivery(kind='share'){
       mpAPI('/api/status').catch(()=>({emailConfigured:false})),
       mpAPI('/api/outlook/status').catch(()=>({connected:false,configured:false}))
     ]);
-    const p={file,kind,jobId:currentProposalId,snapshot:JSON.stringify(state),
+    const p={file,kind,jobId:currentProposalId,revision:currentProposalRevision,snapshot:JSON.stringify(state),
       reference:state.reference,email:state.clientEmail,phone:state.clientPhone,
       client:state.client,address:state.address,
       subject:'Mitchell Proctor Architects | Fee proposal '+state.reference,
