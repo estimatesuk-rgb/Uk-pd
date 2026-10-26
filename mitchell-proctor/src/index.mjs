@@ -587,7 +587,7 @@ async function api(req, env, path) {
     }
     return appJSON({error:'Unsupported job action'},405);
   }
-  const proposal=path.match(/^\/api\/proposals\/(\d+)(?:\/(send|outlook-send|delete|status|pdf))?$/);
+  const proposal=path.match(/^\/api\/proposals\/(\d+)(?:\/(send|outlook-send|delivery-log|delete|status|pdf))?$/);
   if (proposal) {
     const id=Number(proposal[1]);const action=proposal[2];const row=await quoteRow(env.DB,id,user);
     if(method==='GET'&&!action)return appJSON({proposal:{id:row.id,reference:row.reference,data:{...JSON.parse(row.payload),reference:row.reference},status:row.status,jobStatus:row.job_status||"pending",jobStage:row.job_stage||"enquiry",agreedFee:row.agreed_fee_ex_vat,agreedAt:row.agreed_at,revision:row.revision,lostReason:row.lost_reason||'',nextAction:row.next_action||'',nextActionDue:row.next_action_due||''}});
@@ -620,6 +620,24 @@ async function api(req, env, path) {
         'Cache-Control':'private, no-store',
         'X-Content-Type-Options':'nosniff'
       }});
+    }
+    if(method==='POST'&&action==='delivery-log'){
+      const input=await req.json();
+      if(input.confirm!==true)return appJSON({error:'Confirm that the client has actually been sent the quotation'},400);
+      const medium=String(input.medium||'');
+      if(!['whatsapp','outlook','email','other'].includes(medium))return appJSON({error:'Select the actual sending method'},400);
+      if(row.job_status==='lost')return appJSON({error:'The job is Lost. Reopen it before recording a fresh client quotation.'},409);
+      const target=medium==='whatsapp'?String(JSON.parse(row.payload).clientPhone||''):row.client_email;
+      const pdf=await proposalPdf(row);
+      if(pdf.length>1024*1024)return appJSON({error:'Quotation is larger than the project snapshot limit. Download and archive the PDF separately.'},413);
+      const name=row.reference+'_Issued_'+medium+'_'+new Date().toISOString().slice(0,10)+'.pdf';
+      await env.DB.prepare("INSERT INTO project_files(proposal_id,file_name,mime_type,kind,size_bytes,content_base64,uploaded_by) VALUES(?,?,?,?,?,?,?)")
+        .bind(id,name,'application/pdf','sent_proposal',pdf.length,base64FromBytes(pdf),user.id).run();
+      await env.DB.prepare("UPDATE proposals SET status='sent',chase_enabled=CASE WHEN job_status='pending' THEN 1 ELSE 0 END,chase_started_at=COALESCE(chase_started_at,CURRENT_TIMESTAMP),updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(id).run();
+      const note='MANUALLY CONFIRMED by '+user.name+': quotation '+row.reference+' shared by '+medium.toUpperCase()+
+        ' with '+target+'. Branded PDF snapshot '+name+' archived on the job. Client delivery is based on staff confirmation, NOT verified by the provider.';
+      await recordProjectEvent(env.DB,id,user,'email',note);
+      return appJSON({ok:true,id,reference:row.reference,medium,snapshot:name,message:'Manual confirmation recorded. PDF archived on the project, with the date and staff member.'});
     }
     if(method==='POST'&&action==='outlook-send'){
       if(!isOutlookConfigured(env))return appJSON({error:'Microsoft 365 Outlook is not connected to this app. Open Outlook Settings to connect, or use Share PDF to Outlook.'},503);
