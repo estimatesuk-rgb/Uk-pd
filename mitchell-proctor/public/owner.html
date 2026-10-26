@@ -33,7 +33,17 @@
 </div>
 <p class="muted" style="font-size:12px">Restoring standard prices only changes this form until you click <strong>Save all default prices</strong>. The agreed 25 m² minimum rule is unchanged.</p>
 </form></section>
-<section class="card"><div class="eyebrow">02 / Access control</div><h2>Staff usernames and passwords</h2><p>Staff can prepare and save proposals, but cannot change practice-wide rates or manage other users.</p><form id="newStaffForm"><div class="cols"><label>Staff member’s name<input name="name" required maxlength="150" placeholder="e.g. Stephen Haslam"></label><label>Email used as username<input type="email" name="email" required autocomplete="off" placeholder="name@mitchellproctor.co.uk"></label></div><label>Initial staff password<input name="password" type="password" minlength="10" required autocomplete="new-password" placeholder="At least 10 characters"></label><button type="submit">Create staff login</button></form><div id="staffList" class="list" style="margin-top:24px"><p>Loading accounts…</p></div></section>
+<section class="card" id="chaseSettings">
+ <div class="eyebrow">Office follow-up reminder settings</div>
+ <h2>Three weekly quotation chases</h2>
+ <p>Each pending quotation <strong>marked as issued</strong> can generate reminders 1, 2 and 3 at roughly days 7, 14 and 21. The automated emails go to <strong>enquiries@ukestimates.com</strong> only, and each reminder links to its Job File. The sequence stops if the client accepts, declines or all three reminders have been sent.</p>
+ <p><strong>Email delivery status:</strong> <span id="mailConnection">Checking…</span></p>
+ <p><strong>Cloudflare schedule:</strong> weekdays at 09:00 UTC (10:00 during British Summer Time); jobs falling due at weekends are reminded on the next weekday.</p>
+ <p>Staff can send a client chase email from the Job File with the practice office BCCed, and the message is recorded in the job timeline. If they email externally, they must confirm the chase and upload the sent .eml/.msg copy themselves.</p>
+ <p class="muted" style="font-size:12px">To activate automatic sending, Cloudflare requires the Resend <code>RESEND_API_KEY</code> secret and a verified <code>MAIL_FROM</code> address. Never enter your email API key into this website or send it in chat.</p>
+ <div class="actions"><a class="button outline" href="/projects">View pending jobs and chase reminders</a><button id="refreshMailConnection" class="outline" type="button">Check email connection</button></div>
+ </section>
+ <section class="card"><div class="eyebrow">02 / Access control</div><h2>Staff usernames and passwords</h2><p>Staff can prepare and save proposals, but cannot change practice-wide rates or manage other users.</p><form id="newStaffForm"><div class="cols"><label>Staff member’s name<input name="name" required maxlength="150" placeholder="e.g. Stephen Haslam"></label><label>Email used as username<input type="email" name="email" required autocomplete="off" placeholder="name@mitchellproctor.co.uk"></label></div><label>Initial staff password<input name="password" type="password" minlength="10" required autocomplete="new-password" placeholder="At least 10 characters"></label><button type="submit">Create staff login</button></form><div id="staffList" class="list" style="margin-top:24px"><p>Loading accounts…</p></div></section>
 <section class="card"><div class="eyebrow">03 / Saved fees</div><h2>All architectural proposals</h2><p>Job numbers are allocated centrally, in sequence, when a proposal is first saved. <a href="/projects">Open searchable Saved Projects →</a></p><div id="proposalList" class="list"><p>Loading proposals…</p></div></section>
 <section class="card"><div class="eyebrow">04 / Owner security</div><h2>Change owner password</h2><form id="passwordForm"><div class="cols"><label>Current password<input type="password" name="current" required autocomplete="current-password"></label><label>New password<input type="password" name="next" required minlength="10" autocomplete="new-password"></label></div><button type="submit">Change password</button></form></section>
 <section class="card"><div class="eyebrow">05 / Request an update</div><h2>Change or extend the app</h2><p>Use ChatGPT to request updates such as a new fee stage, revised proposals or new exclusions. This opens ChatGPT, where you can ask to work on the Mitchell Proctor Cloudflare Fee Proposal app. Changes to the software take effect across devices <em>once deployed</em>.</p><a href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer" class="button">Open ChatGPT ↗</a><p style="font-size:12px">Changes to the settings above save immediately, without requiring a software deployment. ChatGPT cannot automatically read an arbitrary message sent from this page; request app changes in your ChatGPT conversation.</p></section>
@@ -100,6 +110,14 @@ function showPricing(){
   $$('#saveRates').disabled=false;$$('#resetRates').disabled=false;
   $$('#rateHelp').textContent='These prices are used across the practice for new quotations.';
 }
+async function loadMailStatus(){
+ const el=$('#mailConnection');if(!el)return;
+ try{
+  const data=await api('/api/status');
+  el.textContent=data.emailConfigured?'CONNECTED — automated office reminders and in-app chase emails available.':'NOT CONNECTED — reminder schedule is installed, but no automatic emails will be delivered until Resend is configured.';
+  el.style.color=data.emailConfigured?'#2a6c40':'#a0442e';
+ }catch(err){el.textContent='Unable to check email status: '+err.message}
+}
 async function loadPricing(){
   const d=await api('/api/pricing');
   if(!d.pricing||!Array.isArray(d.pricing.stages)||!d.pricing.stages.length||!Array.isArray(d.pricing.extras)||!d.pricing.extras.length)
@@ -132,6 +150,7 @@ $$('#resetRates').onclick=()=>{
 $$('#ratesForm').addEventListener('input',event=>{if(['buildRate','buildVatRate','feeVatRate','contingency','validDays'].includes(event.target.name))markPricingEdited()});
 $$('#newStaffForm').onsubmit=async e=>{e.preventDefault();const f=e.currentTarget,p=Object.fromEntries(new FormData(f));try{await post('/api/staff',{action:'create',...p});f.reset();notice('Staff account created');await loadStaff()}catch(e){notice(e.message,true)}};
 $$('#passwordForm').onsubmit=async e=>{e.preventDefault();const f=e.currentTarget,p=Object.fromEntries(new FormData(f));if(p.current===p.next){notice('Choose a different password',true);return}try{await post('/api/owner/password',p);f.reset();notice('Owner password updated')}catch(e){notice(e.message,true)}};
-$$('#signout').onclick=async()=>{try{await post('/api/logout',{})}finally{location.href='/login'}};
-(async()=>{try{const s=await api('/api/session');if(!s.authenticated||s.user.role!=='owner'){location.href='/login';return}await Promise.all([loadPricing(),loadStaff(),loadProposals()])}catch(e){notice(e.message,true)}})();
+$('#refreshMailConnection').onclick=loadMailStatus;
+$('#signout').onclick=async()=>{try{await post('/api/logout',{})}finally{location.href='/login'}};
+(async()=>{try{const s=await api('/api/session');if(!s.authenticated||s.user.role!=='owner'){location.href='/login';return}await Promise.all([loadPricing(),loadStaff(),loadProposals(),loadMailStatus()])}catch(e){notice(e.message,true)}})();
 </script></body></html>
