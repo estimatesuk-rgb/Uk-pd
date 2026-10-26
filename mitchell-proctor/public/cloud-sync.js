@@ -157,6 +157,45 @@ async function mpEmail(){
     await mpRefreshProjects();
   }catch(err){toast('PDF email failed: '+err.message);}
 }
+async function mpOutlookEmail(){
+  if(!validateClient())return;
+  const saved=await mpSave();if(!saved)return;
+  const subject='Mitchell Proctor Architects | Fee proposal '+state.reference+' | '+state.address.slice(0,70);
+  const body='Dear '+state.client+',\n\nThank you for meeting Mitchell Proctor Architects.\n\nPlease find our architectural fee proposal '+state.reference+' for '+state.address+' attached as a PDF, including the staged payments and client acceptance form.\n\nKind regards,\nMitchell Proctor Architects\n01246 203196';
+  try{
+    const outlook=await mpAPI('/api/outlook/status');
+    if(outlook.connected){
+      if(!confirm('Send the PDF quotation directly from '+outlook.mailbox+' to '+state.clientEmail+' via Microsoft Outlook?\nA practice office copy and job history record will be kept.'))return;
+      toast('Sending PDF quotation with Outlook…');
+      const sent=await mpAPI('/api/proposals/'+currentProposalId+'/outlook-send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true})});
+      toast('Outlook accepted the PDF email for '+sent.to+'. Check Outlook Sent Items for its delivery status.');
+      await mpRefreshProjects();
+      return;
+    }
+    const blob=await mpPdfBlob(),file=new File([blob],mpPdfName(),{type:'application/pdf'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
+      await navigator.share({files:[file],title:subject,text:body+'\n\nRecipient: '+state.clientEmail});
+      toast('PDF handed to the chosen sharing app. In Outlook check recipient, attachment and press Send.');
+      return;
+    }
+    deliverBlob(file.name,blob);
+    const outlookLink='https://outlook.office.com/mail/deeplink/compose?to='+encodeURIComponent(state.clientEmail)+'&subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body);
+    const opened=window.open(outlookLink,'_blank','noopener,noreferrer');
+    toast('PDF downloaded. Attach it in the prepared Outlook email before sending. For direct PDF attachment, connect Outlook in Settings.');
+    if(!opened){const a=document.createElement('a');a.href=outlookLink;a.target='_blank';a.rel='noopener noreferrer';a.textContent='Open prepared Outlook email ↗';a.className='btn small';const root=document.querySelector('.secondary-cta');if(root)root.append(a);}
+  }catch(err){if(err.name!=='AbortError')toast('Outlook PDF preparation failed: '+err.message);}
+}
+function mpAddOutlookButtons(){
+  const existing=document.getElementById('outlookBtn');
+  if(existing){existing.onclick=mpOutlookEmail;return}
+  const anchor=document.getElementById('emailBtn');
+  if(!anchor)return;
+  const send=document.createElement('button');send.id='outlookBtn';send.className='btn dark';send.type='button';
+  send.textContent='Send with Outlook (PDF attached)';send.onclick=mpOutlookEmail;
+  anchor.before(send);
+  const setup=document.createElement('a');setup.href='/outlook';setup.className='btn small';
+  setup.textContent='Outlook connection settings';anchor.after(setup);
+}
 function mpAddHeader() {
   const mast=document.querySelector('.mast-actions')||document.querySelector('.masthead');
   if(!mast)return;
@@ -164,13 +203,16 @@ function mpAddHeader() {
   wrap.style.display='inline-flex';wrap.style.gap='8px';wrap.style.alignItems='center';wrap.style.flexWrap='wrap';
   wrap.innerHTML='<span style="color:#ddd;font-size:12px" id="mpAccountName">Signed in</span>'+
     '<a href="/projects" class="btn ghost small">Saved jobs</a>'+
-    '<button id="mpQuickEmail" type="button" class="btn ghost small">Email PDF</button>'+
+    '<button id="mpQuickOutlook" type="button" class="btn ghost small">Outlook PDF</button>'+
+    '<a href="/outlook" class="btn ghost small">Connect Outlook</a>'+
+    '<button id="mpQuickEmail" type="button" class="btn ghost small">Other email</button>'+
     '<button id="mpQuickWhatsapp" type="button" class="btn ghost small">WhatsApp PDF</button>'+
     '<a id="mpOwnerLink" href="/owner" class="btn ghost small" style="display:none">Owner settings</a>'+
     '<button id="mpResumeDraft" type="button" class="btn ghost small" style="display:none">Resume draft</button>'+
     '<span id="mpSyncInfo" style="color:#d8d0c7;font-size:11px" aria-live="polite">Connected</span>'+
     '<button id="mpSignOut" type="button" class="btn ghost small">Sign out</button>';
   mast.append(wrap);
+  document.getElementById('mpQuickOutlook').onclick=mpOutlookEmail;
   document.getElementById('mpQuickEmail').onclick=mpEmail;
   document.getElementById('mpQuickWhatsapp').onclick=mpWhatsapp;
   document.getElementById('mpSignOut').onclick=async()=>{await mpAPI('/api/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});location.href='/login'};
@@ -304,4 +346,5 @@ $('#savedProjects').addEventListener('change',()=>{});
 $('#whatsappBtn').onclick=mpWhatsapp;
 document.querySelector('.controls').addEventListener('input',mpScheduleAutoSave);
 document.querySelector('.controls').addEventListener('change',mpScheduleAutoSave);
+mpAddOutlookButtons();
 mpConnect();
