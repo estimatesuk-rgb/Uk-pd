@@ -784,7 +784,19 @@ async function runOfficeChaseSchedule(env,now=new Date()){
 export default {
   async scheduled(controller,env){
     const data={...env,DB:bindDurableSql(env)};
-    await runOfficeChaseSchedule(data,new Date(controller.scheduledTime||Date.now()));
+    try{await runOfficeChaseSchedule(data,new Date(controller.scheduledTime||Date.now()))}
+    catch(err){console.error('Scheduled quotation reminders failed',err)}
+    // Automatically file Outlook replies bearing a known MP job reference
+    // using each staff member's explicitly authorised mailbox.
+    if(isOutlookConfigured(data)){
+      try{
+        const accounts=await data.DB.prepare('SELECT user_id FROM outlook_connections ORDER BY user_id LIMIT 25').all();
+        for(const item of accounts.results){
+          try{await syncOutlookInbox(data,item.user_id,recordProjectEvent)}
+          catch(err){console.warn('Outlook mailbox sync skipped for user '+item.user_id+': '+err.message)}
+        }
+      }catch(err){console.error('Outlook daily sync failed',err)}
+    }
   },
   async fetch(request, env) {
     env={...env,DB:bindDurableSql(env)};
