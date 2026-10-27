@@ -199,6 +199,9 @@ function safePayload(input) {
   p.projectName = clean(p.projectName, 200);
   p.area = limited(p.area, 0.01, 100000);
   p.buildRate = limited(p.buildRate ?? 2500, 0, 30000);
+  // Missing/null indicates an older saved quotation that must keep its original fees.
+  p.feasibilityPercent=p.feasibilityPercent===null||p.feasibilityPercent===undefined||p.feasibilityPercent===''?
+    null:limited(p.feasibilityPercent,0,10);
   p.feeVatRate = limited(p.feeVatRate ?? 20, 0, 30);
   p.buildVatRate = limited(p.buildVatRate ?? 20, 0, 30);
   p.feeMode=['band','bespoke'].includes(p.feeMode)?p.feeMode:'sqm'; // Legacy saved quotations remain £/m².
@@ -210,7 +213,7 @@ function safePayload(input) {
   const quoted=s=>s.quotedFee===null||s.quotedFee===undefined||s.quotedFee===''?null:limited(s.quotedFee,0,1000000);
   p.stages = p.stages.map(s => ({...s,rate:limited(s.rate,0,5000),selected:!!s.selected,title:clean(s.title,180),scope:clean(s.scope,1500),bandFees:normalBandFees(s),quotedFee:quoted(s)}));
   p.extras = p.extras.map(s => ({...s,amount:limited(s.amount,0,1000000),selected:!!s.selected,title:clean(s.title,180),desc:clean(s.desc,1500),bandFees:normalBandFees(s),quotedFee:quoted(s)}));
-  if(p.feeMode==='bespoke'&&[...p.stages,...p.extras].some(x=>x.selected&&x.quotedFee===null))throw Object.assign(new Error('Enter a bespoke fee for every selected service'),{status:400});
+  if(p.feeMode==='bespoke'&&[...p.stages,...p.extras].some(x=>x.selected&&x.quotedFee===null&&!(x.id==='feasibility'&&p.feasibilityPercent!==null)))throw Object.assign(new Error('Enter a bespoke fee for every selected service'),{status:400});
   p.adjustments = p.adjustments.map(s => ({kind:s.kind === 'omission'?'omission':'addition',description:clean(s.description,200),amount:limited(s.amount,0,1000000)}));
   // Large embedded logo data is kept client-side. Standard logo is served by this app.
   delete p.logo;
