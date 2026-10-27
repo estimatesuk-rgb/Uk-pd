@@ -16,7 +16,7 @@ const safe=x=>val(x).replace(/[^\u0020-\u007e\u00a0-\u00ff]/g,c=>({
 const cents=x=>Math.round(Number(x||0)*100);
 const pounds=x=>money((Number(x)||0)/100);
 function feeLines(p){
-  return proposalFeeLines(p).map(line=>({name:val(line.name),fee:cents(line.fee)}));
+  return proposalFeeLines(p).map(line=>({name:val(line.name),fee:cents(line.fee),basis:line.basis||null}));
 }
 export async function proposalPdf(row){
   const p=JSON.parse(row.payload);
@@ -120,13 +120,16 @@ export async function proposalPdf(row){
   const lines=feeLines(p);const fee=cents(row.fee_ex_vat),vatRate=Number(p.feeVatRate)||0;
   const vat=Math.round(fee*vatRate/100),gross=fee+vat;
   if(!lines.length)paragraph('No fee services are selected. Please confirm scope before issue.');
-  for(const item of lines) tableRow(item.name,pounds(item.fee));
+  for(const item of lines){
+    tableRow(item.name,pounds(item.fee));
+    if(item.basis)paragraph('Fee basis: '+item.basis+' (construction allowance before contingency).');
+  }
   pageGap();
   tableRow('Professional fees excluding VAT',pounds(fee),{bold:true,shade:true});
   tableRow('VAT ('+vatRate+'%)',pounds(vat));
   tableRow('Professional fees including VAT',pounds(gross),{bold:true,shade:true});
   const feeBasis=p.feeMode==='band'?'Fixed project-category prices ('+safe(p.pricingBand||'unselected')+'), adjusted for agreed individual services.':p.feeMode==='bespoke'?'Project-specific bespoke fees agreed for each commissioned service.':'Fees use individual £/m2 rates and a minimum 25 m2 floor for selected per-m2 stages.';
-  paragraph(feeBasis+' The final scope and pricing remain subject to formal appointment.');
+  paragraph(feeBasis+' Feasibility, where included and not individually overridden, uses the project percentage of construction costs excluding VAT. The final scope and pricing remain subject to formal appointment.');
   section('04  Exclusions and other appointments');
   const omitted=(p.stages||[]).filter(x=>!x.selected).map(x=>val(x.title));
   const excluded=[...(p.exclusions||[]).filter(x=>x.on).map(x=>val(x.title)),...val(p.extraExclusions).split(';').filter(Boolean)];
