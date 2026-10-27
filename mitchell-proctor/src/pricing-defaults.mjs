@@ -63,6 +63,7 @@ export function makePricingDefaults(){
   return {
     buildRate:2500,buildVatRate:20,feeVatRate:20,minimumArea:25,
     contingency:0,validDays:30,
+    feasibilityPercent:0.3, // Feasibility = 0.3% of estimated construction cost excluding VAT.
     feeMode:'band',defaultBand:'medium',
     stages:defaultStageRates.map(x=>({...x,bandFees:bandValues(x.id,'stages')})),
     extras:defaultExtraRates.map(x=>({...x,bandFees:bandValues(x.id,'extras')}))
@@ -80,6 +81,7 @@ export function resolvePricingDefaults(saved){
   defaults.buildVatRate=numeric(saved.buildVatRate,defaults.buildVatRate,0,30);
   defaults.feeVatRate=numeric(saved.feeVatRate,defaults.feeVatRate,0,30);
   defaults.contingency=numeric(saved.contingency,defaults.contingency,0,100);
+  defaults.feasibilityPercent=numeric(saved.feasibilityPercent,defaults.feasibilityPercent,0,10);
   defaults.validDays=numeric(saved.validDays,defaults.validDays,1,365);
   // The approved under-25m2 stage fee floor remains fixed until expressly changed.
   defaults.minimumArea=25;
