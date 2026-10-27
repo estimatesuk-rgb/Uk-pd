@@ -27,7 +27,6 @@ p.buildRate=1500;assert.equal(calculateProfessionalFee(p),900);
 p.contingency=100;p.buildVatRate=0;assert.equal(calculateProfessionalFee(p),900,'construction contingency and VAT do not change feasibility fee');
 p.feeMode='sqm';p.area=100;p.buildRate=2500;assert.equal(calculateProfessionalFee(p),750,'percentage applies to £/m² comparison mode');
 p.feeMode='bespoke';assert.equal(calculateProfessionalFee(p),750,'percentage applies to bespoke mode without manual override');
-p.extras[1].selected=false;
 p.extras.find(x=>x.id==='feasibility').quotedFee=999.99;
 assert.equal(calculateProfessionalFee(p),999.99,'individual agreed fee can override percentage');
 p.extras.find(x=>x.id==='feasibility').selected=false;
