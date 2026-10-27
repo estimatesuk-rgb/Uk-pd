@@ -249,8 +249,8 @@ function renderExtras(){
   const explanation=automatic?'Feasibility: '+state.feasibilityPercent+'% of construction allowance excluding VAT'+(overridden?' (agreed override)':''):
    mode==='sqm'?'Fixed price £ ex VAT':mode==='bespoke'?'Bespoke add-on £ ex VAT':band?'Band fee '+money(base)+'; override £':'Choose category first';
   const edit=automatic
-   ? '<span class="hint">'+esc(explanation)+' · '+money2(cost)+' ex VAT</span>'+
-     (mode!=='sqm'?'<input aria-label="Feasibility fee manual override excluding VAT" type="number" min="0" step=".01" data-extra="'+x.id+'" data-prop="quotedFee" value="'+(x.quotedFee??'')+'" placeholder="Automatic '+money2(cost)+' — leave blank">':'')
+   ? '<span class="hint">'+esc(explanation)+' · amount updates with project construction cost</span>'+
+     (mode!=='sqm'?'<input aria-label="Feasibility fee manual override excluding VAT" type="number" min="0" step=".01" data-extra="'+x.id+'" data-prop="quotedFee" value="'+(x.quotedFee??'')+'" placeholder="Leave blank for automatic percentage">':'')
    : '<span class="hint">'+esc(explanation)+'</span><input type="number" min="0" step=".01" data-extra="'+x.id+'" data-prop="'+prop+'" value="'+value+'" placeholder="'+base+'">';
   return '<div class="extra-row"><div class="extra-head"><input class="check-box" type="checkbox" data-extra="'+x.id+'" data-prop="selected" '+(x.selected?'checked':'')+' aria-label="Include '+esc(x.title)+'"><div style="flex:1"><div class="extra-name">'+esc(x.title)+'</div><div class="extra-description">'+esc(x.desc)+'</div></div><span class="extra-cost" data-extra-cost="'+x.id+'">'+(x.selected?money(cost):'Optional')+'</span></div><div class="extra-edit">'+edit+'</div></div>';
  }).join('');
