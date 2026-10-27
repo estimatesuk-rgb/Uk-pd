@@ -11,6 +11,7 @@ blank = function () {
   const s = mpBaseBlank();
   s.reference = 'DRAFT - save to allocate number';
   s.feeMode=pricingDefaults?.feeMode||'band';
+  s.feasibilityPercent=pricingDefaults?.feasibilityPercent??0.3;
   s.pricingBand=''; // Staff must deliberately choose size and complexity for each new quote.
   if (pricingDefaults) {
     s.buildRate = pricingDefaults.buildRate;
@@ -238,6 +239,7 @@ async function mpConnect() {
       // Unissued quotations get current master rates; saved quotations retain their own snapshot.
       state.buildRate=pricingDefaults.buildRate;state.buildVatRate=pricingDefaults.buildVatRate;state.feeVatRate=pricingDefaults.feeVatRate;
       state.contingency=pricingDefaults.contingency??0;state.validDays=pricingDefaults.validDays??30;
+      state.feasibilityPercent=pricingDefaults.feasibilityPercent??0.3;
       state.feeMode=pricingDefaults.feeMode||'band';state.pricingBand='';
       state.stages.forEach(item=>{const v=pricingDefaults.stages.find(x=>x.id===item.id);if(v){item.rate=v.rate;item.selected=v.selected;item.bandFees={...v.bandFees};item.quotedFee=null;}});
       state.extras.forEach(item=>{const v=pricingDefaults.extras.find(x=>x.id===item.id);if(v){item.amount=v.amount;item.selected=v.selected;item.bandFees={...v.bandFees};item.quotedFee=null;}});
@@ -268,7 +270,7 @@ function mpValidForJobSave(){
   if(!String(state.client||'').trim()||!String(state.address||'').trim()||!(Number(state.area)>0))return false;
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(state.clientEmail||'').trim()))return false;
   if(state.feeMode==='band'&&!state.pricingBand)return false;
-  if(state.feeMode==='bespoke'&&[...state.stages,...state.extras].some(x=>x.selected&&x.quotedFee==null))return false;
+  if(state.feeMode==='bespoke'&&[...state.stages,...state.extras].some(x=>x.selected&&x.quotedFee==null&&!(x.id==='feasibility'&&state.feasibilityPercent!=null)))return false;
   return true;
 }
 function mpScheduleAutoSave(){
