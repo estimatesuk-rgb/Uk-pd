@@ -9,6 +9,7 @@
 <div class="cols">
 <label>Construction allowance (£ per m²)<input type="number" name="buildRate" min="0" max="30000" step=".01" required></label>
 <label>Construction VAT (%)<input type="number" name="buildVatRate" min="0" max="30" step=".1" required></label>
+<label>Feasibility fee (% of construction cost ex VAT)<input type="number" name="feasibilityPercent" min="0" max="10" step=".01" required></label>
 <label>Architectural fees VAT (%)<input type="number" name="feeVatRate" min="0" max="30" step=".1" required></label>
 <label>Default construction contingency (%)<input type="number" name="contingency" min="0" max="100" step=".1" required></label>
 <label>Quotation valid for (days)<input type="number" name="validDays" min="1" max="365" step="1" required></label>
@@ -17,7 +18,7 @@
 <style>.mp-grid{overflow-x:auto;max-width:100%;margin:12px 0 28px;border:1px solid #ddd6cf;border-radius:9px}.mp-grid table{width:100%;min-width:780px;border-collapse:collapse;font-size:12px}.mp-grid th,.mp-grid td{padding:9px 7px;border-bottom:1px solid #eee6df;text-align:right}.mp-grid th:first-child,.mp-grid td:first-child{text-align:left;width:210px}.mp-grid thead th{background:#efeae3}.mp-grid input{padding:8px;min-width:85px;text-align:right}</style>
 <div class="cols"><label>New quotation pricing method<select name="feeMode"><option value="band">Fixed fee by project category</option><option value="sqm">Traditional £/m²</option></select></label><label>Reference category<select name="defaultBand"><option value="micro">Micro</option><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option><option value="extra">Extra large</option></select></label></div>
 <h3>Fixed architectural service prices by project size</h3><p class="muted">All figures exclude VAT. Adjust each fee and select inclusion defaults using the existing checkboxes below.</p><div id="bandStages"></div>
-<h3>Fixed additional-service prices by project size</h3><div id="bandExtras"></div>
+<h3>Additional-service prices by project size</h3><p class="muted">Feasibility is automatically calculated as a percentage of the estimated construction cost excluding VAT, not a fixed band amount. Change the percentage above; other extras retain their editable band prices.</p><div id="bandExtras"></div>
 <h3>£/m² comparison rates</h3><p class="muted">Retain the previous pricing as an alternative for unusually sized or complex jobs.</p><h3>Architectural stages — £ per m² excluding VAT</h3>
 <p class="muted">Edit the rate for every work stage. Tick <strong>Include by default</strong> to have that stage selected when staff start a new quotation.</p>
 <div class="row" style="font-size:12px;font-weight:700;color:#756f67" aria-hidden="true"><span>Architectural service</span><span>£/m² ex VAT</span><span>Include?</span></div>
@@ -69,6 +70,10 @@ function renderPriceLines(container,list,type){
     const rate=document.createElement('input');rate.type='number';rate.min='0';
     rate.max=type==='stage'?'5000':'1000000';rate.step='.01';
     rate.required=true;rate.value=type==='stage'?item.rate:item.amount;
+    if(type==='extra'&&item.id==='feasibility'){
+      rate.type='text';rate.value='Automatic percentage';rate.disabled=true;rate.required=false;
+      rate.title='Controlled by the feasibility percentage in construction and tax allowances above';
+    }
     rate.setAttribute('aria-label',(item.title||item.id)+(type==='stage'?' rate in pounds per m2':' fixed fee in pounds'));
     rate.oninput=()=>{item[type==='stage'?'rate':'amount']=Number(rate.value);markPricingEdited()};
     const label=document.createElement('label');label.style.margin='0';label.style.fontSize='11px';
@@ -89,6 +94,11 @@ function renderMatrix(root,items){
   const body=document.createElement('tbody');
   for(const item of items){
     const tr=document.createElement('tr'),title=document.createElement('th');title.textContent=item.title||item.id;tr.append(title);
+    if(item.id==='feasibility'){
+      const cell=document.createElement('td');cell.colSpan=SIZE_BANDS.length;
+      cell.textContent='Automatic: '+(pricing?.feasibilityPercent??0.3)+'% of construction estimate, excluding VAT. Set this rate above.';
+      cell.style.textAlign='left';tr.append(cell);body.append(tr);continue;
+    }
     for(const [id,label] of SIZE_BANDS){
       const cell=document.createElement('td'),input=document.createElement('input');
       input.type='number';input.min='0';input.max='1000000';input.step='.01';input.required=true;
@@ -104,7 +114,7 @@ function markPricingEdited(){const el=$$('#rateHelp');if(el)el.textContent='Unsa
 function showPricing(){
   if(!pricing)return;
   const f=$$('#ratesForm');
-  for(const field of ['buildRate','buildVatRate','feeVatRate','contingency','validDays']){
+  for(const field of ['buildRate','buildVatRate','feeVatRate','feasibilityPercent','contingency','validDays']){
     f.elements.namedItem(field).value=pricing[field];
   }
   renderMatrix($$('#bandStages'),pricing.stages);
@@ -164,7 +174,7 @@ $$('#ratesForm').onsubmit=async e=>{
   if(!pricing||!pricing.stages?.length||!pricing.extras?.length){notice('Wait for all architect fees to load before saving',true);return;}
   const f=e.currentTarget;
   if(!f.reportValidity())return;
-  for(const field of ['buildRate','buildVatRate','feeVatRate','contingency','validDays'])pricing[field]=Number(f.elements.namedItem(field).value);
+  for(const field of ['buildRate','buildVatRate','feeVatRate','feasibilityPercent','contingency','validDays'])pricing[field]=Number(f.elements.namedItem(field).value);
   pricing.feeMode=f.elements.namedItem('feeMode').value;pricing.defaultBand=f.elements.namedItem('defaultBand').value;
   const button=$$('#saveRates');button.disabled=true;
   try{
@@ -179,7 +189,7 @@ $$('#resetRates').onclick=()=>{
   if(!confirm('Restore the original price list in this form? The current saved prices will not change until you press Save all default prices.'))return;
   pricing=structuredClone(factoryPricing);showPricing();markPricingEdited();
 };
-$$('#ratesForm').addEventListener('input',event=>{if(['buildRate','buildVatRate','feeVatRate','contingency','validDays'].includes(event.target.name))markPricingEdited()});
+$$('#ratesForm').addEventListener('input',event=>{if(['buildRate','buildVatRate','feeVatRate','feasibilityPercent','contingency','validDays'].includes(event.target.name))markPricingEdited()});
 $$('#newStaffForm').onsubmit=async e=>{e.preventDefault();const f=e.currentTarget,p=Object.fromEntries(new FormData(f));try{await post('/api/staff',{action:'create',...p});f.reset();notice('Staff account created');await loadStaff()}catch(e){notice(e.message,true)}};
 $$('#passwordForm').onsubmit=async e=>{e.preventDefault();const f=e.currentTarget,p=Object.fromEntries(new FormData(f));if(p.current===p.next){notice('Choose a different password',true);return}try{await post('/api/owner/password',p);f.reset();notice('Owner password updated')}catch(e){notice(e.message,true)}};
 $$('#downloadPracticeBackup').onclick=ownerPracticeBackup;
