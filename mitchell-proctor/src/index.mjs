@@ -496,11 +496,14 @@ async function api(req, env, path) {
     const p=await req.json(); const data=safePayload(p.data);
     const fee=calculateFee(data,25);
     let id=Number(p.id)||null;
-    if(id){const row=await quoteRow(env.DB,id,user);if(row.status==='sent' && user.role!=='owner')return appJSON({error:'Issued proposals can be amended by the owner only'},403);
+    if(id){const row=await quoteRow(env.DB,id,user);
+      if(row.agreed_at)return appJSON({error:'This proposal has already been accepted. Its agreed fees are locked. Create a new quotation or variation for further changes.'},409);
+      if(row.status==='sent' && user.role!=='owner')return appJSON({error:'Issued proposals can be amended by the owner only'},403);
       if(Number(p.revision)!==Number(row.revision))return appJSON({error:'This job was updated in another login. Reopen it from Saved Projects before editing to avoid overwriting your colleague.'},409);
       const update=await env.DB.prepare('UPDATE proposals SET payload=?,fee_ex_vat=?,client=?,client_email=?,site_address=?,status=?,revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=? AND revision=?').bind(JSON.stringify(data),fee,data.client,data.clientEmail,data.address,'draft',id,row.revision).run();
       if(!update.meta?.changes)return appJSON({error:'Another staff member saved this project. Reload it before editing.'},409);
-      if(p.silent!==true)await recordProjectEvent(env.DB,id,user,'quotation','Quotation revised and saved');
+      await env.DB.prepare("UPDATE signature_requests SET status='revoked' WHERE proposal_id=? AND status='pending'").bind(id).run();
+      if(p.silent!==true)await recordProjectEvent(env.DB,id,user,'quotation','Quotation revised and saved. Any older unsigned client signing links cancelled.');
       return appJSON({ok:true,id,reference:row.reference,fee,revision:Number(row.revision)+1});
     }
     const added=await env.DB.prepare('INSERT INTO proposals(created_by,payload,fee_ex_vat,client,client_email,site_address,status) VALUES(?,?,?,?,?,?,?)').bind(user.id,JSON.stringify(data),fee,data.client,data.clientEmail,data.address,'draft').run();
@@ -678,6 +681,7 @@ async function api(req, env, path) {
       await env.DB.prepare("INSERT INTO project_files(proposal_id,file_name,mime_type,kind,size_bytes,content_base64,uploaded_by) VALUES(?,?,?,?,?,?,?)")
         .bind(id,row.reference+'_Agreed_Fee_Proposal.pdf','application/pdf','agreed_proposal',pdf.byteLength,encoded,user.id).run();
       await env.DB.prepare('UPDATE proposals SET agreed_fee_ex_vat=?,agreed_at=CURRENT_TIMESTAMP,job_stage=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(row.fee_ex_vat,'appointed',id).run();
+      await env.DB.prepare("UPDATE signature_requests SET status='revoked' WHERE proposal_id=? AND status='pending'").bind(id).run();
       await recordProjectEvent(env.DB,id,user,'appointment','Agreed fee proposal archived at '+Number(row.fee_ex_vat).toFixed(2)+' GBP excluding VAT; this PDF is an immutable record.');
       return appJSON({ok:true,agreedFee:row.fee_ex_vat});
     }
@@ -770,6 +774,7 @@ async function api(req, env, path) {
       const stage=input.jobStatus==='won'&&row.job_status!=='won'?'appointed':row.job_stage||'enquiry';
       const reason=input.jobStatus==='lost'?String(input.lostReason||'').trim().slice(0,500):'';
       await env.DB.prepare('UPDATE proposals SET job_status=?,job_stage=?,lost_reason=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(input.jobStatus,stage,reason,id).run();
+      if(input.jobStatus==='lost')await env.DB.prepare("UPDATE signature_requests SET status='revoked' WHERE proposal_id=? AND status='pending'").bind(id).run();
       if(row.job_status!==input.jobStatus|| (input.jobStatus==='lost'&&reason!==row.lost_reason))
         await recordProjectEvent(env.DB,id,user,'outcome','Job marked '+input.jobStatus.toUpperCase()+(reason?'. Reason: '+reason:''));
       return appJSON({ok:true,id,jobStatus:input.jobStatus,jobStage:stage});
