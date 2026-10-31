@@ -77,7 +77,9 @@ export async function signedAcceptancePdf(snapshot,signature,now=new Date()){
   const scaled=png.scaleToFit(325,115);
   page.drawImage(png,{x:62,y:y-119+(119-scaled.height)/2,width:scaled.width,height:scaled.height});
  }else{
-  page.drawText(latin(signature.typedSignature).slice(0,65),{x:67,y:y-80,size:28,font:italic,color:navy});
+  const name=latin(signature.typedSignature).slice(0,120);
+  const size=Math.max(9,Math.min(28,28*440/Math.max(1,italic.widthOfTextAtSize(name,28))));
+  page.drawText(name,{x:67,y:y-80,size,font:italic,color:navy});
  }
  y-=133;
  page.drawLine({start:{x:48,y},end:{x:547,y},color:rgb(.78,.76,.73),thickness:.8});
