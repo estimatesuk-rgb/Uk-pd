@@ -126,6 +126,7 @@
      </label>
      <div class="job-actions">
       <button id="copySigningLink" type="button">Copy signing link</button>
+      <a id="openSigningLink" class="button outline" href="#" target="_blank" rel="noopener noreferrer">Open for client to sign here</a>
       <button id="shareSigningLink" class="outline" type="button">Share invitation</button>
       <a id="signByEmail" class="button outline" href="#">Prepare email</a>
       <a id="signByWhatsapp" class="button outline" href="#" target="_blank" rel="noopener noreferrer">Open WhatsApp</a>
@@ -419,6 +420,7 @@ $('createSignatureInvite').onclick=async()=>{
   const data=await post('/api/proposals/'+id+'/sign-invite',{confirm:true,delivery});
   const url=data.signingUrl;
   $('signingLinkInput').value=url;
+  $('openSigningLink').href=url;
   $('newSigningLink').style.display='block';
   const subject='Please review and electronically sign Mitchell Proctor fee proposal '+record.reference;
   const body='Dear '+record.client+',\n\nPlease review our fee proposal '+record.reference+' for '+record.address+' and sign securely using the private link below:\n\n'+url+'\n\nThe full PDF can be read or downloaded from that link. It expires after 14 days. Please do not forward this link.\n\nKind regards,\nMitchell Proctor Architects';
