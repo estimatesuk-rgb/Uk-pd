@@ -509,7 +509,7 @@ async function api(req, env, path) {
     await recordProjectEvent(env.DB,id,user,'quotation',p.silent===true?'Initial quotation autosaved':'Initial quotation saved');
     return appJSON({ok:true,id,reference,fee,revision:1});
   }
-  const workspacePath=path.match(/^\/api\/proposals\/(\d+)\/(workspace|events|files|file-start|file-chunk|file-finish|stage|accept|note-draft|follow-up|chase-control|chase-complete|chase-send)(?:\/(\d+))?$/);
+  const workspacePath=path.match(/^\/api\/proposals\/(\d+)\/(workspace|events|files|file-start|file-chunk|file-finish|stage|accept|note-draft|follow-up|chase-control|chase-complete|chase-send|sign-invite|sign-revoke)(?:\/(\d+))?$/);
   if(workspacePath){
     const id=Number(workspacePath[1]),action=workspacePath[2],fileId=Number(workspacePath[3]);
     const row=await quoteRow(env.DB,id,user);
@@ -518,7 +518,8 @@ async function api(req, env, path) {
       const docs=await env.DB.prepare('SELECT id,file_name,mime_type,kind,size_bytes,created_at FROM project_files WHERE proposal_id=? AND ready=1 ORDER BY id DESC LIMIT 300').bind(id).all();
       const noteDraft=await env.DB.prepare('SELECT event_type,body,updated_at FROM project_note_drafts WHERE proposal_id=? AND user_id=?').bind(id,user.id).first();
       const chases=await env.DB.prepare('SELECT round,status,sent_at,completed_at,completion_note,email_id,client_email_id FROM chase_reminders WHERE proposal_id=? ORDER BY round').bind(id).all();
-      return appJSON({project:{id,reference:row.reference,client:row.client,clientEmail:row.client_email,clientPhone:String(JSON.parse(row.payload).clientPhone||''),revision:row.revision,address:row.site_address,status:row.status,jobStatus:row.job_status||'pending',jobStage:row.job_stage||'enquiry',fee:Number(row.fee_ex_vat),agreedFee:row.agreed_fee_ex_vat,agreedAt:row.agreed_at,lostReason:row.lost_reason||'',nextAction:row.next_action||'',nextActionDue:row.next_action_due||'',chaseEnabled:!!row.chase_enabled,chaseCount:Number(row.chase_sent_count||0),chaseStartedAt:row.chase_started_at||null,nextChaseAt:row.chase_enabled?nextChaseDate(row.chase_started_at,Number(row.chase_sent_count||0))?.toISOString()||null:null,createdAt:row.created_at},events:events.results,files:docs.results,chases:chases.results,phases:JOB_PHASES,noteDraft,emailConfigured:!!(env.RESEND_API_KEY&&env.MAIL_FROM)});
+      const signing=await env.DB.prepare('SELECT id,status,recipient_email,created_at,expires_at,signed_at,signer_name,signature_method,signed_file_id,sent_provider,sent_message_id,notification_id FROM signature_requests WHERE proposal_id=? ORDER BY id DESC LIMIT 15').bind(id).all();
+      return appJSON({project:{id,reference:row.reference,client:row.client,clientEmail:row.client_email,clientPhone:String(JSON.parse(row.payload).clientPhone||''),revision:row.revision,address:row.site_address,status:row.status,jobStatus:row.job_status||'pending',jobStage:row.job_stage||'enquiry',fee:Number(row.fee_ex_vat),agreedFee:row.agreed_fee_ex_vat,agreedAt:row.agreed_at,lostReason:row.lost_reason||'',nextAction:row.next_action||'',nextActionDue:row.next_action_due||'',chaseEnabled:!!row.chase_enabled,chaseCount:Number(row.chase_sent_count||0),chaseStartedAt:row.chase_started_at||null,nextChaseAt:row.chase_enabled?nextChaseDate(row.chase_started_at,Number(row.chase_sent_count||0))?.toISOString()||null:null,createdAt:row.created_at},events:events.results,files:docs.results,chases:chases.results,signatureRequests:signing.results,phases:JOB_PHASES,noteDraft,emailConfigured:!!(env.RESEND_API_KEY&&env.MAIL_FROM)});
     }
     if(method==='POST'&&action==='note-draft'){
       const p=await req.json();
@@ -606,6 +607,68 @@ async function api(req, env, path) {
       await env.DB.prepare('UPDATE proposals SET job_stage=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(p.stage,id).run();
       await recordProjectEvent(env.DB,id,user,'milestone','Project stage changed to '+p.stage.replaceAll('_',' '));
       return appJSON({ok:true,stage:p.stage});
+    }
+    if(method==='POST'&&action==='sign-invite'){
+      const p=await req.json();
+      if(p.confirm!==true)return appJSON({error:'Confirm before creating a client signing link'},400);
+      if(row.job_status==='lost'||row.agreed_at)return appJSON({error:'This job is already Lost or has an agreed fee. Do not issue another signing link.'},409);
+      if(!validEmail(row.client_email))return appJSON({error:'Provide a valid client email address first'},400);
+      if(row.fee_ex_vat<0)return appJSON({error:'The quotation fee must be valid'},400);
+      const method=['link','practice','outlook'].includes(p.delivery)?p.delivery:'link';
+      const token=randomHex(32),digest=await sha256(token),expiry=signingExpiry();
+      const snapshot={reference:row.reference,payload:row.payload,client:row.client,client_email:row.client_email,site_address:row.site_address,
+        fee_ex_vat:Number(row.fee_ex_vat),revision:Number(row.revision)};
+      await env.DB.prepare("UPDATE signature_requests SET status='revoked' WHERE proposal_id=? AND status='pending'").bind(id).run();
+      const created=await env.DB.prepare("INSERT INTO signature_requests(proposal_id,token_hash,status,snapshot_payload,snapshot_revision,recipient_email,recipient_name,created_by,expires_at) VALUES(?,?,'pending',?,?,?,?,?,?)")
+        .bind(id,digest,JSON.stringify(snapshot),row.revision,row.client_email,row.client,user.id,expiry).run();
+      const signingUrl=signLink(req.url,token),pdf=await proposalPdf(snapshot);
+      const intro='Dear '+row.client+',\n\nPlease review our architectural fee proposal for '+row.site_address+' (reference '+row.reference+'). The quotation PDF is attached for your records.\n\nTo accept it, review the proposal and sign securely on your phone, tablet or computer using this private link:\n'+signingUrl+
+        '\n\nThis link expires after '+SIGN_LINK_DAYS+' days. Please do not forward it. The accepted PDF will be saved with your job and can be downloaded after signing.\n\nKind regards,\nMitchell Proctor Architects\n01246 203196';
+      const subject='Action required: review and sign fee proposal '+row.reference;
+      let delivery='link',sentId=null,sendError='';
+      if(method==='practice'&&env.RESEND_API_KEY&&env.MAIL_FROM){
+        try{
+          const mail={from:env.MAIL_FROM,to:[row.client_email],bcc:[OWNER_EMAIL],subject,text:intro,
+            attachments:[{filename:row.reference+'_Fee_Proposal.pdf',content:base64FromBytes(pdf),content_type:'application/pdf'}]};
+          const res=await fetch('https://api.resend.com/emails',{method:'POST',headers:{Authorization:'Bearer '+env.RESEND_API_KEY,'Content-Type':'application/json'},body:JSON.stringify(mail)});
+          const result=await res.json().catch(()=>({}));
+          if(!res.ok||!result.id)throw new Error(clean(result.message||res.status,160));
+          delivery='practice';sentId=result.id;
+        }catch(err){sendError='Practice email could not send: '+err.message}
+      }else if(method==='outlook'&&isOutlookConfigured(env)){
+        try{
+          const outlook=await activeOutlookAccount(env,user.id);
+          if(!outlook)throw new Error('Connect your Outlook mailbox in Outlook Settings');
+          const payload={message:{subject,body:{contentType:'Text',content:intro},
+            toRecipients:[{emailAddress:{address:row.client_email}}],
+            bccRecipients:outlook.row.mailbox.toLowerCase()===OWNER_EMAIL.toLowerCase()?[]:[{emailAddress:{address:OWNER_EMAIL}}],
+            attachments:[{'@odata.type':'#microsoft.graph.fileAttachment',name:row.reference+'_Fee_Proposal.pdf',
+              contentType:'application/pdf',contentBytes:base64FromBytes(pdf)}]},saveToSentItems:true};
+          const res=await graphCall(outlook.accessToken,'/me/sendMail',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+          if(res.status!==202)throw new Error('Outlook rejected sending ('+res.status+')');
+          delivery='outlook';sentId='microsoft-accepted';
+        }catch(err){sendError='Outlook could not send: '+err.message}
+      }else if(method!=='link')sendError=method==='outlook'?'Microsoft Outlook is not connected.':'Practice email service is not configured.';
+      if(sentId){
+        await env.DB.prepare('UPDATE signature_requests SET sent_provider=?,sent_message_id=? WHERE id=?')
+          .bind(delivery,sentId,created.meta.last_row_id).run();
+        await env.DB.prepare("UPDATE proposals SET status='sent',chase_enabled=CASE WHEN job_status='pending' THEN 1 ELSE 0 END,chase_started_at=COALESCE(chase_started_at,CURRENT_TIMESTAMP),updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(id).run();
+      }
+      await recordProjectEvent(env.DB,id,user,'appointment','Digital signing invitation CREATED for '+row.client_email+'; snapshot revision '+row.revision+'; expires '+expiry+
+        '; delivery '+(sentId?delivery+' accepted':'link to be shared by staff')+'.'+(sendError?' Email issue: '+sendError:''));
+      return appJSON({ok:true,id:created.meta.last_row_id,signingUrl,expiresAt:expiry,
+        delivery,emailed:!!sentId,sendError,client:row.client,email:row.client_email,reference:row.reference,
+        note:sentId?'Provider accepted the signing invitation with the PDF attached; verify delivery.':
+          'No email was sent. Copy the link into Outlook or WhatsApp and send it to the client. The client can review and sign without paying for DocuSign.'});
+    }
+    if(method==='POST'&&action==='sign-revoke'){
+      const p=await req.json();
+      if(p.confirm!==true||!Number.isInteger(Number(p.requestId)))return appJSON({error:'Confirm the specific signing request to cancel'},400);
+      const change=await env.DB.prepare("UPDATE signature_requests SET status='revoked' WHERE proposal_id=? AND id=? AND status='pending'")
+        .bind(id,Number(p.requestId)).run();
+      if(!change.meta?.changes)return appJSON({error:'Only unsigned, active invitations can be cancelled'},409);
+      await recordProjectEvent(env.DB,id,user,'appointment','Client signing link cancelled by staff before signature.');
+      return appJSON({ok:true,revoked:true});
     }
     if(method==='POST'&&action==='accept'){
       if(row.job_status!=='won')return appJSON({error:'Mark this job Won before recording the agreed proposal'},409);
