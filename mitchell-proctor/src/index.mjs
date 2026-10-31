@@ -1007,6 +1007,17 @@ export default {
         return securityHeaders(await env.ASSETS.fetch(new Request(new URL(asset,request.url),request)));
       }
       if(['/manifest.webmanifest','/mp-icon.svg','/favicon.ico','/portal.css'].includes(path))return securityHeaders(await env.ASSETS.fetch(request));
+      // Invitation link is public by design; client must possess its random 256-bit token.
+      // Do not load third-party assets or disclose the token through a referrer.
+      if(/^\/sign\/[a-f0-9]{64}$/.test(path)){
+        const asset=await env.ASSETS.fetch(new Request(new URL('/sign.html',request.url),request));
+        const headers=new Headers(asset.headers);
+        headers.set('Cache-Control','private,no-store');headers.set('Referrer-Policy','no-referrer');
+        headers.set('X-Content-Type-Options','nosniff');headers.set('X-Frame-Options','DENY');
+        headers.set('Content-Security-Policy',"default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+        return new Response(asset.body,{status:asset.status,headers});
+      }
+
       if(!user)return Response.redirect(new URL('/login',url).toString(),302);
       if(path==='/outlook'||path==='/outlook.html')return securityHeaders(await env.ASSETS.fetch(new Request(new URL('/outlook.html',request.url),request)));
       if(path==='/cloud-sync.js')return securityHeaders(await env.ASSETS.fetch(request));
