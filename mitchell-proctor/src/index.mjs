@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { proposalPdf } from "./pdf.mjs";
+import {SIGN_LINK_DAYS,SIGNING_STATEMENT,signLink,signingExpiry,validSigningToken,validateSigningSubmission,signedAcceptancePdf,sha256Hex} from "./signing.mjs";
 import { makePricingDefaults, resolvePricingDefaults, validBand, BAND_IDS } from "./pricing-defaults.mjs";
 import { calculateProfessionalFee } from "./fee-math.mjs";
 import {isOutlookConfigured,OUTLOOK_SCOPES,OUTLOOK_DASHBOARD,redirectFor,randomUrlToken,outlookAuthorizeUrl,microsoftTokenRequest,graphCall,encryptOutlookTokens,decryptOutlookTokens,outlookEmailMessage,safeOutlookHtmlToText,nextOutlookSubjectRef} from "./outlook-graph.mjs";
@@ -40,6 +41,10 @@ export class MpSqlStore extends DurableObject {
   this.sql.exec("CREATE TABLE IF NOT EXISTS project_inbound_emails (id INTEGER PRIMARY KEY AUTOINCREMENT,provider_id TEXT UNIQUE NOT NULL,proposal_id INTEGER NOT NULL,subject TEXT NOT NULL,from_address TEXT NOT NULL,to_addresses TEXT NOT NULL,text_body TEXT NOT NULL,received_at TEXT NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);");
   this.sql.exec("CREATE INDEX IF NOT EXISTS idx_incoming_job ON project_inbound_emails(proposal_id,created_at);");
   this.sql.exec("CREATE TABLE IF NOT EXISTS staff_drafts (user_id INTEGER PRIMARY KEY NOT NULL,payload TEXT NOT NULL,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);");
+  this.sql.exec("CREATE TABLE IF NOT EXISTS signature_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, proposal_id INTEGER NOT NULL,token_hash TEXT NOT NULL UNIQUE,status TEXT NOT NULL DEFAULT 'pending',snapshot_payload TEXT NOT NULL,snapshot_revision INTEGER NOT NULL,recipient_email TEXT NOT NULL,recipient_name TEXT NOT NULL,created_by INTEGER NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,expires_at TEXT NOT NULL,sent_provider TEXT,sent_message_id TEXT,signed_at TEXT,signer_name TEXT,signer_email TEXT,signature_method TEXT,ip_hash TEXT,user_agent TEXT,original_sha256 TEXT,signed_sha256 TEXT,signed_file_id INTEGER,receipt_id TEXT,notification_id TEXT);");
+  this.sql.exec("CREATE INDEX IF NOT EXISTS idx_mp_signature_jobs ON signature_requests(proposal_id,id);");
+  this.sql.exec("CREATE TABLE IF NOT EXISTS signature_attempts (id INTEGER PRIMARY KEY AUTOINCREMENT,token_hash TEXT NOT NULL,source_hash TEXT NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);");
+  this.sql.exec("CREATE INDEX IF NOT EXISTS idx_mp_signature_attempts ON signature_attempts(token_hash,source_hash,created_at);");
   this.sql.exec("CREATE TABLE IF NOT EXISTS project_note_drafts (proposal_id INTEGER NOT NULL,user_id INTEGER NOT NULL,event_type TEXT NOT NULL,body TEXT NOT NULL,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(proposal_id,user_id));");
  }
  async fetch(request){
@@ -59,7 +64,8 @@ export class MpSqlStore extends DurableObject {
        ['chase_reminders','SELECT * FROM chase_reminders'],
        ['staff_drafts','SELECT * FROM staff_drafts'],
        ['outlook_sent','SELECT * FROM outlook_sent'],
-       ['project_inbound_emails','SELECT * FROM project_inbound_emails']
+       ['project_inbound_emails','SELECT * FROM project_inbound_emails'],
+       ['signature_requests','SELECT id,proposal_id,token_hash,status,snapshot_payload,snapshot_revision,recipient_email,recipient_name,created_by,created_at,expires_at,sent_provider,sent_message_id,signed_at,signer_name,signer_email,signature_method,ip_hash,user_agent,original_sha256,signed_sha256,signed_file_id,receipt_id,notification_id FROM signature_requests']
      ];
      const encoder=new TextEncoder(),store=this.sql;
      let tableIdx=-1,cursor=null,started=false;
@@ -625,6 +631,8 @@ async function api(req, env, path) {
       await env.DB.prepare('DELETE FROM project_files WHERE proposal_id=?').bind(id).run();
       await env.DB.prepare('DELETE FROM project_note_drafts WHERE proposal_id=?').bind(id).run();
       await env.DB.prepare('DELETE FROM chase_reminders WHERE proposal_id=?').bind(id).run();
+      await env.DB.prepare('DELETE FROM signature_attempts WHERE token_hash IN (SELECT token_hash FROM signature_requests WHERE proposal_id=?)').bind(id).run();
+      await env.DB.prepare('DELETE FROM signature_requests WHERE proposal_id=?').bind(id).run();
       await env.DB.prepare('DELETE FROM proposals WHERE id=?').bind(id).run();return appJSON({ok:true});
     }
     if(method==='GET'&&action==='pdf'){
