@@ -274,6 +274,95 @@ async function api(req, env, path) {
     if (!['application/json','text/plain'].some(s=>(req.headers.get('Content-Type')||'').includes(s))) return appJSON({error:'JSON requests required'},415);
   }
   const user = await getUser(req,env);
+  // Public client signing requires a 256-bit unguessable link, not a staff session.
+  const publicSign=path.match(/^\/api\/sign\/([a-f0-9]{64})(?:\/(pdf))?$/);
+  if(publicSign){
+    const token=publicSign[1],part=publicSign[2]||'',hash=await sha256(token);
+    const reqRecord=await env.DB.prepare('SELECT * FROM signature_requests WHERE token_hash=? LIMIT 1').bind(hash).first();
+    if(!reqRecord)return appJSON({error:'Signing link not found. Request a new one from Mitchell Proctor Architects.'},404);
+    const current=new Date(),expired=new Date(reqRecord.expires_at).getTime()<=current.getTime();
+    const finished=reqRecord.status==='signed';
+    const signedExpired=finished&&new Date(reqRecord.signed_at).getTime()+30*86400000<=current.getTime();
+    if((expired&&!finished)||signedExpired||reqRecord.status==='revoked')
+      return appJSON({error:'This signing link has expired or was replaced. Please contact Mitchell Proctor Architects.'},410);
+    const snapshot=JSON.parse(reqRecord.snapshot_payload);
+    const address=String(reqRecord.recipient_email||'');
+    const mask=address.replace(/^(.)([^@]*)(@.*)$/,(m,first,middle,domain)=>first+'***'+domain);
+    if(method==='GET'&&!part)return appJSON({
+      reference:snapshot.reference,client:snapshot.client,project:snapshot.site_address,
+      emailHint:mask,feeExVat:Number(snapshot.fee_ex_vat),
+      vatRate:Number(JSON.parse(snapshot.payload).feeVatRate)||0,
+      createdAt:reqRecord.created_at,expiresAt:reqRecord.expires_at,
+      signed:finished,signedAt:reqRecord.signed_at||null,
+      signingStatement:SIGNING_STATEMENT,
+      signatureMethods:['drawn','typed'],
+      notice:'This is an electronic signature and evidence record, not a qualified/certified digital signature.'
+    });
+    if(method==='GET'&&part==='pdf'){
+      const signedFile=finished?await env.DB.prepare('SELECT content_base64 FROM project_files WHERE id=? AND proposal_id=? AND ready=1').bind(reqRecord.signed_file_id,reqRecord.proposal_id).first():null;
+      const pdf=signedFile?bytesFromBase64(signedFile.content_base64):await proposalPdf(snapshot);
+      return new Response(pdf,{headers:{
+        'Content-Type':'application/pdf','Content-Disposition':'inline; filename="'+snapshot.reference+(finished?'_Signed':'_Review')+'.pdf"',
+        'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'
+      }});
+    }
+    if(method==='POST'&&!part){
+      if(finished)return appJSON({error:'This proposal has already been signed. The signed PDF can still be downloaded from this link.'},409);
+      if(reqRecord.status!=='pending')return appJSON({error:'This signing link is not available.'},409);
+      const attemptIp=String(req.headers.get('CF-Connecting-IP')||'unknown');
+      const originHash=await sha256(attemptIp+'|'+hash);
+      const count=await env.DB.prepare("SELECT COUNT(*) AS n FROM signature_attempts WHERE token_hash=? AND source_hash=? AND created_at>datetime('now','-60 minutes')").bind(hash,originHash).first();
+      if(Number(count?.n||0)>=15)return appJSON({error:'Too many signing attempts. Please try again later.'},429);
+      await env.DB.prepare('INSERT INTO signature_attempts(token_hash,source_hash) VALUES(?,?)').bind(hash,originHash).run();
+      const input=await req.json();
+      const validation=validateSigningSubmission(input,reqRecord.recipient_email);
+      if(validation)return appJSON({error:validation},400);
+      const job=await env.DB.prepare('SELECT id,revision,job_status,agreed_at FROM proposals WHERE id=?').bind(reqRecord.proposal_id).first();
+      if(!job||job.job_status==='lost'||Number(job.revision)!==Number(reqRecord.snapshot_revision)||job.agreed_at)
+        return appJSON({error:'The fee proposal has changed, was declined or has already been accepted. Request a new signing link.'},409);
+      const claimed=await env.DB.prepare("UPDATE signature_requests SET status='processing' WHERE id=? AND status='pending' AND expires_at>?")
+        .bind(reqRecord.id,current.toISOString()).run();
+      if(!claimed.meta?.changes)return appJSON({error:'The signing link has already been used. Refresh to see the signed record.'},409);
+      const signerName=String(input.signerName).trim(),signerEmail=String(input.signerEmail).trim().toLowerCase();
+      const signedAt=new Date();
+      try{
+        const result=await signedAcceptancePdf(snapshot,{signerName,signerEmail,method:input.method,signaturePng:input.signaturePng,typedSignature:input.typedSignature},signedAt);
+        if(result.bytes.byteLength>1024*1024)throw Object.assign(new Error('Signature image is too large. Draw a smaller signature.'),{status:413});
+        const filename=snapshot.reference+'_Electronically_Signed.pdf';
+        const saved=await env.DB.prepare("INSERT INTO project_files(proposal_id,file_name,mime_type,kind,size_bytes,content_base64,uploaded_by) VALUES(?,?,?,?,?,?,?)")
+          .bind(reqRecord.proposal_id,filename,'application/pdf','signed_proposal',result.bytes.byteLength,base64FromBytes(result.bytes),reqRecord.created_by).run();
+        const fileId=saved.meta.last_row_id;
+        const done=await env.DB.prepare("UPDATE signature_requests SET status='signed',signed_at=?,signer_name=?,signer_email=?,signature_method=?,ip_hash=?,user_agent=?,original_sha256=?,signed_sha256=?,signed_file_id=?,receipt_id=? WHERE id=? AND status='processing'")
+          .bind(signedAt.toISOString(),signerName,signerEmail,input.method,originHash,clean(req.headers.get('User-Agent')||'',250),result.originalHash,result.pdfHash,fileId,result.certificateId,reqRecord.id).run();
+        if(!done.meta?.changes)throw new Error('The signing record could not be finalised');
+        await env.DB.prepare("UPDATE proposals SET job_status='won',job_stage=CASE WHEN job_stage IN ('enquiry','proposal') THEN 'appointed' ELSE job_stage END,agreed_fee_ex_vat=?,agreed_at=?,chase_enabled=0,updated_at=CURRENT_TIMESTAMP WHERE id=? AND agreed_at IS NULL")
+          .bind(snapshot.fee_ex_vat,signedAt.toISOString(),reqRecord.proposal_id).run();
+        await recordProjectEvent(env.DB,reqRecord.proposal_id,{id:reqRecord.created_by},'appointment',
+          'CLIENT ELECTRONICALLY SIGNED fee proposal '+snapshot.reference+' on '+signedAt.toISOString()+' (UTC). Signer: '+signerName+
+          ' <'+signerEmail+'>. Method: '+input.method+'. PDF archived: '+filename+'. SHA256 '+result.pdfHash+'. Signed-link record '+result.certificateId.slice(0,28)+'. Job marked Won and office chases stopped.');
+        let notified=false;
+        if(env.RESEND_API_KEY&&env.MAIL_FROM){
+          try{
+            const mail={from:env.MAIL_FROM,to:[signerEmail],bcc:[OWNER_EMAIL],subject:'Signed architectural fee proposal '+snapshot.reference,
+              text:'Dear '+signerName+',\n\nThank you for electronically signing the Mitchell Proctor Architects fee proposal for '+snapshot.site_address+'.\n\nYour signed PDF acceptance is attached. We will confirm the professional appointment and any applicable consumer cancellation information separately.\n\nKind regards,\nMitchell Proctor Architects\n01246 203196',
+              attachments:[{filename,content:base64FromBytes(result.bytes),content_type:'application/pdf'}]};
+            const mailResponse=await fetch('https://api.resend.com/emails',{method:'POST',headers:{Authorization:'Bearer '+env.RESEND_API_KEY,'Content-Type':'application/json'},body:JSON.stringify(mail)});
+            const output=await mailResponse.json().catch(()=>({}));
+            if(mailResponse.ok&&output.id){
+              notified=true;
+              await env.DB.prepare('UPDATE signature_requests SET notification_id=? WHERE id=?').bind(output.id,reqRecord.id).run();
+            }
+          }catch(err){console.warn('Signed acceptance saved but notification failed',err)}
+        }
+        return appJSON({ok:true,signed:true,reference:snapshot.reference,signedAt:signedAt.toISOString(),receiptId:result.certificateId.slice(0,28),signedPdfUrl:'/api/sign/'+token+'/pdf',
+          notified,notice:notified?'Signed PDF accepted by email service; check your inbox.':'Your signed PDF is safely stored. Download it now; email delivery is not configured or did not succeed.'});
+      }catch(err){
+        await env.DB.prepare("UPDATE signature_requests SET status='pending' WHERE id=? AND status='processing'").bind(reqRecord.id).run();
+        throw err;
+      }
+    }
+    return appJSON({error:'Unsupported signing action'},405);
+  }
   if (method==='GET' && path==='/api/session') return appJSON({authenticated:!!user,user:user?{id:user.id,email:user.email,name:user.name,role:user.role}:null,needsSetup:!await env.DB.prepare('SELECT id FROM users LIMIT 1').first()});
   if (method==='POST' && path==='/api/setup') {
     if (!env.SETUP_TOKEN && !OWNER_CLAIM_SHA256) return appJSON({error:'Owner setup unavailable'},503);
