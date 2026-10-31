@@ -32,7 +32,11 @@ export function validateSigningSubmission(p,recipient){
    return 'Draw your signature on the pad before submitting.';
   try{
    const binary=atob(p.signaturePng.slice(22));
-   if(binary.length<180||binary.slice(0,8)!=='\x89PNG\r\n\x1a\n')return 'The drawing does not look like a valid PNG signature.';
+   if(binary.length<180||binary.slice(0,8)!=='\x89PNG\r\n\x1a\n'||binary.slice(12,16)!=='IHDR')
+    return 'The drawing does not look like a valid PNG signature.';
+   const word=(index)=>((binary.charCodeAt(index)<<24)>>>0)+(binary.charCodeAt(index+1)<<16)+(binary.charCodeAt(index+2)<<8)+binary.charCodeAt(index+3);
+   const width=word(16),height=word(20);
+   if(width<100||width>2000||height<40||height>800)return 'Signature drawing dimensions are invalid.';
   }catch{return 'The drawn signature could not be read.'}
  }
  return null;
