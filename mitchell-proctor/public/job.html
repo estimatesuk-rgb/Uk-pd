@@ -27,6 +27,11 @@
 .job-status{display:inline-block;font-weight:800;font-size:12px;letter-spacing:.045em;border-radius:50px;padding:6px 12px}
 .job-status.won{background:#dcefe2;color:#245a37}.job-status.lost{background:#f6dfdf;color:#9c3333}.job-status.pending{background:#f3e8d4;color:#7e5a27}
 .job-form{display:grid;gap:13px}.job-form textarea{min-height:105px}
+#newSigningLink input{width:100%;overflow-wrap:anywhere}
+.signature-entry{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;border-top:1px solid #e5ddd4;padding:12px 0}
+.signature-entry strong{display:block}.signature-entry small{display:block;color:#73695d;margin-top:3px}
+@media(max-width:600px){.signature-entry{grid-template-columns:1fr}}
+
 .chase-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;border-bottom:1px solid #e7e0d8;padding:13px 0;align-items:center}
 .chase-item strong{display:block}.chase-item small{display:block;color:#73695d;margin-top:4px}
 .chase-buttons{display:flex;gap:7px;flex-wrap:wrap}.chase-buttons button{font-size:12px;padding:8px 10px}
@@ -98,6 +103,38 @@
     <p id="chaseEmailStatus" class="muted" style="font-size:12px"></p>
     <div id="chaseRows"><p class="muted">Checking reminder history…</p></div>
     <p class="muted" style="font-size:12px">When you send a client chase email from this page, the office is BCCed and the email is recorded automatically on the job. For chases by telephone or an external email account, choose Record chase completed and upload the sent .eml/.msg file below if you need a copy retained.</p>
+   </section>
+   <section class="card" id="electronicSignatureSection">
+    <div class="eyebrow">04 / Digital client acceptance</div>
+    <h2>Free electronic signatures</h2>
+    <p class="job-intro">Give your client a private 14-day link to review this exact fee proposal and sign on their phone, iPad or computer. Their signed PDF, signature details and acceptance time are filed automatically against the job, without a DocuSign subscription.</p>
+    <div id="signatureOverview" class="job-banner">Checking signing requests…</div>
+    <label class="field">How do you want to invite the client?
+      <select id="signatureDelivery">
+       <option value="link">Create private link to copy into WhatsApp or email</option>
+       <option value="outlook">Send directly with connected Microsoft Outlook + PDF attached</option>
+       <option value="practice">Send by practice email + PDF attached</option>
+      </select>
+    </label>
+    <div class="job-actions">
+     <button id="createSignatureInvite" type="button">Prepare client signing invitation</button>
+     <span class="muted" style="font-size:12px">Only generate when the fee and scope are final.</span>
+    </div>
+    <div id="newSigningLink" style="display:none;border:1px solid #d8c4a9;border-radius:9px;padding:15px;margin-top:15px;background:#fbf7f1">
+     <label class="field">Private client signing link
+       <input id="signingLinkInput" readonly aria-label="Private client digital signing link">
+     </label>
+     <div class="job-actions">
+      <button id="copySigningLink" type="button">Copy signing link</button>
+      <button id="shareSigningLink" class="outline" type="button">Share invitation</button>
+      <a id="signByEmail" class="button outline" href="#">Prepare email</a>
+      <a id="signByWhatsapp" class="button outline" href="#" target="_blank" rel="noopener noreferrer">Open WhatsApp</a>
+     </div>
+     <p id="signInviteStatus" class="muted" role="status">The private link can only be copied while this panel is open; regenerate it if you need another copy later.</p>
+    </div>
+    <h3 style="margin-top:25px">Signing history</h3>
+    <div id="signatureHistory" role="status"><p class="muted">Loading…</p></div>
+    <p class="muted" style="font-size:12px">Simple electronic signatures are recorded with a signed PDF and audit information. This is not a paid DocuSign certificate or a qualified digital signature. Professional appointment terms and applicable consumer cancellation information should still be reviewed.</p>
    </section>
    <section class="card">
     <div class="eyebrow">04 / Agreed fee and appointment</div><h2>Lock in the agreed quotation</h2>
@@ -217,6 +254,7 @@ async function load(){
   $('agree').textContent=record.agreedAt?'Agreed proposal archived':'Archive agreed fee proposal';
   $('agreementDate').textContent=record.agreedAt?'Agreement recorded: '+record.agreedAt:'No agreement recorded';
   renderChases(data);
+  renderSignatureRequests(data);
 
   const target='/?proposal='+encodeURIComponent(id);
   $('editProposal').href=target;$('quoteShare').href=target;
@@ -335,6 +373,80 @@ $('followForm').onsubmit=async event=>{
 $('saveStage').onclick=async()=>{
  try{await post('/api/proposals/'+id+'/stage',{stage:$('stage').value});await load();alertMsg('Project stage recorded in the timeline.')}
  catch(e){alertMsg(e.message,true)}
+};
+function renderSignatureRequests(data){
+ const p=data.project,requests=data.signatureRequests||[];
+ const signed=requests.find(x=>x.status==='signed'),pending=requests.find(x=>x.status==='pending'&&new Date(x.expires_at)>new Date());
+ $('signatureOverview').className='job-banner'+(signed?' ok':'');
+ $('signatureOverview').textContent=signed?'SIGNED by '+signed.signer_name+' on '+new Date(signed.signed_at).toLocaleString('en-GB')+'. Signed PDF is in Saved Documents.':
+    pending?'Awaiting digital signature from '+pending.recipient_email+' · link expires '+new Date(pending.expires_at).toLocaleDateString('en-GB'):
+    p.agreedAt?'An agreed proposal is already archived. New signature links are disabled.':
+    'No active signing invitation. Choose how to invite the client below.';
+ $('createSignatureInvite').disabled=!!p.agreedAt||p.jobStatus==='lost';
+ const root=$('signatureHistory');root.replaceChildren();
+ if(!requests.length)root.append(elem('p','No signing invitations created yet.','muted'));
+ for(const record of requests){
+  const block=elem('div',null,'signature-entry'),text=elem('div');
+  text.append(elem('strong',record.status==='signed'?'Digitally signed':record.status==='pending'?'Awaiting client signature':'Invitation '+record.status));
+  text.append(elem('small','Client: '+record.recipient_email+' · Created: '+record.created_at+' · Expires: '+record.expires_at));
+  if(record.signed_at)text.append(elem('small','Signed by: '+record.signer_name+' · '+record.signed_at+' UTC · '+record.signature_method));
+  else if(record.sent_provider)text.append(elem('small','Invitation accepted by '+record.sent_provider+' email service (delivery not guaranteed)'));
+  const action=elem('div');
+  if(record.status==='pending'){
+    const button=elem('button','Cancel invitation','outline');button.type='button';
+    button.onclick=async()=>{
+      if(!confirm('Cancel this client signing link? The client will no longer be able to sign using it.'))return;
+      button.disabled=true;
+      try{await post('/api/proposals/'+id+'/sign-revoke',{confirm:true,requestId:record.id});await load();alertMsg('Unsigned signing link cancelled.')}
+      catch(err){alertMsg(err.message,true);button.disabled=false}
+    };action.append(button);
+  }else if(record.status==='signed'&&record.signed_file_id){
+    const link=elem('a','Download signed PDF','button outline');
+    link.href='/api/proposals/'+id+'/files/'+record.signed_file_id;
+    link.setAttribute('download',p.reference+'_Electronically_Signed.pdf');action.append(link);
+  }
+  block.append(text,action);root.append(block);
+ }
+}
+$('createSignatureInvite').onclick=async()=>{
+ if(!record||record.jobStatus==='lost'||record.agreedAt){alertMsg('The job is already completed/accepted or declined.',true);return}
+ const delivery=$('signatureDelivery').value;
+ const message=delivery==='link'?'Create a secure signing link to send manually to '+record.clientEmail+'?':
+   'Email the client an invitation with this fee proposal PDF ATTACHED using '+(delivery==='outlook'?'connected Outlook':'the practice email service')+'?';
+ if(!confirm(message+'\nGenerating a new invitation revokes older unsigned signing links.'))return;
+ const button=$('createSignatureInvite');button.disabled=true;
+ try{
+  const data=await post('/api/proposals/'+id+'/sign-invite',{confirm:true,delivery});
+  const url=data.signingUrl;
+  $('signingLinkInput').value=url;
+  $('newSigningLink').style.display='block';
+  const subject='Please review and electronically sign Mitchell Proctor fee proposal '+record.reference;
+  const body='Dear '+record.client+',\n\nPlease review our fee proposal '+record.reference+' for '+record.address+' and sign securely using the private link below:\n\n'+url+'\n\nThe full PDF can be read or downloaded from that link. It expires after 14 days. Please do not forward this link.\n\nKind regards,\nMitchell Proctor Architects';
+  $('signByEmail').href='mailto:'+encodeURIComponent(record.clientEmail)+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body);
+  const phone=String(record.clientPhone||'').replace(/\D/g,'').replace(/^0(?=\d{10}$)/,'44');
+  $('signByWhatsapp').style.display=phone.length>=9&&phone.length<=15?'inline-flex':'none';
+  $('signByWhatsapp').href='https://wa.me/'+phone+'?text='+encodeURIComponent(body);
+  $('signInviteStatus').textContent=data.emailed?'Email provider accepted the invitation with the quotation PDF attached. Please verify client delivery.':
+    data.sendError?'The email could not be sent ('+data.sendError+'). Copy and send the link manually.':
+    'The link is ready. No email has been sent. Copy/share it and instruct your client to sign.';
+  await load();
+  alertMsg(data.emailed?'Signing invitation sent to email service with PDF attached.':'Signing link generated. Copy it and send to the client.');
+ }catch(err){alertMsg('Could not invite client: '+err.message,true)}
+ finally{button.disabled=false}
+};
+$('copySigningLink').onclick=async()=>{
+ const url=$('signingLinkInput').value;
+ if(!url){alertMsg('Generate a signing link first.',true);return}
+ try{await navigator.clipboard.writeText(url);$('signInviteStatus').textContent='Private link copied. Send it to the intended client only.'}
+ catch{ $('signingLinkInput').select();document.execCommand?.('copy');$('signInviteStatus').textContent='Link selected. Copy it and send to the client.' }
+};
+$('shareSigningLink').onclick=async()=>{
+ const url=$('signingLinkInput').value;if(!url)return;
+ if(navigator.share){
+  try{await navigator.share({title:'Mitchell Proctor fee proposal '+record.reference,url,
+     text:'Please review your architectural fee proposal and electronically sign it using this private link.'})}
+  catch(err){if(err.name!=='AbortError')alertMsg('Share could not open: '+err.message,true)}
+ }else await $('copySigningLink').click();
 };
 $('agree').onclick=async()=>{
  if(!confirm('The client has instructed Mitchell Proctor Architects. Archive the CURRENT PDF and professional fee as the agreed record? This does not create a signed contract or send an email.'))return;
