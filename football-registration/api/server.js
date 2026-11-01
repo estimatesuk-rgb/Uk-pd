@@ -9,7 +9,8 @@ app.use(cors({origin:process.env.FRONTEND_ORIGIN||'https://football-registration
 app.use(express.json({limit:'16kb'}));
 const pool=process.env.DATABASE_URL?new pg.Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:true},max:3,connectionTimeoutMillis:8000}):null;
 app.get('/health',async(_req,res)=>{
- if(!pool)return res.status(503).json({status:'setup_required',database:'not_configured',message:'Set DATABASE_URL as a Render secret environment variable'});\n try {const r=await pool.query("select count(*)::int as tables from information_schema.tables where table_schema='football'");
+ if(!pool)return res.status(503).json({status:'setup_required',database:'not_configured',message:'Set DATABASE_URL as a Render secret environment variable'});
+ try {const r=await pool.query("select count(*)::int as tables from information_schema.tables where table_schema='football'");
  res.json({status:'ok',database:'connected',tables:r.rows[0].tables,mode:'read-only-no-accounts'});}
  catch(e){console.error('Database health check failed:',e.code||e.message);res.status(503).json({status:'unavailable'});}
 });
