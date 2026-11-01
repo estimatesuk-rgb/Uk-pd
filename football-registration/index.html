@@ -34,4 +34,4 @@ function renderReports(){$("reportHistory").innerHTML=d.reports.map(r=>'<div cla
 $("saveRules").onclick=()=>{d.maxSubs=Math.max(0,Math.min(30,+$("maxSubs").value||0));d.maxUsed=Math.max(0,Math.min(30,+$("maxUsed").value||0));persist();render();alert("Demo competition rules saved")};
 function render(){$("maxSubs").value=d.maxSubs;$("maxUsed").value=d.maxUsed;renderOverview();renderPlayers();renderSheet();renderAppointments();renderReports()}
 sheetClubOptions();show("overview");
-</script></body></html>
+</script><script src="./verification.js"></script></body></html>
