@@ -27,7 +27,7 @@ begin
   raise exception 'Too many substitutes for this competition';
  end if;
  v_all:=p_starters||p_substitutes;
- if (select count(distinct x) from unnest(v_all) as x)<>cardinality(v_all) then
+ if (select count(distinct x) from unnest(v_all) as u(x))<>cardinality(v_all) then
   raise exception 'Duplicate player selected';
  end if;
  select count(*) into v_valid from football.players p
@@ -56,4 +56,4 @@ grant execute on function football.submit_team_sheet(uuid,uuid,uuid[],uuid[]) to
 revoke insert,update,delete on football.team_sheets,football.team_sheet_players from authenticated;
 -- The SECURITY DEFINER RPC runs as its owner and enforces authorization above.
 -- An actual FA integration must write registration_source from a trusted backend only.
-revoke update(registered,suspended,registration_source) on football.players from authenticated;
+-- Revoke all direct writes to eligibility-bearing rows; use separate controlled RPCs.\nrevoke insert,update,delete on football.players from authenticated;\n-- No public schema API exposure is configured yet; add football to exposed schemas only after RLS review.
