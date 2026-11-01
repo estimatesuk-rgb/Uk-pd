@@ -14,6 +14,13 @@ app.get('/health',async(_req,res)=>{
  res.json({status:'ok',database:'connected',tables:r.rows[0].tables,mode:'read-only-no-accounts'});}
  catch(e){console.error('Database health check failed:',e.code||e.message);res.status(503).json({status:'unavailable'});}
 });
+app.get('/api/v1/clubs',async(_req,res)=>{
+ if(!pool)return res.status(503).json({error:'Database not configured'});
+ try{
+ const q=await pool.query("select c.id,c.name,c.division,c.badge_url,c.home_ground,c.ground_address,c.source_url from football.clubs c join football.leagues l on l.id=c.league_id where l.name=$1 order by c.division nulls last,c.name",['Chesterfield and District Sunday Football League 2026/27']);
+ res.json({season:'2026/27',verified:false,clubs:q.rows,count:q.rowCount,note:'Provisional public club directory; no private contact details or player registrations exposed'});
+ }catch(e){console.error('Club directory query failed:',e.code||e.message);res.status(503).json({error:'Unavailable'});}
+});
 app.get('/api/v1/status',(_req,res)=>res.json({mode:'setup',message:'Authentication is not configured. Private league data and writes are disabled.',publicDemo:'https://football-registration-team-sheet.onrender.com'}));
 app.use((_req,res)=>res.status(404).json({error:'Not found'}));
 const port=Number(process.env.PORT||10000);
