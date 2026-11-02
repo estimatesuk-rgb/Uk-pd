@@ -224,6 +224,11 @@ app.get('/api/v1/my/matchday-checklist',requireClub,async(req,res)=>{
   res.set('Cache-Control','no-store').json({club:req.club.name,matches,source:'2026/27 league handbook matchday instructions',note:'Checklist guidance only; no confirmation of physical handover or official player eligibility'});
  }catch(e){console.error('Matchday checklist failed:',e.code||e.message);res.status(503).json({error:'Matchday checklist unavailable'});}
 });
+app.get('/api/v1/league-import-status',async(_req,res)=>{
+ if(!pool)return res.status(503).json({database:'not_connected',expected_clubs:handbook.clubs.length,imported_clubs:0});
+ try{const result=await pool.query('select count(*)::int as total from football.clubs c join football.leagues l on l.id=c.league_id where l.name=$1',['Chesterfield and District Sunday Football League 2026/27']);const total=result.rows[0].total;res.set('Cache-Control','no-store').json({database:'connected',expected_clubs:handbook.clubs.length,imported_clubs:total,complete:total===handbook.clubs.length,players_verified:false,fixtures_verified:false});}
+ catch(e){console.error('Import status failed:',e.code||e.message);res.status(503).json({database:'not_initialized',expected_clubs:handbook.clubs.length});}
+});
 app.get('/api/v1/status',(_req,res)=>res.json({mode:pool?'club-auth-ready':'database-setup-required',message:'Club account activation and official player verification remain pending.',publicDemo:'https://football-registration-team-sheet.onrender.com'}));
 app.use((_req,res)=>res.status(404).json({error:'Not found'}));
 const port=Number(process.env.PORT||10000);
