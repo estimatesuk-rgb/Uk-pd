@@ -59,6 +59,12 @@ app.get('/api/v1/pilot/player-import-status',(_req,res)=>{
  const counts=Object.fromEntries([...new Set(stagedPlayers.map(p=>p.club))].map(club=>[club,stagedPlayers.filter(p=>p.club===club).length]));
  res.set('Cache-Control','public, max-age=300').json({season:'2026/27',staged_players:stagedPlayers.length,clubs_covered:Object.keys(counts).length,club_counts:counts,database_imported:false,eligibility_verified:false,note:'Public FA Full-Time player names are staged in the repository, not verified as registered or eligible. Live database import remains pending.'});
 });
+app.get('/api/v1/pilot/club-roster/:club',(_req,res)=>{
+ const club=handbook.clubs.find(c=>c.name.toLowerCase()===String(_req.params.club).toLowerCase());
+ if(!club||club.division!=='One')return res.status(404).json({error:'Division One club not found'});
+ const players=stagedPlayers.filter(p=>p.club===club.name).map(p=>({name:p.name}));
+ res.set('Cache-Control','public, max-age=300').json({club:club.name,season:'2026/27',count:players.length,players,registration_verified:false,note:'Publicly displayed FA Full-Time player names only. Eligibility is not confirmed.'});
+});
 app.get('/api/v1/my/staged-players',requireClub,(req,res)=>{
  const players=stagedPlayers.filter(p=>p.club.toLowerCase()===req.club.name.toLowerCase()).map(p=>({name:p.name,source_url:p.source_url,season:p.season,registered:false,verified:false}));
  res.set('Cache-Control','no-store').json({club:req.club.name,players,count:players.length,eligibility_verified:false,note:'Source names only; club or league must confirm registration before use.'});
