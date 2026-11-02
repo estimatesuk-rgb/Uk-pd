@@ -15,3 +15,5 @@ alter table football.referee_appointments add column if not exists appointment_n
 alter table football.referee_appointments add column if not exists referee_email text;
 alter table football.referee_appointments add column if not exists response_token_hash text;
 alter table football.referee_appointments add column if not exists response_token_expires_at timestamptz;
+
+create unique index if not exists referee_appointments_response_token_idx on football.referee_appointments(response_token_hash) where response_token_hash is not null;
