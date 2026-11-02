@@ -64,3 +64,12 @@ test('Render bootstrap is private and imports only handbook clubs',()=>{
  assert.doesNotMatch(bootstrap,/password_hash\s*=/);
  assert.doesNotMatch(bootstrap,/fake|fictional|demo player/i);
 });
+
+test('API starts with handbook-only fallback and database bootstrap',()=>{
+ const start=readFileSync(new URL('./start-render.js',import.meta.url),'utf8');
+ const pkg=JSON.parse(readFileSync(new URL('./package.json',import.meta.url),'utf8'));
+ assert.equal(pkg.scripts.start,'node start-render.js');
+ assert.match(start,/process\.env\.DATABASE_URL/);
+ assert.match(start,/bootstrap-render\.js/);
+ assert.match(start,/server\.js/);
+});
