@@ -155,7 +155,7 @@ app.post('/api/v1/referee/respond',async(req,res)=>{
 app.post('/api/v1/my/fixtures/:id/referee-rating',requireClub,async(req,res)=>{
  const id=req.params.id,rating=req.body?.rating,comments=req.body?.comments;
  const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
- if(!uuid.test(id)||!Number.isInteger(rating)||rating<1||rating>5||typeof comments!=='undefined'&&(typeof comments!=='string'||comments.length>1000))return res.status(400).json({error:'Provide a rating from 1 to 5 and optional comments up to 1000 characters'});
+ if(!uuid.test(id)||!Number.isInteger(rating)||rating<1||rating>10||typeof comments!=='undefined'&&(typeof comments!=='string'||comments.length>1000))return res.status(400).json({error:'Provide a rating from 1 to 10 and optional comments up to 1000 characters'});
  try{
   const fixture=await pool.query("select id from football.fixtures where id=$1 and (home_club_id=$2 or away_club_id=$2) and kickoff<now()-interval '90 minutes'",[id,req.club.club_id]);
   if(!fixture.rowCount)return res.status(403).json({error:'Ratings are only available to participating clubs after the match'});
