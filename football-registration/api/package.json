@@ -10,7 +10,9 @@
     "postinstall": "node --check server.js",
     "test": "node --test smoke.test.js",
     "import:handbook:check": "node import-handbook.js --dry-run",
-    "import:handbook": "node import-handbook.js"
+    "import:handbook": "node import-handbook.js",
+    "bootstrap:render": "node bootstrap-render.js",
+    "check:bootstrap": "node --check bootstrap-render.js"
   },
   "dependencies": {
     "express": "^4.21.2",
