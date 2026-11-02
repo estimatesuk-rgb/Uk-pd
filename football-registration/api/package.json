@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "check": "node --check server.js",
+    "start": "node start-render.js",
+    "check": "node --check server.js && node --check bootstrap-render.js && node --check start-render.js",
     "prestart": "npm run check",
     "postinstall": "node --check server.js",
     "test": "node --test smoke.test.js",
