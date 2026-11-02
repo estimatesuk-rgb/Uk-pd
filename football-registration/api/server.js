@@ -73,7 +73,7 @@ app.post('/api/v1/my/team-sheets',requireClub,async(req,res)=>{
  const sheet=await client.query('insert into football.team_sheets(fixture_id,club_id,submitted_by,submitted_at) values($1,$2,$3,now()) returning id,submitted_at',[fixtureId,req.club.club_id,'club-account']);
  for(const [index,id] of ids.entries())await client.query('insert into football.team_sheet_players(sheet_id,player_id,selection) values($1,$2,$3)',[sheet.rows[0].id,id,index<11?'starter':'substitute']);
  await client.query('COMMIT');res.status(201).set('Cache-Control','no-store').json({team_sheet_id:sheet.rows[0].id,submitted_at:sheet.rows[0].submitted_at,players:ids.length,note:'Submission recorded; league eligibility verification remains required'});
- }catch(e){if(client)await client.query('ROLLBACK').catch(()=>{});console.error('Team sheet submission failed:,e.code||e.message);res.status(503).json({error:'Submission unavailable'});}finally{if(client)client.release();}
+ }catch(e){if(client)await client.query('ROLLBACK').catch(()=>{});console.error('Team sheet submission failed:',e.code||e.message);res.status(503).json({error:'Submission unavailable'});}finally{if(client)client.release();}
 });
 app.get('/api/v1/status',(_req,res)=>res.json({mode:pool?'club-auth-ready':'database-setup-required',message:'Club account activation and official player verification remain pending.',publicDemo:'https://football-registration-team-sheet.onrender.com'}));
 app.use((_req,res)=>res.status(404).json({error:'Not found'}));
