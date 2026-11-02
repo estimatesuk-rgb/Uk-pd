@@ -102,6 +102,12 @@ app.post('/api/v1/my/team-sheets',requireClub,async(req,res)=>{
  await client.query('COMMIT');res.status(201).set('Cache-Control','no-store').json({team_sheet_id:sheet.rows[0].id,submitted_at:sheet.rows[0].submitted_at,players:ids.length,note:'Submission recorded; league eligibility verification remains required'});
  }catch(e){if(client)await client.query('ROLLBACK').catch(()=>{});console.error('Team sheet submission failed:',e.code||e.message);res.status(503).json({error:'Submission unavailable'});}finally{if(client)client.release();}
 });
+app.get('/api/v1/my/referee-appointments',requireClub,async(req,res)=>{
+ try{
+  const q=await pool.query("select f.id as fixture_id,f.kickoff,h.name as home_team,a.name as away_team,ra.referee_name,ra.status,ra.updated_at from football.fixtures f join football.clubs h on h.id=f.home_club_id join football.clubs a on a.id=f.away_club_id left join football.referee_appointments ra on ra.fixture_id=f.id where f.home_club_id=$1 or f.away_club_id=$1 order by f.kickoff desc limit 100",[req.club.club_id]);
+  res.set('Cache-Control','no-store').json({appointments:q.rows,note:'Referee contact information is not exposed to clubs'});
+ }catch(e){console.error('Referee appointments unavailable:',e.code||e.message);res.status(503).json({error:'Referee appointments unavailable or not configured'});}
+});
 app.get('/api/v1/my/fixtures/:id/readiness',requireClub,async(req,res)=>{
  const id=req.params.id;
  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))return res.status(400).json({error:'Invalid fixture ID'});
