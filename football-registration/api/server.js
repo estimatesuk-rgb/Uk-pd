@@ -47,6 +47,10 @@ app.get('/api/v1/handbook/profile/:name', (req,res)=>{
  const {name:clubName,division,home_ground,home_colors,away_colors}=match;
  res.set('Cache-Control','public, max-age=3600').json({season:handbook.season,club:{name:clubName,division,home_ground,home_colors,away_colors}});
 });
+app.get('/api/v1/handbook/summary',(_req,res)=>{
+ const divisions=Object.fromEntries(['One','Two','Three','Four','Five','Six'].map(d=>[d,handbook.clubs.filter(c=>c.division===d).length]));
+ res.set('Cache-Control','public, max-age=3600').json({season:handbook.season,total_clubs:handbook.clubs.length,divisions,registered_players_verified:false,fixtures_verified:false});
+});
 app.get('/api/v1/my/handbook-contact',requireClub,(req,res)=>{
  const entry=handbook.clubs.find(c=>c.name.toLowerCase()===req.club.name.toLowerCase());
  res.set('Cache-Control','no-store').json({club:req.club.name,handbook:entry||null,note:entry?'Contact details from official 2026/27 handbook':'No exact club-name match; request administrator review'});
