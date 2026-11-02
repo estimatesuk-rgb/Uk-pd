@@ -102,7 +102,7 @@ app.get('/api/v1/my/players',requireClub,async(req,res)=>{try{const q=await pool
 app.post('/api/v1/my/players',requireClub,async(req,res)=>{
  const name=typeof req.body?.name==='string'?req.body.name.trim():'';
  const squadNumber=req.body?.squad_number;
- if(name.length<2||name.length>120||/[\\x00-\\x1f]/.test(name)||!Number.isInteger(squadNumber)||squadNumber<1||squadNumber>99)return res.status(400).json({error:'Provide a player name (2–120 characters) and a shirt number from 1 to 99'});
+ if(name.length<2||name.length>120||/[\x00-\x1f]/.test(name)||!Number.isInteger(squadNumber)||squadNumber<1||squadNumber>99)return res.status(400).json({error:'Provide a player name (2–120 characters) and a shirt number from 1 to 99'});
  try{
   const result=await pool.query("insert into football.players(club_id,name,squad_number,registered,suspended,registration_source) values($1,$2,$3,false,false,'club_draft_unverified') on conflict(club_id,squad_number) do nothing returning id,name,squad_number,registered,suspended",[req.club.club_id,name,squadNumber]);
   if(!result.rowCount)return res.status(409).json({error:'This shirt number is already assigned within your club'});
