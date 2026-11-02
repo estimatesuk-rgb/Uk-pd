@@ -122,6 +122,16 @@ app.get('/api/v1/my/fixtures/:id/readiness',requireClub,async(req,res)=>{
   res.set('Cache-Control','no-store').json({fixture:fixture.rows[0],eligible_players:count,has_starting_xi:count>=11,submitted:!!sheet.rowCount,team_sheet:sheet.rows[0]||null,warning:'Official league registration and match eligibility must be verified'});
  }catch(e){console.error('Readiness lookup failed:',e.code||e.message);res.status(503).json({error:'Readiness unavailable'});}
 });
+app.post('/api/v1/referee/respond',async(req,res)=>{
+ const token=req.body?.token,decision=req.body?.decision;
+ if(typeof token!=='string'||!/^[a-f0-9]{64}$/i.test(token)||!['accepted','declined'].includes(decision))return res.status(400).json({error:'Invalid response'});
+ if(!pool)return res.status(503).json({error:'Database unavailable'});
+ try{
+  const q=await pool.query("update football.referee_appointments set status=$2,updated_at=now(),response_token_hash=null,response_token_expires_at=null where response_token_hash=$1 and response_token_expires_at>now() and status='pending' returning fixture_id,status",[tokenDigest(token),decision]);
+  if(!q.rowCount)return res.status(410).json({error:'Link expired or already used'});
+  res.set('Cache-Control','no-store').json({ok:true,status:q.rows[0].status});
+ }catch(e){console.error('Referee response unavailable:',e.code||e.message);res.status(503).json({error:'Referee response unavailable'});}
+});
 app.get('/api/v1/status',(_req,res)=>res.json({mode:pool?'club-auth-ready':'database-setup-required',message:'Club account activation and official player verification remain pending.',publicDemo:'https://football-registration-team-sheet.onrender.com'}));
 app.use((_req,res)=>res.status(404).json({error:'Not found'}));
 const port=Number(process.env.PORT||10000);
