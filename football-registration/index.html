@@ -165,6 +165,7 @@ function updateDirectoryFilters(){const selector=document.getElementById('direct
 document.getElementById('directoryDivision').addEventListener('change',draw);
 document.getElementById('directoryGround').addEventListener('change',draw);
 updateDirectoryFilters();draw();
+const divisionGuide=document.createElement('p');divisionGuide.className='muted small';divisionGuide.textContent='Official 2026/27 handbook clubs. Grounds and kit details are shown where supplied; club secretary contacts are available only after verified club sign-in.';document.getElementById('directoryList').before(divisionGuide);
 const coverage=document.createElement('div');coverage.id='directoryCoverage';coverage.className='cols';document.getElementById('directoryStatus').after(coverage);
 function updateCoverage(){const count=rows.length;const withGround=rows.filter(c=>Boolean(c.home_ground)).length;const withAddress=rows.filter(c=>Boolean(c.ground_address)).length;const withBadge=rows.filter(c=>Boolean(c.badge_url)).length;const tiles=[['Clubs recorded',count],['Grounds named',withGround],['Full addresses',withAddress],['Badges linked',withBadge]];coverage.innerHTML=tiles.map(([label,n])=>'<div class="item"><b>'+n+'</b><p class="small">'+label+'</p></div>').join('');}
 const exportBtn=document.createElement('button');exportBtn.textContent='Export club directory CSV';exportBtn.type='button';document.getElementById('directoryStatus').after(exportBtn);
