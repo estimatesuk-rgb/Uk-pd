@@ -7,7 +7,8 @@
     "start": "node server.js",
     "check": "node --check server.js",
     "prestart": "npm run check",
-    "postinstall": "node --check server.js"
+    "postinstall": "node --check server.js",
+    "test": "node --test smoke.test.js"
   },
   "dependencies": {
     "express": "^4.21.2",
