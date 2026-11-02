@@ -11,8 +11,10 @@ app.use(express.json({limit:'16kb'}));
 const pool=process.env.DATABASE_URL?new pg.Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:true},max:3,connectionTimeoutMillis:8000}):null;
 app.get('/health',async(_req,res)=>{
  if(!pool)return res.status(503).json({status:'setup_required',database:'not_configured',message:'Set DATABASE_URL as a Render secret environment variable'});
- try {const r=await pool.query("select count(*)::int as tables from information_schema.tables where table_schema='football'");
- res.json({status:'ok',database:'connected',tables:r.rows[0].tables,mode:'authenticated-club-api'});}
+ try {const r=await pool.query("select table_name from information_schema.tables where table_schema='football'");
+ const found=new Set(r.rows.map(x=>x.table_name));const required=['leagues','clubs','players','fixtures','club_auth_accounts','club_auth_sessions','team_sheets','team_sheet_players','referee_appointments','referee_ratings'];const missing=required.filter(name=>!found.has(name));
+ if(missing.length)return res.status(503).json({status:'setup_required',database:'connected',tables:found.size,missing_tables:missing,mode:'database_bootstrap_required'});
+ res.json({status:'ok',database:'connected',tables:found.size,mode:'authenticated-club-api'});}
  catch(e){console.error('Database health check failed:',e.code||e.message);res.status(503).json({status:'unavailable'});}
 });
 app.get('/api/v1/clubs',(_req,res)=>{
