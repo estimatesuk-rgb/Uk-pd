@@ -45,3 +45,10 @@ test('every division name and ground can be published without contact details',(
   assert.deepEqual(Object.keys(ground),['club','division','ground']);
  }
 });
+
+test('all club names are safe to use as public profile identifiers',()=>{
+ for(const club of handbook.clubs){
+  assert.ok(club.name.length<120);
+  assert.equal(decodeURIComponent(encodeURIComponent(club.name)),club.name);
+ }
+});
