@@ -53,6 +53,16 @@ app.post('/api/v1/auth/login',loginThrottle,async(req,res)=>{
  }catch(e){console.error('Club login failed:',e.code||e.message);res.status(503).json({error:'Sign-in unavailable'});}
 });
 app.get('/api/v1/auth/me',requireClub,(req,res)=>res.set('Cache-Control','no-store').json({club:req.club}));
+app.get('/api/v1/my/dashboard',requireClub,async(req,res)=>{
+ try{
+  const [players,fixtures,sheets]=await Promise.all([
+   pool.query('select count(*)::int as total,count(*) filter (where registered=true and suspended=false)::int as selectable from football.players where club_id=$1',[req.club.club_id]),
+   pool.query('select count(*)::int as total,count(*) filter (where kickoff>=now())::int as upcoming from football.fixtures where home_club_id=$1 or away_club_id=$1',[req.club.club_id]),
+   pool.query('select count(*)::int as submitted from football.team_sheets where club_id=$1',[req.club.club_id])
+  ]);
+  res.set('Cache-Control','no-store').json({club:req.club,players:players.rows[0],fixtures:fixtures.rows[0],team_sheets:sheets.rows[0],verification:'League registration checks remain required'});
+ }catch(e){console.error('Club dashboard failed:',e.code||e.message);res.status(503).json({error:'Dashboard unavailable'});}
+});
 app.post('/api/v1/auth/logout',requireClub,async(req,res)=>{try{await pool.query('delete from football.club_auth_sessions where token_hash=$1',[req.sessionHash]);res.json({ok:true});}catch{res.status(503).json({error:'Logout unavailable'});}});
 app.get('/api/v1/my/players',requireClub,async(req,res)=>{try{const q=await pool.query('select id,name,squad_number,registered,suspended from football.players where club_id=$1 order by name',[req.club.club_id]);res.set('Cache-Control','no-store').json({players:q.rows,verified:false,note:'Registration status requires league administrator verification'});}catch{res.status(503).json({error:'Players unavailable'});}});
 app.get('/api/v1/my/fixtures',requireClub,async(req,res)=>{try{const q=await pool.query("select f.id,f.kickoff,f.ground,f.max_named_subs,h.name as home_team,a.name as away_team,(select s.id from football.team_sheets s where s.fixture_id=f.id and s.club_id=$1 limit 1) as my_team_sheet_id from football.fixtures f join football.clubs h on h.id=f.home_club_id join football.clubs a on a.id=f.away_club_id where f.home_club_id=$1 or f.away_club_id=$1 order by f.kickoff desc limit 100",[req.club.club_id]);res.set('Cache-Control','no-store').json({fixtures:q.rows});}catch(e){console.error('Fixture lookup failed:',e.code||e.message);res.status(503).json({error:'Fixtures unavailable'});}});
