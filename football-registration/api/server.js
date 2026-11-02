@@ -40,6 +40,13 @@ app.get('/api/v1/handbook/grounds',(_req,res)=>{
  const grounds=handbook.clubs.map(c=>({club:c.name,division:c.division,ground:c.home_ground}));
  res.set('Cache-Control','public, max-age=3600').json({season:handbook.season,count:grounds.length,grounds,note:'Handbook ground descriptions; not geocoded or independently verified addresses'});
 });
+app.get('/api/v1/handbook/profile/:name', (req,res)=>{
+ const name=String(req.params.name||'').toLowerCase();
+ const match=handbook.clubs.find(c=>c.name.toLowerCase()===name);
+ if(!match)return res.status(404).json({error:'Club not found'});
+ const {name:clubName,division,home_ground,home_colors,away_colors}=match;
+ res.set('Cache-Control','public, max-age=3600').json({season:handbook.season,club:{name:clubName,division,home_ground,home_colors,away_colors}});
+});
 app.get('/api/v1/my/handbook-contact',requireClub,(req,res)=>{
  const entry=handbook.clubs.find(c=>c.name.toLowerCase()===req.club.name.toLowerCase());
  res.set('Cache-Control','no-store').json({club:req.club.name,handbook:entry||null,note:entry?'Contact details from official 2026/27 handbook':'No exact club-name match; request administrator review'});
