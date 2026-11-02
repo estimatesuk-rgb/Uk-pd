@@ -36,3 +36,12 @@ test('official club import never supplies passwords or fictitious players',()=>{
   assert.equal(Object.hasOwn(club,'players'),false);
  }
 });
+
+test('every division name and ground can be published without contact details',()=>{
+ const publicGrounds=handbook.clubs.map(c=>({club:c.name,division:c.division,ground:c.home_ground}));
+ assert.equal(publicGrounds.length,60);
+ for(const ground of publicGrounds){
+  assert.ok(ground.club&&ground.division&&ground.ground);
+  assert.deepEqual(Object.keys(ground),['club','division','ground']);
+ }
+});
