@@ -32,6 +32,14 @@ const handbook=JSON.parse(readFileSync(new URL('../data/handbook-2026-27-clubs.j
 app.get('/api/v1/handbook/clubs',(_req,res)=>{
  res.set('Cache-Control','public, max-age=3600').json({season:handbook.season,source:handbook.source,verified:true,count:handbook.clubs.length,clubs:handbook.clubs.map(({name,division,home_ground,home_colors,away_colors})=>({name,division,home_ground,home_colors,away_colors}))});
 });
+app.get('/api/v1/handbook/divisions',(_req,res)=>{
+ const divisions=['One','Two','Three','Four','Five','Six'].map(name=>({division:name,count:handbook.clubs.filter(c=>c.division===name).length,clubs:handbook.clubs.filter(c=>c.division===name).map(c=>c.name)}));
+ res.set('Cache-Control','public, max-age=3600').json({season:handbook.season,verified:true,total:handbook.clubs.length,divisions});
+});
+app.get('/api/v1/handbook/grounds',(_req,res)=>{
+ const grounds=handbook.clubs.map(c=>({club:c.name,division:c.division,ground:c.home_ground}));
+ res.set('Cache-Control','public, max-age=3600').json({season:handbook.season,count:grounds.length,grounds,note:'Handbook ground descriptions; not geocoded or independently verified addresses'});
+});
 app.get('/api/v1/my/handbook-contact',requireClub,(req,res)=>{
  const entry=handbook.clubs.find(c=>c.name.toLowerCase()===req.club.name.toLowerCase());
  res.set('Cache-Control','no-store').json({club:req.club.name,handbook:entry||null,note:entry?'Contact details from official 2026/27 handbook':'No exact club-name match; request administrator review'});
