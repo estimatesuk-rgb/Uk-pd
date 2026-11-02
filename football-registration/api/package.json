@@ -8,7 +8,9 @@
     "check": "node --check server.js",
     "prestart": "npm run check",
     "postinstall": "node --check server.js",
-    "test": "node --test smoke.test.js"
+    "test": "node --test smoke.test.js",
+    "import:handbook:check": "node import-handbook.js --dry-run",
+    "import:handbook": "node import-handbook.js"
   },
   "dependencies": {
     "express": "^4.21.2",
