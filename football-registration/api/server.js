@@ -152,6 +152,12 @@ app.post('/api/v1/referee/respond',async(req,res)=>{
   res.set('Cache-Control','no-store').json({ok:true,status:q.rows[0].status});
  }catch(e){console.error('Referee response unavailable:',e.code||e.message);res.status(503).json({error:'Referee response unavailable'});}
 });
+app.get('/api/v1/my/referee-ratings',requireClub,async(req,res)=>{
+ try{
+  const q=await pool.query("select r.fixture_id,r.rating,r.submitted_at,f.kickoff,h.name as home_team,a.name as away_team from football.referee_ratings r join football.fixtures f on f.id=r.fixture_id join football.clubs h on h.id=f.home_club_id join football.clubs a on a.id=f.away_club_id where r.club_id=$1 order by r.submitted_at desc limit 100",[req.club.club_id]);
+  res.set('Cache-Control','no-store').json({ratings:q.rows,note:'Only your club\'s own submitted ratings are shown. Other clubs\' ratings and comments are confidential.'});
+ }catch(e){console.error('Referee rating history unavailable:',e.code||e.message);res.status(503).json({error:'Referee ratings unavailable'});}
+});
 app.post('/api/v1/my/fixtures/:id/referee-rating',requireClub,async(req,res)=>{
  const id=req.params.id,rating=req.body?.rating,comments=req.body?.comments;
  const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
