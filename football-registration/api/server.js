@@ -195,6 +195,14 @@ app.post('/api/v1/my/fixtures/:id/referee-rating',requireClub,async(req,res)=>{
   res.status(201).set('Cache-Control','no-store').json({ok:true,submitted_at:result.rows[0].submitted_at,note:'Feedback is for league administrators; not public'});
  }catch(e){console.error('Referee rating failed:',e.code||e.message);res.status(503).json({error:'Referee rating unavailable'});}
 });
+app.get('/api/v1/my/club-profile',requireClub,async(req,res)=>{
+ const entry=handbook.clubs.find(c=>c.name.toLowerCase()===req.club.name.toLowerCase());
+ try{
+  const result=await pool.query('select count(*)::int as player_count,count(*) filter (where registered=true and suspended=false)::int as eligible_in_database from football.players where club_id=$1',[req.club.club_id]);
+  const fixtures=await pool.query('select count(*)::int as fixture_count from football.fixtures where home_club_id=$1 or away_club_id=$1',[req.club.club_id]);
+  res.set('Cache-Control','no-store').json({club:req.club.name,division:req.club.division,handbook_match:Boolean(entry),home_ground:entry?.home_ground||null,home_colors:entry?.home_colors||null,away_colors:entry?.away_colors||null,player_count:result.rows[0].player_count,eligible_in_database:result.rows[0].eligible_in_database,fixture_count:fixtures.rows[0].fixture_count,official_registration_verified:false});
+ }catch(e){console.error('Club profile lookup failed:',e.code||e.message);res.status(503).json({error:'Club profile unavailable'});}
+});
 app.get('/api/v1/status',(_req,res)=>res.json({mode:pool?'club-auth-ready':'database-setup-required',message:'Club account activation and official player verification remain pending.',publicDemo:'https://football-registration-team-sheet.onrender.com'}));
 app.use((_req,res)=>res.status(404).json({error:'Not found'}));
 const port=Number(process.env.PORT||10000);
