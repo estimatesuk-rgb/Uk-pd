@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "check": "node --check server.js",
-    "prestart": "npm run check"
+    "prestart": "npm run check",
+    "postinstall": "node --check server.js"
   },
   "dependencies": {
     "express": "^4.21.2",
