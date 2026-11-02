@@ -73,3 +73,16 @@ test('API starts with handbook-only fallback and database bootstrap',()=>{
  assert.match(start,/bootstrap-render\.js/);
  assert.match(start,/server\.js/);
 });
+
+test('club endpoints require authentication and login uses constant-time comparison',()=>{
+ const source=readFileSync(new URL('./server.js',import.meta.url),'utf8');
+ assert.ok(source.includes("app.get('/api/v1/my/players',requireClub"));
+ assert.ok(source.includes("app.post('/api/v1/my/players',requireClub"));
+ assert.ok(source.includes("app.post('/api/v1/my/team-sheets',requireClub"));
+ assert.ok(source.includes('crypto.timingSafeEqual'));
+});
+test('team sheets reject duplicate players and require eleven starters',()=>{
+ const source=readFileSync(new URL('./server.js',import.meta.url),'utf8');
+ assert.ok(source.includes('starters.length!==11'));
+ assert.ok(source.includes('new Set(ids).size!==ids.length'));
+});
