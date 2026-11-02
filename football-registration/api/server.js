@@ -53,6 +53,15 @@ app.get('/api/v1/handbook/summary',(_req,res)=>{
  const divisions=Object.fromEntries(['One','Two','Three','Four','Five','Six'].map(d=>[d,handbook.clubs.filter(c=>c.division===d).length]));
  res.set('Cache-Control','public, max-age=3600').json({season:handbook.season,total_clubs:handbook.clubs.length,divisions,registered_players_verified:false,fixtures_verified:false});
 });
+const stagedPlayers=JSON.parse(readFileSync(new URL('../data/players-2026-27-reviewed.json',import.meta.url),'utf8'));
+app.get('/api/v1/pilot/player-import-status',(_req,res)=>{
+ const counts=Object.fromEntries([...new Set(stagedPlayers.map(p=>p.club))].map(club=>[club,stagedPlayers.filter(p=>p.club===club).length]));
+ res.set('Cache-Control','public, max-age=300').json({season:'2026/27',staged_players:stagedPlayers.length,clubs_covered:Object.keys(counts).length,club_counts:counts,database_imported:false,eligibility_verified:false,note:'Public FA Full-Time player names are staged in the repository, not verified as registered or eligible. Live database import remains pending.'});
+});
+app.get('/api/v1/my/staged-players',requireClub,(req,res)=>{
+ const players=stagedPlayers.filter(p=>p.club.toLowerCase()===req.club.name.toLowerCase()).map(p=>({name:p.name,source_url:p.source_url,season:p.season,registered:false,verified:false}));
+ res.set('Cache-Control','no-store').json({club:req.club.name,players,count:players.length,eligibility_verified:false,note:'Source names only; club or league must confirm registration before use.'});
+});
 app.get('/api/v1/my/handbook-contact',requireClub,(req,res)=>{
  const entry=handbook.clubs.find(c=>c.name.toLowerCase()===req.club.name.toLowerCase());
  res.set('Cache-Control','no-store').json({club:req.club.name,handbook:entry||null,note:entry?'Contact details from official 2026/27 handbook':'No exact club-name match; request administrator review'});
