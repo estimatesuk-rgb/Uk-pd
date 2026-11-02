@@ -1,5 +1,6 @@
 import pg from 'pg';
 import {readFileSync} from 'node:fs';
+const dryRun=process.argv.includes('--dry-run');
 const url=process.env.DATABASE_URL;
 if(!url)throw Error('DATABASE_URL is required');
 const handbook=JSON.parse(readFileSync(new URL('../data/handbook-2026-27-clubs.json',import.meta.url),'utf8'));
@@ -19,6 +20,6 @@ try{
    await db.query('insert into football.clubs(league_id,name,division,home_ground,ground_address) values($1,$2,$3,$4,$5)',[league.rows[0].id,c.name,c.division,c.home_ground,c.home_ground]);created++;
   }
  }
- await db.query('COMMIT');
- console.log(JSON.stringify({season:handbook.season,clubs:handbook.clubs.length,created,updated}));
+ if(dryRun)await db.query('ROLLBACK');else await db.query('COMMIT');
+ console.log(JSON.stringify({season:handbook.season,clubs:handbook.clubs.length,created,updated,dry_run:dryRun,committed:!dryRun}));
 }catch(e){await db.query('ROLLBACK');console.error(e);process.exitCode=1;}finally{await db.end();}
