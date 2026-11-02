@@ -20,6 +20,7 @@ if(!Array.isArray(records))throw Error('Expected JSON array');
 const known=new Set(handbook.clubs.map(c=>c.name));
 const seen=new Set();
 const cleaned=[];
+const sourceHosts=new Set();
 for(const [index,p] of records.entries()){
  if(!p||typeof p!=='object'||!known.has(p.club)||typeof p.name!=='string'||p.name.trim().length<2||p.name.length>120)throw Error('Invalid club/player at row '+(index+1));
  if(p.season!=='2026/27'||p.season_reviewed!==true)throw Error('A human must confirm the source actually shows the 2026/27 season at row '+(index+1));
@@ -29,7 +30,7 @@ for(const [index,p] of records.entries()){
  const name=p.name.trim().replace(/\s+/g,' ');
  const key=p.club.toLowerCase()+'|'+name.toLowerCase();
  if(seen.has(key))throw Error('Duplicate club/player at row '+(index+1));
- seen.add(key);cleaned.push({club:p.club,name,source_url:source.href});
+ seen.add(key);sourceHosts.add(source.hostname);cleaned.push({club:p.club,name,source_url:source.href});
 }
 const summary={records:cleaned.length,clubs:new Set(cleaned.map(x=>x.club)).size,season:'2026/27',registration_verified:false,mode:apply?'apply':'dry-run'};
 if(!apply){console.log(JSON.stringify(summary));process.exit(0);}
