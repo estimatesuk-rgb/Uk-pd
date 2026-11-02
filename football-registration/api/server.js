@@ -104,7 +104,7 @@ app.post('/api/v1/my/team-sheets',requireClub,async(req,res)=>{
 });
 app.get('/api/v1/my/referee-appointments',requireClub,async(req,res)=>{
  try{
-  const q=await pool.query("select f.id as fixture_id,f.kickoff,h.name as home_team,a.name as away_team,ra.referee_name,ra.status,ra.updated_at from football.fixtures f join football.clubs h on h.id=f.home_club_id join football.clubs a on a.id=f.away_club_id left join football.referee_appointments ra on ra.fixture_id=f.id where f.home_club_id=$1 or f.away_club_id=$1 order by f.kickoff desc limit 100",[req.club.club_id]);
+  const q=await pool.query("select f.id as fixture_id,f.kickoff,h.name as home_team,a.name as away_team,null::text as referee_name,'not_configured'::text as status,null::timestamptz as updated_at from football.fixtures f join football.clubs h on h.id=f.home_club_id join football.clubs a on a.id=f.away_club_id where f.home_club_id=$1 or f.away_club_id=$1 order by f.kickoff desc limit 100",[req.club.club_id]);
   res.set('Cache-Control','no-store').json({appointments:q.rows,note:'Referee contact information is not exposed to clubs'});
  }catch(e){console.error('Referee appointments unavailable:',e.code||e.message);res.status(503).json({error:'Referee appointments unavailable or not configured'});}
 });
