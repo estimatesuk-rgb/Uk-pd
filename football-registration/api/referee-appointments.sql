@@ -9,3 +9,5 @@ create index if not exists referee_appointments_status_idx on football.referee_a
 comment on table football.referee_appointments is 'League-controlled referee appointments; club accounts have read-only visibility.';
 
 create index if not exists referee_appointments_updated_idx on football.referee_appointments(updated_at desc);
+
+alter table football.referee_appointments add column if not exists appointment_notes text;
