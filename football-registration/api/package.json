@@ -5,14 +5,15 @@
   "type": "module",
   "scripts": {
     "start": "node start-render.js",
-    "check": "node --check server.js && node --check bootstrap-render.js && node --check start-render.js",
+    "check": "node --check server.js && node --check bootstrap-render.js && node --check start-render.js && node --check stage-players.js",
     "prestart": "npm run check",
     "postinstall": "node --check server.js",
     "test": "node --test smoke.test.js",
     "import:handbook:check": "node import-handbook.js --dry-run",
     "import:handbook": "node import-handbook.js",
     "bootstrap:render": "node bootstrap-render.js",
-    "check:bootstrap": "node --check bootstrap-render.js"
+    "check:bootstrap": "node --check bootstrap-render.js",
+    "players:check": "node --check stage-players.js"
   },
   "dependencies": {
     "express": "^4.21.2",
