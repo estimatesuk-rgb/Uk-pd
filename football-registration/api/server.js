@@ -3,6 +3,7 @@ import pg from 'pg';
 import helmet from 'helmet';
 import cors from 'cors';
 import crypto from 'node:crypto';
+import {readFileSync} from 'node:fs';
 const app=express();
 app.disable('x-powered-by');
 app.use(helmet());
