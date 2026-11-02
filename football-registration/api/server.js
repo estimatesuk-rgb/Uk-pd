@@ -113,6 +113,7 @@ app.post('/api/v1/my/team-sheets',requireClub,async(req,res)=>{
  const fixtureId=req.body?.fixture_id,starters=req.body?.starters,subs=req.body?.substitutes;
  const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  if(typeof fixtureId!=='string'||!uuid.test(fixtureId)||!Array.isArray(starters)||!Array.isArray(subs)||starters.length!==11||subs.length>9||![...starters,...subs].every(x=>typeof x==='string'&&uuid.test(x)))return res.status(400).json({error:'Select exactly 11 starters and up to 9 substitutes'});
+ if(req.body?.shirt_numbers!==undefined){const numbers=req.body.shirt_numbers;if(!numbers||typeof numbers!=='object'||Array.isArray(numbers))return res.status(400).json({error:'Shirt numbers must be supplied as a player ID to number mapping'});const selected=[...starters,...subs];const assigned=selected.map(id=>numbers[id]);if(assigned.some(n=>!Number.isInteger(n)||n<1||n>99)||new Set(assigned).size!==assigned.length)return res.status(400).json({error:'Each selected player needs a unique shirt number from 1 to 99'});}
  const ids=[...starters,...subs];if(new Set(ids).size!==ids.length)return res.status(400).json({error:'Duplicate player selection'});
  let client;try{client=await pool.connect();await client.query('BEGIN');
  const f=await client.query('select id,max_named_subs from football.fixtures where id=$1 and (home_club_id=$2 or away_club_id=$2) for update',[fixtureId,req.club.club_id]);
