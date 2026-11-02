@@ -132,6 +132,16 @@ app.get('/api/v1/referee/appointment',async(req,res)=>{
   res.set('Cache-Control','no-store').json({appointment:q.rows[0]});
  }catch(e){console.error('Referee appointment lookup failed:',e.code||e.message);res.status(503).json({error:'Appointment unavailable'});}
 });
+const refereeAttempts=new Map();
+function refereeThrottle(req,res,next){
+ const ip=req.ip||req.socket.remoteAddress||'unknown',now=Date.now();
+ for(const [key,value] of refereeAttempts){if(now-value.start>900000)refereeAttempts.delete(key);}
+ const attempt=refereeAttempts.get(ip);
+ if(attempt&&attempt.count>=20){res.set('Retry-After',String(Math.ceil((attempt.start+900000-now)/1000)));return res.status(429).json({error:'Too many appointment requests. Try later.'});}
+ if(!attempt)refereeAttempts.set(ip,{start:now,count:1});else attempt.count++;
+ next();
+}
+app.use('/api/v1/referee',refereeThrottle);
 app.post('/api/v1/referee/respond',async(req,res)=>{
  const token=req.body?.token,decision=req.body?.decision;
  if(typeof token!=='string'||!/^[a-f0-9]{64}$/i.test(token)||!['accepted','declined'].includes(decision))return res.status(400).json({error:'Invalid response'});
