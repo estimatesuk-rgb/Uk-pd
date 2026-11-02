@@ -203,6 +203,13 @@ app.get('/api/v1/my/club-profile',requireClub,async(req,res)=>{
   res.set('Cache-Control','no-store').json({club:req.club.name,division:req.club.division,handbook_match:Boolean(entry),home_ground:entry?.home_ground||null,home_colors:entry?.home_colors||null,away_colors:entry?.away_colors||null,player_count:result.rows[0].player_count,eligible_in_database:result.rows[0].eligible_in_database,fixture_count:fixtures.rows[0].fixture_count,official_registration_verified:false});
  }catch(e){console.error('Club profile lookup failed:',e.code||e.message);res.status(503).json({error:'Club profile unavailable'});}
 });
+app.get('/api/v1/my/matchday-checklist',requireClub,async(req,res)=>{
+ try{
+  const result=await pool.query("select f.id,f.kickoff,f.ground,h.name as home_team,a.name as away_team,ts.id as sheet_id,(select count(*)::int from football.team_sheet_players p where p.sheet_id=ts.id) as named_players from football.fixtures f join football.clubs h on h.id=f.home_club_id join football.clubs a on a.id=f.away_club_id left join football.team_sheets ts on ts.fixture_id=f.id and ts.club_id=$1 where (f.home_club_id=$1 or f.away_club_id=$1) and f.kickoff>=now()-interval '1 day' order by f.kickoff asc limit 20",[req.club.club_id]);
+  const matches=result.rows.map(f=>({fixture_id:f.id,kickoff:f.kickoff,ground:f.ground,home_team:f.home_team,away_team:f.away_team,team_sheet_submitted:Boolean(f.sheet_id),named_players:f.named_players||0,checks:{eleven_starters:'Required before submission',referee_copy:'Hand team sheet to referee before kick-off',opposition_copy:'Hand team sheet to opposition before kick-off',shirt_numbers:'Names must match worn shirt numbers',substitutes_played:'Tick substitutes who actually played after the match'}}));
+  res.set('Cache-Control','no-store').json({club:req.club.name,matches,source:'2026/27 league handbook matchday instructions',note:'Checklist guidance only; no confirmation of physical handover or official player eligibility'});
+ }catch(e){console.error('Matchday checklist failed:',e.code||e.message);res.status(503).json({error:'Matchday checklist unavailable'});}
+});
 app.get('/api/v1/status',(_req,res)=>res.json({mode:pool?'club-auth-ready':'database-setup-required',message:'Club account activation and official player verification remain pending.',publicDemo:'https://football-registration-team-sheet.onrender.com'}));
 app.use((_req,res)=>res.status(404).json({error:'Not found'}));
 const port=Number(process.env.PORT||10000);
