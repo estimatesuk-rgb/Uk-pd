@@ -1,0 +1,20 @@
+name: Football registration checks
+on:
+  push:
+    branches: [football-registration-platform]
+    paths: ['football-registration/**', '.github/workflows/football-registration-checks.yml']
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - working-directory: football-registration/api
+        run: npm ci || npm install
+      - working-directory: football-registration/api
+        run: npm test
+      - working-directory: football-registration/api
+        run: node --check server.js && node --check bootstrap-render.js
