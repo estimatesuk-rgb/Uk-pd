@@ -109,6 +109,19 @@ app.get('/api/v1/my/team-sheets/:id',requireClub,async(req,res)=>{
   res.set('Cache-Control','no-store').json({team_sheet:sheet.rows[0],players:players.rows,note:'Official league eligibility verification remains required'});
  }catch(e){console.error('Team sheet detail lookup failed:',e.code||e.message);res.status(503).json({error:'Team sheet unavailable'});}
 });
+app.post('/api/v1/my/team-sheets/:id/substitutes-played',requireClub,async(req,res)=>{
+ const id=req.params.id,played=req.body?.played_player_ids;
+ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+ if(!uuid.test(id)||!Array.isArray(played)||played.length>9||played.some(p=>typeof p!=='string'||!uuid.test(p))||new Set(played).size!==played.length)return res.status(400).json({error:'Provide unique substitute player IDs'});
+ let client;try{client=await pool.connect();await client.query('BEGIN');
+ const sheet=await client.query('select id from football.team_sheets where id=$1 and club_id=$2 for update',[id,req.club.club_id]);
+ if(!sheet.rowCount){await client.query('ROLLBACK');return res.status(404).json({error:'Club team sheet not found'});}
+ const subs=await client.query("select player_id from football.team_sheet_players where sheet_id=$1 and selection='substitute'",[id]);
+ const valid=new Set(subs.rows.map(p=>p.player_id));if(played.some(p=>!valid.has(p))){await client.query('ROLLBACK');return res.status(400).json({error:'Only named substitutes may be marked as played'});}
+ await client.query("update football.team_sheet_players set played=(player_id=any($2::uuid[])) where sheet_id=$1 and selection='substitute'",[id,played]);
+ await client.query('COMMIT');res.set('Cache-Control','no-store').json({team_sheet_id:id,substitutes_played:played.length,note:'Club attendance record; subject to league review'});
+ }catch(e){if(client)await client.query('ROLLBACK').catch(()=>{});console.error('Substitute attendance failed:',e.code||e.message);res.status(503).json({error:'Substitute attendance unavailable'});}finally{if(client)client.release();}
+});
 app.post('/api/v1/my/team-sheets',requireClub,async(req,res)=>{
  const fixtureId=req.body?.fixture_id,starters=req.body?.starters,subs=req.body?.substitutes;
  const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
