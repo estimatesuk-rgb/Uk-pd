@@ -45,6 +45,26 @@ app.post('/api/v1/auth/login',async(req,res)=>{
 app.get('/api/v1/auth/me',requireClub,(req,res)=>res.set('Cache-Control','no-store').json({club:req.club}));
 app.post('/api/v1/auth/logout',requireClub,async(req,res)=>{try{await pool.query('delete from football.club_auth_sessions where token_hash=$1',[req.sessionHash]);res.json({ok:true});}catch{res.status(503).json({error:'Logout unavailable'});}});
 app.get('/api/v1/my/players',requireClub,async(req,res)=>{try{const q=await pool.query('select id,name,squad_number,registered,suspended from football.players where club_id=$1 order by name',[req.club.club_id]);res.set('Cache-Control','no-store').json({players:q.rows,verified:false,note:'Registration status requires league administrator verification'});}catch{res.status(503).json({error:'Players unavailable'});}});
+app.get('/api/v1/my/fixtures',requireClub,async(req,res)=>{try{const q=await pool.query("select f.id,f.kickoff,f.ground,f.max_named_subs,h.name as home_team,a.name as away_team from football.fixtures f join football.clubs h on h.id=f.home_club_id join football.clubs a on a.id=f.away_club_id where f.home_club_id=$1 or f.away_club_id=$1 order by f.kickoff desc limit 100",[req.club.club_id]);res.set('Cache-Control','no-store').json({fixtures:q.rows});}catch(e){console.error('Fixture lookup failed:',e.code||e.message);res.status(503).json({error:'Fixtures unavailable'});}});
+app.get('/api/v1/my/team-sheets',requireClub,async(req,res)=>{try{const q=await pool.query("select s.id,s.fixture_id,s.submitted_at,s.submitted_by,count(p.player_id)::int as players from football.team_sheets s left join football.team_sheet_players p on p.sheet_id=s.id where s.club_id=$1 group by s.id order by s.submitted_at desc limit 100",[req.club.club_id]);res.set('Cache-Control','no-store').json({team_sheets:q.rows});}catch(e){console.error('Team sheets lookup failed:',e.code||e.message);res.status(503).json({error:'Team sheets unavailable'});}});
+app.post('/api/v1/my/team-sheets',requireClub,async(req,res)=>{
+ const fixtureId=req.body?.fixture_id,starters=req.body?.starters,subs=req.body?.substitutes;
+ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+ if(typeof fixtureId!=='string'||!uuid.test(fixtureId)||!Array.isArray(starters)||!Array.isArray(subs)||starters.length!==11||subs.length>9||![...starters,...subs].every(x=>typeof x==='string'&&uuid.test(x)))return res.status(400).json({error:'Select exactly 11 starters and up to 9 substitutes'});
+ const ids=[...starters,...subs];if(new Set(ids).size!==ids.length)return res.status(400).json({error:'Duplicate player selection'});
+ const client=await pool.connect();try{await client.query('BEGIN');
+ const f=await client.query('select id,max_named_subs from football.fixtures where id=$1 and (home_club_id=$2 or away_club_id=$2) for update',[fixtureId,req.club.club_id]);
+ if(!f.rowCount){await client.query('ROLLBACK');return res.status(403).json({error:'Fixture is not assigned to your club'});}
+ if(subs.length>f.rows[0].max_named_subs){await client.query('ROLLBACK');return res.status(400).json({error:'Too many substitutes for this fixture'});}
+ const p=await client.query('select id from football.players where club_id=$1 and registered=true and suspended=false and id=any($2::uuid[])',[req.club.club_id,ids]);
+ if(p.rowCount!==ids.length){await client.query('ROLLBACK');return res.status(400).json({error:'All selected players must be recorded as registered and not suspended; official eligibility must still be checked'});}
+ const existing=await client.query('select id from football.team_sheets where fixture_id=$1 and club_id=$2',[fixtureId,req.club.club_id]);
+ if(existing.rowCount){await client.query('ROLLBACK');return res.status(409).json({error:'A team sheet has already been submitted for this fixture'});}
+ const sheet=await client.query('insert into football.team_sheets(fixture_id,club_id,submitted_by,submitted_at) values($1,$2,$3,now()) returning id,submitted_at',[fixtureId,req.club.club_id,'club-account']);
+ for(const [index,id] of ids.entries())await client.query('insert into football.team_sheet_players(sheet_id,player_id,selection) values($1,$2,$3)',[sheet.rows[0].id,id,index<11?'starter':'substitute']);
+ await client.query('COMMIT');res.status(201).set('Cache-Control','no-store').json({team_sheet_id:sheet.rows[0].id,submitted_at:sheet.rows[0].submitted_at,players:ids.length,note:'Submission recorded; league eligibility verification remains required'});
+ }catch(e){await client.query('ROLLBACK').catch(()=>{});console.error('Team sheet submission failed:',e.code||e.message);res.status(503).json({error:'Submission unavailable'});}finally{client.release();}
+});
 app.get('/api/v1/status',(_req,res)=>res.json({mode:'setup',message:'Authentication is not configured. Private league data and writes are disabled.',publicDemo:'https://football-registration-team-sheet.onrender.com'}));
 app.use((_req,res)=>res.status(404).json({error:'Not found'}));
 const port=Number(process.env.PORT||10000);
