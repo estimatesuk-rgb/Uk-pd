@@ -57,6 +57,16 @@ app.post('/api/v1/auth/logout',requireClub,async(req,res)=>{try{await pool.query
 app.get('/api/v1/my/players',requireClub,async(req,res)=>{try{const q=await pool.query('select id,name,squad_number,registered,suspended from football.players where club_id=$1 order by name',[req.club.club_id]);res.set('Cache-Control','no-store').json({players:q.rows,verified:false,note:'Registration status requires league administrator verification'});}catch{res.status(503).json({error:'Players unavailable'});}});
 app.get('/api/v1/my/fixtures',requireClub,async(req,res)=>{try{const q=await pool.query("select f.id,f.kickoff,f.ground,f.max_named_subs,h.name as home_team,a.name as away_team from football.fixtures f join football.clubs h on h.id=f.home_club_id join football.clubs a on a.id=f.away_club_id where f.home_club_id=$1 or f.away_club_id=$1 order by f.kickoff desc limit 100",[req.club.club_id]);res.set('Cache-Control','no-store').json({fixtures:q.rows});}catch(e){console.error('Fixture lookup failed:',e.code||e.message);res.status(503).json({error:'Fixtures unavailable'});}});
 app.get('/api/v1/my/team-sheets',requireClub,async(req,res)=>{try{const q=await pool.query("select s.id,s.fixture_id,s.submitted_at,s.submitted_by,count(p.player_id)::int as players from football.team_sheets s left join football.team_sheet_players p on p.sheet_id=s.id where s.club_id=$1 group by s.id order by s.submitted_at desc limit 100",[req.club.club_id]);res.set('Cache-Control','no-store').json({team_sheets:q.rows});}catch(e){console.error('Team sheets lookup failed:',e.code||e.message);res.status(503).json({error:'Team sheets unavailable'});}});
+app.get('/api/v1/my/team-sheets/:id',requireClub,async(req,res)=>{
+ const id=req.params.id;
+ if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))return res.status(400).json({error:'Invalid team sheet ID'});
+ try{
+  const sheet=await pool.query('select id,fixture_id,submitted_at,submitted_by from football.team_sheets where id=$1 and club_id=$2',[id,req.club.club_id]);
+  if(!sheet.rowCount)return res.status(404).json({error:'Team sheet not found'});
+  const players=await pool.query('select p.id,p.name,p.squad_number,t.selection from football.team_sheet_players t join football.players p on p.id=t.player_id where t.sheet_id=$1 and p.club_id=$2 order by case when t.selection=\'starter\' then 0 else 1 end,p.name',[id,req.club.club_id]);
+  res.set('Cache-Control','no-store').json({team_sheet:sheet.rows[0],players:players.rows,note:'Official league eligibility verification remains required'});
+ }catch(e){console.error('Team sheet detail lookup failed:',e.code||e.message);res.status(503).json({error:'Team sheet unavailable'});}
+});
 app.post('/api/v1/my/team-sheets',requireClub,async(req,res)=>{
  const fixtureId=req.body?.fixture_id,starters=req.body?.starters,subs=req.body?.substitutes;
  const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
