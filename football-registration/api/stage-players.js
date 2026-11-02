@@ -4,11 +4,10 @@
  *        DATABASE_URL=... node stage-players.js /path/to/approved-players.json --apply
  * No web scraping, no FA registration claims, no credentials in files.
  * Input: [{"club":"Exact handbook club name","name":"Player Name",
- *          "source_url":"https://fulltime.thefa.com/...","season":"2026/27"}]
+ *          "source_url":"https://fulltime.thefa.com/...","season":"2026/27","season_reviewed":true}]
  */
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
-import {pathToFileURL} from 'node:url';
 import pg from 'pg';
 const input=process.argv[2];
 const apply=process.argv.includes('--apply');
@@ -23,7 +22,7 @@ const seen=new Set();
 const cleaned=[];
 for(const [index,p] of records.entries()){
  if(!p||typeof p!=='object'||!known.has(p.club)||typeof p.name!=='string'||p.name.trim().length<2||p.name.length>120)throw Error('Invalid club/player at row '+(index+1));
- if(p.season!=='2026/27')throw Error('Source season must be explicitly 2026/27 at row '+(index+1));
+ if(p.season!=='2026/27'||p.season_reviewed!==true)throw Error('A human must confirm the source actually shows the 2026/27 season at row '+(index+1));
  let source;
  try{source=new URL(p.source_url)}catch{throw Error('Missing valid source URL at row '+(index+1))}
  if(source.protocol!=='https:'||source.hostname!=='fulltime.thefa.com')throw Error('Only FA Full-Time HTTPS sources accepted at row '+(index+1));
