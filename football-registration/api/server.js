@@ -30,6 +30,15 @@ async function requireClub(req,res,next){
  if(!pool)return res.status(503).json({error:'Database unavailable'});
  try{const result=await pool.query('select a.club_id,c.name,c.division from football.club_auth_sessions s join football.club_auth_accounts a on a.club_id=s.club_id join football.clubs c on c.id=a.club_id where s.token_hash=$1 and s.expires_at>now() and a.disabled_at is null',[tokenDigest(match[1])]);if(!result.rowCount)return res.status(401).json({error:'Session expired or invalid'});req.club=result.rows[0];req.sessionHash=tokenDigest(match[1]);next();}catch(e){console.error('Session lookup failed:',e.code||e.message);res.status(503).json({error:'Authentication unavailable'});}
 }
+import { readFileSync } from 'node:fs';
+const handbook=JSON.parse(readFileSync(new URL('../data/handbook-2026-27-clubs.json',import.meta.url),'utf8'));
+app.get('/api/v1/handbook/clubs',(_req,res)=>{
+ res.set('Cache-Control','public, max-age=3600').json({season:handbook.season,source:handbook.source,verified:true,count:handbook.clubs.length,clubs:handbook.clubs.map(({name,division,home_ground,home_colors,away_colors})=>({name,division,home_ground,home_colors,away_colors}))});
+});
+app.get('/api/v1/my/handbook-contact',requireClub,(req,res)=>{
+ const entry=handbook.clubs.find(c=>c.name.toLowerCase()===req.club.name.toLowerCase());
+ res.set('Cache-Control','no-store').json({club:req.club.name,handbook:entry||null,note:entry?'Contact details from official 2026/27 handbook':'No exact club-name match; request administrator review'});
+});
 const loginAttempts=new Map();
 function loginThrottle(req,res,next){
  const ip=req.ip||req.socket.remoteAddress||'unknown',now=Date.now();
