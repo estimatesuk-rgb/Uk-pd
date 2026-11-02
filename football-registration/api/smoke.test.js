@@ -52,3 +52,15 @@ test('all club names are safe to use as public profile identifiers',()=>{
   assert.equal(decodeURIComponent(encodeURIComponent(club.name)),club.name);
  }
 });
+
+test('Render bootstrap is private and imports only handbook clubs',()=>{
+ const bootstrap=readFileSync(new URL('./bootstrap-render.js',import.meta.url),'utf8');
+ const schema=readFileSync(new URL('./render-bootstrap.sql',import.meta.url),'utf8');
+ assert.match(bootstrap,/BEGIN/);
+ assert.match(bootstrap,/COMMIT/);
+ assert.match(bootstrap,/ON CONFLICT\(league_id,name\)/);
+ assert.match(schema,/football\.club_auth_accounts/);
+ assert.match(schema,/football\.team_sheet_players/);
+ assert.doesNotMatch(bootstrap,/password_hash\s*=/);
+ assert.doesNotMatch(bootstrap,/fake|fictional|demo player/i);
+});
