@@ -12,7 +12,7 @@ const pool=process.env.DATABASE_URL?new pg.Pool({connectionString:process.env.DA
 app.get('/health',async(_req,res)=>{
  if(!pool)return res.status(503).json({status:'setup_required',database:'not_configured',message:'Set DATABASE_URL as a Render secret environment variable'});
  try {const r=await pool.query("select count(*)::int as tables from information_schema.tables where table_schema='football'");
- res.json({status:'ok',database:'connected',tables:r.rows[0].tables,mode:'read-only-no-accounts'});}
+ res.json({status:'ok',database:'connected',tables:r.rows[0].tables,mode:'authenticated-club-api'});}
  catch(e){console.error('Database health check failed:',e.code||e.message);res.status(503).json({status:'unavailable'});}
 });
 app.get('/api/v1/clubs',async(_req,res)=>{
@@ -30,7 +30,17 @@ async function requireClub(req,res,next){
  if(!pool)return res.status(503).json({error:'Database unavailable'});
  try{const result=await pool.query('select a.club_id,c.name,c.division from football.club_auth_sessions s join football.club_auth_accounts a on a.club_id=s.club_id join football.clubs c on c.id=a.club_id where s.token_hash=$1 and s.expires_at>now() and a.disabled_at is null',[tokenDigest(match[1])]);if(!result.rowCount)return res.status(401).json({error:'Session expired or invalid'});req.club=result.rows[0];req.sessionHash=tokenDigest(match[1]);next();}catch(e){console.error('Session lookup failed:',e.code||e.message);res.status(503).json({error:'Authentication unavailable'});}
 }
-app.post('/api/v1/auth/login',async(req,res)=>{
+const loginAttempts=new Map();
+function loginThrottle(req,res,next){
+ const ip=req.ip||req.socket.remoteAddress||'unknown',now=Date.now();
+ if(loginAttempts.size>5000){for(const [key,value] of loginAttempts){if(now-value.start>900000)loginAttempts.delete(key);}}
+ const entry=loginAttempts.get(ip);
+ if(entry&&now-entry.start<900000&&entry.count>=8){res.set('Retry-After',String(Math.max(1,Math.ceil((entry.start+900000-now)/1000))));return res.status(429).json({error:'Too many sign-in attempts. Try again later.'});}
+ if(!entry||now-entry.start>=900000)loginAttempts.set(ip,{start:now,count:1});
+ else entry.count++;
+ next();
+}
+app.post('/api/v1/auth/login',loginThrottle,async(req,res)=>{
  if(!pool)return res.status(503).json({error:'Database unavailable'});
  const email=String(req.body?.email||'').trim().toLowerCase(),password=req.body?.password;
  if(email.length>254||!email.includes('@')||typeof password!=='string'||password.length>256||!password)return res.status(400).json({error:'Valid email and password required'});
@@ -52,7 +62,7 @@ app.post('/api/v1/my/team-sheets',requireClub,async(req,res)=>{
  const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  if(typeof fixtureId!=='string'||!uuid.test(fixtureId)||!Array.isArray(starters)||!Array.isArray(subs)||starters.length!==11||subs.length>9||![...starters,...subs].every(x=>typeof x==='string'&&uuid.test(x)))return res.status(400).json({error:'Select exactly 11 starters and up to 9 substitutes'});
  const ids=[...starters,...subs];if(new Set(ids).size!==ids.length)return res.status(400).json({error:'Duplicate player selection'});
- const client=await pool.connect();try{await client.query('BEGIN');
+ let client;try{client=await pool.connect();await client.query('BEGIN');
  const f=await client.query('select id,max_named_subs from football.fixtures where id=$1 and (home_club_id=$2 or away_club_id=$2) for update',[fixtureId,req.club.club_id]);
  if(!f.rowCount){await client.query('ROLLBACK');return res.status(403).json({error:'Fixture is not assigned to your club'});}
  if(subs.length>f.rows[0].max_named_subs){await client.query('ROLLBACK');return res.status(400).json({error:'Too many substitutes for this fixture'});}
@@ -63,9 +73,9 @@ app.post('/api/v1/my/team-sheets',requireClub,async(req,res)=>{
  const sheet=await client.query('insert into football.team_sheets(fixture_id,club_id,submitted_by,submitted_at) values($1,$2,$3,now()) returning id,submitted_at',[fixtureId,req.club.club_id,'club-account']);
  for(const [index,id] of ids.entries())await client.query('insert into football.team_sheet_players(sheet_id,player_id,selection) values($1,$2,$3)',[sheet.rows[0].id,id,index<11?'starter':'substitute']);
  await client.query('COMMIT');res.status(201).set('Cache-Control','no-store').json({team_sheet_id:sheet.rows[0].id,submitted_at:sheet.rows[0].submitted_at,players:ids.length,note:'Submission recorded; league eligibility verification remains required'});
- }catch(e){await client.query('ROLLBACK').catch(()=>{});console.error('Team sheet submission failed:',e.code||e.message);res.status(503).json({error:'Submission unavailable'});}finally{client.release();}
+ }catch(e){if(client)await client.query('ROLLBACK').catch(()=>{});console.error('Team sheet submission failed:,e.code||e.message);res.status(503).json({error:'Submission unavailable'});}finally{if(client)client.release();}
 });
-app.get('/api/v1/status',(_req,res)=>res.json({mode:'setup',message:'Authentication is not configured. Private league data and writes are disabled.',publicDemo:'https://football-registration-team-sheet.onrender.com'}));
+app.get('/api/v1/status',(_req,res)=>res.json({mode:pool?'club-auth-ready':'database-setup-required',message:'Club account activation and official player verification remain pending.',publicDemo:'https://football-registration-team-sheet.onrender.com'}));
 app.use((_req,res)=>res.status(404).json({error:'Not found'}));
 const port=Number(process.env.PORT||10000);
 app.listen(port,'0.0.0.0',()=>console.log('Football API listening on '+port));
