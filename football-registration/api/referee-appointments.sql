@@ -11,3 +11,7 @@ comment on table football.referee_appointments is 'League-controlled referee app
 create index if not exists referee_appointments_updated_idx on football.referee_appointments(updated_at desc);
 
 alter table football.referee_appointments add column if not exists appointment_notes text;
+
+alter table football.referee_appointments add column if not exists referee_email text;
+alter table football.referee_appointments add column if not exists response_token_hash text;
+alter table football.referee_appointments add column if not exists response_token_expires_at timestamptz;
