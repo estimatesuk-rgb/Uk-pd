@@ -53,6 +53,12 @@ app.post('/api/v1/auth/login',loginThrottle,async(req,res)=>{
  }catch(e){console.error('Club login failed:',e.code||e.message);res.status(503).json({error:'Sign-in unavailable'});}
 });
 app.get('/api/v1/auth/me',requireClub,(req,res)=>res.set('Cache-Control','no-store').json({club:req.club}));
+app.get('/api/v1/my/next-match',requireClub,async(req,res)=>{
+ try{
+  const result=await pool.query("select f.id,f.kickoff,f.ground,h.name as home_team,a.name as away_team,ts.id as team_sheet_id from football.fixtures f join football.clubs h on h.id=f.home_club_id join football.clubs a on a.id=f.away_club_id left join football.team_sheets ts on ts.fixture_id=f.id and ts.club_id=$1 where (f.home_club_id=$1 or f.away_club_id=$1) and f.kickoff>=now() order by f.kickoff asc limit 1",[req.club.club_id]);
+  res.set('Cache-Control','no-store').json({fixture:result.rows[0]||null});
+ }catch(e){console.error('Next match lookup failed:',e.code||e.message);res.status(503).json({error:'Next match unavailable'});}
+});
 app.get('/api/v1/my/dashboard',requireClub,async(req,res)=>{
  try{
   const [players,fixtures,sheets]=await Promise.all([
