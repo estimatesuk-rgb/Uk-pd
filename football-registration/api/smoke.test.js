@@ -27,7 +27,7 @@ test('club contact emails are not included in public directory response mapping'
 
 test('official handbook has email contact for every club',()=>{
  for(const club of handbook.clubs){
-  assert.match(club.email||'',/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/,'Missing or invalid email for '+club.name);
+  assert.match(club.email||'',/^[^\s@]+@[^\s@]+\.[^\s@]+$/,'Missing or invalid email for '+club.name);
  }
 });
 test('official club import never supplies passwords or fictitious players',()=>{
