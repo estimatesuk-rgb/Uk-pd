@@ -122,6 +122,16 @@ app.get('/api/v1/my/fixtures/:id/readiness',requireClub,async(req,res)=>{
   res.set('Cache-Control','no-store').json({fixture:fixture.rows[0],eligible_players:count,has_starting_xi:count>=11,submitted:!!sheet.rowCount,team_sheet:sheet.rows[0]||null,warning:'Official league registration and match eligibility must be verified'});
  }catch(e){console.error('Readiness lookup failed:',e.code||e.message);res.status(503).json({error:'Readiness unavailable'});}
 });
+app.get('/api/v1/referee/appointment',async(req,res)=>{
+ const token=req.query.token;
+ if(typeof token!=='string'||!/^[a-f0-9]{64}$/i.test(token))return res.status(400).json({error:'Invalid appointment link'});
+ if(!pool)return res.status(503).json({error:'Database unavailable'});
+ try{
+  const q=await pool.query("select f.kickoff,f.ground,h.name as home_team,a.name as away_team,ra.referee_name from football.referee_appointments ra join football.fixtures f on f.id=ra.fixture_id join football.clubs h on h.id=f.home_club_id join football.clubs a on a.id=f.away_club_id where ra.response_token_hash=$1 and ra.response_token_expires_at>now() and ra.status='pending'",[tokenDigest(token)]);
+  if(!q.rowCount)return res.status(410).json({error:'Appointment link expired or already used'});
+  res.set('Cache-Control','no-store').json({appointment:q.rows[0]});
+ }catch(e){console.error('Referee appointment lookup failed:',e.code||e.message);res.status(503).json({error:'Appointment unavailable'});}
+});
 app.post('/api/v1/referee/respond',async(req,res)=>{
  const token=req.body?.token,decision=req.body?.decision;
  if(typeof token!=='string'||!/^[a-f0-9]{64}$/i.test(token)||!['accepted','declined'].includes(decision))return res.status(400).json({error:'Invalid response'});
